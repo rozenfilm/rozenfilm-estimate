@@ -496,11 +496,11 @@
       <div class="flex gap-2">
         <div style="flex:1">
           <label style="font-size:12px;font-weight:600;color:var(--muted)">시작일</label>
-          <input type="date" id="siteStartDate" class="input mt-1" onchange="renderSiteWorkerAssignList()">
+          <input type="date" id="siteStartDate" class="input mt-1" onchange="renderSiteDayTabs()">
         </div>
         <div style="flex:1">
           <label style="font-size:12px;font-weight:600;color:var(--muted)">종료일</label>
-          <input type="date" id="siteEndDate" class="input mt-1" onchange="renderSiteWorkerAssignList()">
+          <input type="date" id="siteEndDate" class="input mt-1" onchange="renderSiteDayTabs()">
         </div>
       </div>
       <div>
@@ -521,7 +521,7 @@
     <div id="siteTabContent-workers" style="padding:20px 24px;display:none" class="space-y-3">
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">이 현장에 필요한 일자별 인원 수를 입력하세요.</p>
       <div>
-        <label style="font-size:12px;font-weight:600;color:var(--muted)">필요 인원 (전체 공통)</label>
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">필요 인원 (참고용 전체 평균)</label>
         <div class="flex items-center gap-2 mt-1">
           <button onclick="adjustNeededWorkers(-1)" class="qty-btn" style="width:36px;height:36px;font-size:18px">−</button>
           <input type="number" id="siteNeededWorkers" min="0" value="0" class="input text-center" style="width:70px;font-weight:700">
@@ -536,10 +536,11 @@
 
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:12px">
         <div class="flex items-center justify-between mb-2">
-          <label style="font-size:12px;font-weight:600;color:var(--muted)">시공자 배치</label>
+          <label style="font-size:12px;font-weight:600;color:var(--muted)">일자별 시공자 배치</label>
           <span id="siteAssignedCount" style="font-size:11px;color:var(--brand);font-weight:700"></span>
         </div>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:8px">선택한 시공자는 현장 기간(시작일~종료일) 동안 자동으로 '종일' 일정에 등록됩니다.</p>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:8px">날짜를 먼저 입력하면 일자별 탭이 생깁니다. 각 날짜마다 다른 시공자를 배치할 수 있습니다.</p>
+        <div id="siteDayTabs" class="flex flex-wrap gap-1 mb-2"></div>
         <div id="siteWorkerAssignList" class="space-y-1" style="max-height:240px;overflow-y:auto"></div>
       </div>
     </div>
@@ -600,7 +601,8 @@ const SITE_COLORS = [
 let selectedSiteColor = SITE_COLORS[0];
 let editingSiteId = null;
 let currentSiteSubTab = 'info';
-let selectedSiteWorkerIds = new Set(); // Workers assigned to the site being edited
+let selectedSiteDailyAssignments = {}; // { 'YYYY-MM-DD': Set(workerId, ...) } for the site being edited
+let activeSiteAssignDate = null; // Currently selected day tab in the assignment UI
 
 async function loadSites() {
   const { collection, getDocs } = window._fbFns;
@@ -642,27 +644,108 @@ function openSiteModal(siteId = null) {
 
   document.getElementById('siteDeleteBtn').classList.toggle('hidden', !siteId);
 
-  // Initialize assigned worker selection
-  selectedSiteWorkerIds = new Set(site?.assignedWorkerIds || []);
-  renderSiteWorkerAssignList();
+  // Initialize per-day assignment state from existing dailyAssignments,
+  // falling back to legacy assignedWorkerIds (applied to every day) for older sites.
+  selectedSiteDailyAssignments = {};
+  if (site?.dailyAssignments) {
+    Object.keys(site.dailyAssignments).forEach(dateKey => {
+      selectedSiteDailyAssignments[dateKey] = new Set(site.dailyAssignments[dateKey] || []);
+    });
+  } else if (site?.assignedWorkerIds && site.startDate && site.endDate) {
+    // Legacy: spread the old flat assignment across all days
+    getDateRangeList(site.startDate, site.endDate).forEach(dateKey => {
+      selectedSiteDailyAssignments[dateKey] = new Set(site.assignedWorkerIds);
+    });
+  }
+
+  activeSiteAssignDate = null;
+  renderSiteDayTabs();
 
   switchSiteTab('info');
   document.getElementById('siteModal').classList.remove('hidden');
+}
+
+// Returns list of 'YYYY-MM-DD' strings from startDate to endDate inclusive.
+function getDateRangeList(startDate, endDate) {
+  const list = [];
+  let d = new Date(startDate);
+  const end = new Date(endDate);
+  while (d <= end) {
+    list.push(formatDate(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return list;
+}
+
+// Render the day tabs (one per date in the site's range) above the assignment list.
+function renderSiteDayTabs() {
+  const tabsContainer = document.getElementById('siteDayTabs');
+  const startDate = document.getElementById('siteStartDate').value;
+  const endDate = document.getElementById('siteEndDate').value;
+
+  if (!tabsContainer) return;
+
+  if (!startDate || !endDate || startDate > endDate) {
+    tabsContainer.innerHTML = '';
+    activeSiteAssignDate = null;
+    renderSiteWorkerAssignList();
+    return;
+  }
+
+  const dateList = getDateRangeList(startDate, endDate);
+
+  // Drop assignment data for dates no longer in range
+  Object.keys(selectedSiteDailyAssignments).forEach(dateKey => {
+    if (!dateList.includes(dateKey)) delete selectedSiteDailyAssignments[dateKey];
+  });
+
+  // Default to first day if nothing selected or selection out of range
+  if (!activeSiteAssignDate || !dateList.includes(activeSiteAssignDate)) {
+    activeSiteAssignDate = dateList[0];
+  }
+
+  tabsContainer.innerHTML = dateList.map((dateKey, idx) => {
+    const dow = ['일','월','화','수','목','금','토'][new Date(dateKey).getDay()];
+    const count = selectedSiteDailyAssignments[dateKey]?.size || 0;
+    const isActive = dateKey === activeSiteAssignDate;
+    const md = dateKey.slice(5).replace('-', '/');
+    return `
+      <button onclick="selectSiteAssignDate('${dateKey}')"
+        style="padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${isActive ? 'var(--brand)' : 'var(--border)'};
+        background:${isActive ? 'var(--brand)' : 'var(--surface, #fff)'};color:${isActive ? '#fff' : 'var(--text)'}">
+        ${md}(${dow})${count > 0 ? ` <span style="opacity:.85">· ${count}명</span>` : ''}
+      </button>`;
+  }).join('');
+
+  renderSiteWorkerAssignList();
+}
+
+function selectSiteAssignDate(dateKey) {
+  activeSiteAssignDate = dateKey;
+  renderSiteDayTabs();
 }
 
 function renderSiteWorkerAssignList() {
   const container = document.getElementById('siteWorkerAssignList');
   if (!container) return;
 
-  const startDate = document.getElementById('siteStartDate').value;
-  const endDate = document.getElementById('siteEndDate').value;
+  if (!activeSiteAssignDate) {
+    container.innerHTML = '<p style="font-size:12px;color:var(--muted)">먼저 현장 정보 탭에서 시작일과 종료일을 입력해주세요.</p>';
+    updateSiteAssignedCount();
+    return;
+  }
+
+  if (!selectedSiteDailyAssignments[activeSiteAssignDate]) {
+    selectedSiteDailyAssignments[activeSiteAssignDate] = new Set();
+  }
+  const daySelection = selectedSiteDailyAssignments[activeSiteAssignDate];
 
   if (workers.length === 0) {
     container.innerHTML = '<p style="font-size:12px;color:var(--muted)">등록된 시공자가 없습니다.</p>';
   } else {
     container.innerHTML = workers.map(w => {
-      const checked = selectedSiteWorkerIds.has(w.id);
-      const conflict = (startDate && endDate) ? getConflictingSite(w.id, startDate, endDate) : null;
+      const checked = daySelection.has(w.id);
+      const conflict = getConflictingSiteOnDate(w.id, activeSiteAssignDate);
       const disabled = !!conflict && !checked;
 
       return `
@@ -682,42 +765,51 @@ function renderSiteWorkerAssignList() {
 }
 
 // Returns the conflicting site (other than the one being edited) if the worker
-// is already assigned to a site whose date range overlaps [startDate, endDate].
-function getConflictingSite(workerId, startDate, endDate) {
-  return sites.find(s =>
-    s.id !== editingSiteId &&
-    (s.assignedWorkerIds || []).includes(workerId) &&
-    startDate <= s.endDate && endDate >= s.startDate
-  );
+// is already assigned (on any day) to a different site that covers this specific date.
+function getConflictingSiteOnDate(workerId, dateKey) {
+  return sites.find(s => {
+    if (s.id === editingSiteId) return false;
+    if (dateKey < s.startDate || dateKey > s.endDate) return false;
+    if (s.dailyAssignments && s.dailyAssignments[dateKey]) {
+      return s.dailyAssignments[dateKey].includes(workerId);
+    }
+    return (s.assignedWorkerIds || []).includes(workerId); // legacy fallback
+  });
 }
 
 function toggleSiteWorker(workerId) {
-  if (selectedSiteWorkerIds.has(workerId)) {
-    selectedSiteWorkerIds.delete(workerId);
-  } else {
-    const startDate = document.getElementById('siteStartDate').value;
-    const endDate = document.getElementById('siteEndDate').value;
-    if (startDate && endDate) {
-      const conflict = getConflictingSite(workerId, startDate, endDate);
-      if (conflict) {
-        alert(`해당 시공자는 이미 "${conflict.name}" 현장(${conflict.startDate} ~ ${conflict.endDate})에 배치되어 있어 중복 배치할 수 없습니다.`);
-        return;
-      }
-    }
-    selectedSiteWorkerIds.add(workerId);
+  if (!activeSiteAssignDate) return;
+  if (!selectedSiteDailyAssignments[activeSiteAssignDate]) {
+    selectedSiteDailyAssignments[activeSiteAssignDate] = new Set();
   }
-  renderSiteWorkerAssignList();
+  const daySelection = selectedSiteDailyAssignments[activeSiteAssignDate];
+
+  if (daySelection.has(workerId)) {
+    daySelection.delete(workerId);
+  } else {
+    const conflict = getConflictingSiteOnDate(workerId, activeSiteAssignDate);
+    if (conflict) {
+      alert(`해당 시공자는 ${activeSiteAssignDate}에 이미 "${conflict.name}" 현장에 배치되어 있어 중복 배치할 수 없습니다.`);
+      return;
+    }
+    daySelection.add(workerId);
+  }
+  renderSiteDayTabs();
 }
 
 function updateSiteAssignedCount() {
   const el = document.getElementById('siteAssignedCount');
-  if (el) el.textContent = selectedSiteWorkerIds.size > 0 ? `${selectedSiteWorkerIds.size}명 선택됨` : '';
+  if (!el) return;
+  const totalAssignments = Object.values(selectedSiteDailyAssignments)
+    .reduce((sum, set) => sum + set.size, 0);
+  el.textContent = totalAssignments > 0 ? `총 ${totalAssignments}건 배치됨` : '';
 }
 
 function closeSiteModal() {
   document.getElementById('siteModal').classList.add('hidden');
   editingSiteId = null;
-  selectedSiteWorkerIds = new Set();
+  selectedSiteDailyAssignments = {};
+  activeSiteAssignDate = null;
 }
 
 function selectSiteColor(c) {
@@ -752,25 +844,42 @@ async function saveSite() {
   const memo = document.getElementById('siteMemo').value.trim();
   const neededWorkers = parseInt(document.getElementById('siteNeededWorkers').value) || 0;
   const workerMemo = document.getElementById('siteWorkerMemo').value.trim();
-  const assignedWorkerIds = Array.from(selectedSiteWorkerIds);
 
   if (!name) { alert('현장명을 입력해주세요.'); return; }
   if (!startDate || !endDate) { alert('시작일과 종료일을 입력해주세요.'); return; }
   if (startDate > endDate) { alert('종료일은 시작일보다 빠를 수 없습니다.'); return; }
 
-  // Final safety check: ensure no assigned worker conflicts with another site's period
-  for (const workerId of assignedWorkerIds) {
-    const conflict = getConflictingSite(workerId, startDate, endDate);
-    if (conflict) {
-      const w = workers.find(w => w.id === workerId);
-      alert(`${w ? w.name : '해당 시공자'}는 이미 "${conflict.name}" 현장에 배치되어 있어 저장할 수 없습니다.`);
-      return;
+  // Convert per-day Sets into a plain object of arrays for Firestore storage
+  const dailyAssignments = {};
+  Object.keys(selectedSiteDailyAssignments).forEach(dateKey => {
+    const arr = Array.from(selectedSiteDailyAssignments[dateKey]);
+    if (arr.length > 0) dailyAssignments[dateKey] = arr;
+  });
+
+  // Final safety check: ensure no assigned worker conflicts with another site on that specific day
+  for (const dateKey of Object.keys(dailyAssignments)) {
+    for (const workerId of dailyAssignments[dateKey]) {
+      const conflict = getConflictingSiteOnDate(workerId, dateKey);
+      if (conflict) {
+        const w = workers.find(w => w.id === workerId);
+        alert(`${w ? w.name : '해당 시공자'}는 ${dateKey}에 이미 "${conflict.name}" 현장에 배치되어 있어 저장할 수 없습니다.`);
+        return;
+      }
     }
   }
 
+  // Keep a flat assignedWorkerIds (union of all days) for backward compatibility with
+  // older parts of the system (e.g. site list summaries, sales program sync).
+  const unionWorkerIds = Array.from(new Set(Object.values(dailyAssignments).flat()));
+
   const id = editingSiteId || `site_${Date.now()}`;
   const previousSite = editingSiteId ? sites.find(s => s.id === id) : null;
-  const site = { id, name, startDate, endDate, address, memo, color: selectedSiteColor, neededWorkers, workerMemo, assignedWorkerIds };
+  const site = {
+    id, name, startDate, endDate, address, memo,
+    color: selectedSiteColor, neededWorkers, workerMemo,
+    dailyAssignments,
+    assignedWorkerIds: unionWorkerIds
+  };
 
   try {
     await saveSiteToDb(site);
@@ -785,64 +894,52 @@ async function saveSite() {
   } catch(e) { alert('저장 중 오류가 발생했습니다.'); console.error(e); }
 }
 
-// Auto-create/remove '종일' schedule entries for workers assigned to a site,
-// covering the site's date range. Tags entries with siteId for safe cleanup.
+// Auto-create/remove '종일' schedule entries based on the site's PER-DAY assignments.
+// Each date can have a different set of workers. Tags entries with siteId for safe cleanup.
 async function syncSiteWorkerSchedules(site, previousSite) {
-  const { doc, setDoc, deleteDoc } = window._fbFns;
-  const dateList = [];
-  let d = new Date(site.startDate);
-  const end = new Date(site.endDate);
-  while (d <= end) {
-    dateList.push(formatDate(d));
-    d.setDate(d.getDate() + 1);
-  }
+  const dateList = getDateRangeList(site.startDate, site.endDate);
+  const dailyAssignments = site.dailyAssignments || {};
 
-  const prevWorkerIds = new Set(previousSite?.assignedWorkerIds || []);
-  const newWorkerIds = new Set(site.assignedWorkerIds || []);
-
-  // Remove entries for workers that were unassigned
-  const removedWorkerIds = [...prevWorkerIds].filter(id => !newWorkerIds.has(id));
-  for (const dateKey of dateList) {
-    const entries = schedules[dateKey] || [];
-    for (const entry of entries.filter(e => e.siteId === site.id && removedWorkerIds.includes(e.workerId))) {
-      await deleteScheduleFromDb(entry.id);
-      schedules[dateKey] = schedules[dateKey].filter(e => e.id !== entry.id);
-    }
-  }
-
-  // Also clean up old date-range entries if the site's dates changed
-  if (previousSite && (previousSite.startDate !== site.startDate || previousSite.endDate !== site.endDate)) {
-    const oldDateList = [];
-    let od = new Date(previousSite.startDate);
-    const oend = new Date(previousSite.endDate);
-    while (od <= oend) {
-      const key = formatDate(od);
-      if (!dateList.includes(key)) {
-        const entries = schedules[key] || [];
+  // Clean up entries for any date that's now outside the (possibly changed) range
+  if (previousSite) {
+    const oldDateList = getDateRangeList(previousSite.startDate, previousSite.endDate);
+    for (const oldDateKey of oldDateList) {
+      if (!dateList.includes(oldDateKey)) {
+        const entries = schedules[oldDateKey] || [];
         for (const entry of entries.filter(e => e.siteId === site.id)) {
           await deleteScheduleFromDb(entry.id);
-          schedules[key] = schedules[key].filter(e => e.id !== entry.id);
+          schedules[oldDateKey] = schedules[oldDateKey].filter(e => e.id !== entry.id);
         }
       }
-      od.setDate(od.getDate() + 1);
     }
   }
 
-  // Add/update entries for currently assigned workers across the date range
-  for (const workerId of newWorkerIds) {
-    for (const dateKey of dateList) {
-      const entries = schedules[dateKey] || [];
-      const existing = entries.find(e => e.siteId === site.id && e.workerId === workerId);
-      if (!existing) {
-        const id = `${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+  // For each day in range, reconcile entries to match that day's assigned worker set
+  for (const dateKey of dateList) {
+    const wantedWorkerIds = new Set(dailyAssignments[dateKey] || []);
+    const entries = schedules[dateKey] || [];
+    const existingForSite = entries.filter(e => e.siteId === site.id);
+
+    // Remove entries for workers no longer assigned on this day
+    for (const entry of existingForSite) {
+      if (!wantedWorkerIds.has(entry.workerId)) {
+        await deleteScheduleFromDb(entry.id);
+        schedules[dateKey] = (schedules[dateKey] || []).filter(e => e.id !== entry.id);
+      }
+    }
+
+    // Add entries for newly assigned workers on this day
+    for (const workerId of wantedWorkerIds) {
+      const stillThere = (schedules[dateKey] || []).find(e => e.siteId === site.id && e.workerId === workerId);
+      if (!stillThere) {
+        const id = `${Date.now()}_${Math.random().toString(36).slice(2,7)}_${workerId}`;
         const entry = { id, workerId, date: dateKey, session: 'full', location: site.name, memo: '', siteId: site.id, addedBy: window._user?.uid };
         await saveScheduleToDb(entry);
         if (!schedules[dateKey]) schedules[dateKey] = [];
         schedules[dateKey].push(entry);
-      } else if (existing.location !== site.name) {
-        // Keep location in sync if site name changed
-        existing.location = site.name;
-        await saveScheduleToDb(existing);
+      } else if (stillThere.location !== site.name) {
+        stillThere.location = site.name;
+        await saveScheduleToDb(stillThere);
       }
     }
   }
@@ -907,9 +1004,9 @@ function openSiteDetailModal(siteId) {
   const site = sites.find(s => s.id === siteId);
   if (!site) return;
 
-  const assignedNames = (site.assignedWorkerIds || [])
-    .map(id => workers.find(w => w.id === id))
-    .filter(Boolean);
+  const dailyAssignments = site.dailyAssignments || {};
+  const dateList = getDateRangeList(site.startDate, site.endDate);
+  const hasAnyAssignment = dateList.some(d => (dailyAssignments[d] || []).length > 0);
 
   document.getElementById('siteDetailTitle').innerHTML = `<span style="color:${site.color}">●</span> ${site.name}`;
   document.getElementById('siteDetailBody').innerHTML = `
@@ -917,15 +1014,28 @@ function openSiteDetailModal(siteId) {
     ${site.address ? `<div style="font-size:13px"><span style="color:var(--muted)">주소:</span> ${site.address}</div>` : ''}
     ${site.neededWorkers > 0 ? `<div style="font-size:13px"><span style="color:var(--muted)">필요 인원:</span> ${site.neededWorkers}명</div>` : ''}
     ${site.workerMemo ? `<div style="font-size:13px"><span style="color:var(--muted)">인원 메모:</span> ${site.workerMemo}</div>` : ''}
-    ${assignedNames.length > 0 ? `
+    ${hasAnyAssignment ? `
       <div style="font-size:13px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
-        <span style="color:var(--muted)">배치된 시공자 (${assignedNames.length}명):</span>
-        <div class="flex flex-wrap gap-1 mt-1">
-          ${assignedNames.map(w => `<span style="display:inline-flex;align-items:center;gap:4px;background:${hexToRgba(w.color,.12)};color:${w.color};border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600">
-            <span style="width:7px;height:7px;border-radius:50%;background:${w.color}"></span>${w.name}
-          </span>`).join('')}
+        <span style="color:var(--muted)">일자별 배치 인원:</span>
+        <div class="mt-1 space-y-1">
+          ${dateList.map(dateKey => {
+            const ids = dailyAssignments[dateKey] || [];
+            const names = ids.map(id => workers.find(w => w.id === id)).filter(Boolean);
+            const dow = ['일','월','화','수','목','금','토'][new Date(dateKey).getDay()];
+            const md = dateKey.slice(5).replace('-', '/');
+            return `<div style="font-size:12px;display:flex;align-items:flex-start;gap:6px">
+              <span style="color:var(--muted);min-width:48px;flex-shrink:0">${md}(${dow})</span>
+              <span style="flex:1">
+                ${names.length > 0
+                  ? names.map(w => `<span style="display:inline-flex;align-items:center;gap:3px;background:${hexToRgba(w.color,.12)};color:${w.color};border-radius:6px;padding:1px 6px;font-size:11px;font-weight:600;margin-right:3px">
+                      <span style="width:6px;height:6px;border-radius:50%;background:${w.color}"></span>${w.name}
+                    </span>`).join('')
+                  : '<span style="color:var(--muted)">미배치</span>'}
+              </span>
+            </div>`;
+          }).join('')}
         </div>
-      </div>` : ''}
+      </div>` : `<div style="font-size:13px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">아직 배치된 시공자가 없습니다.</div>`}
     ${site.memo ? `<div style="font-size:13px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"><span style="color:var(--muted)">메모:</span><br>${site.memo}</div>` : ''}
     ${isAdmin() ? `<div class="flex gap-2 pt-3"><button onclick="closeSiteDetailModal();openSiteModal('${site.id}')" class="btn-primary flex-1">수정</button></div>` : ''}
   `;
