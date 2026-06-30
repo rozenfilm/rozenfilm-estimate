@@ -402,6 +402,8 @@
       { name: '권기표', cost: 190000 }, { name: '박민경', cost: 120000 },
       { name: '조경현', cost: 250000 }, { name: '조수희', cost: 120000 }
     ];
+    // Maps worker name -> schedule program's worker doc id (for linking)
+    let scheduleWorkerNameToId = {};
 
     // Materials (loaded from Firebase)
     let materials = [
@@ -1327,9 +1329,10 @@
               <div><span class="text-gray-400 text-xs">이윤</span><div style="color:${marginColor}">${profit.toLocaleString()} 원</div></div>
             </div>
             <div><span class="text-gray-400 text-xs">인력 (일별)</span><div class="mt-1">${workerDisplay}</div></div>
-            <div class="flex gap-2 pt-2">
+            <div class="flex gap-2 pt-2 flex-wrap">
               <button type="button" class="edit-button bg-indigo-600 text-white py-1.5 px-3 rounded-md hover:bg-indigo-700 text-xs" data-index="${originalIndex}">수정</button>
               <button type="button" class="delete-button bg-red-500 text-white py-1.5 px-3 rounded-md hover:bg-red-600 text-xs" data-index="${originalIndex}">삭제</button>
+              <button type="button" onclick="event.stopPropagation(); syncProjectToSchedule(${originalIndex})" class="bg-teal-600 text-white py-1.5 px-3 rounded-md hover:bg-teal-700 text-xs">📅 일정에 연동</button>
             </div>
           </div>
         `;
@@ -1636,6 +1639,117 @@
     }
 
     // ── Firebase Load ──
+    // Merge schedule program's worker list into sales workers (by name), and build name->id map for linking
+    async function mergeScheduleWorkers() {
+      try {
+        const { collection, getDocs } = window._fbFns;
+        const snap = await getDocs(collection(window._db, 'schedule_workers'));
+        const scheduleWorkers = [];
+        snap.forEach(d => scheduleWorkers.push({ id: d.id, ...d.data() }));
+
+        scheduleWorkerNameToId = {};
+        scheduleWorkers.forEach(sw => { scheduleWorkerNameToId[sw.name] = sw.id; });
+
+        let added = false;
+        scheduleWorkers.forEach(sw => {
+          if (!workers.some(w => w.name === sw.name)) {
+            workers.push({ name: sw.name, cost: 0 }); // cost defaults to 0; admin can edit in 인력 관리 탭
+            added = true;
+          }
+        });
+        if (added) await saveWorkers();
+      } catch(e) { console.error('mergeScheduleWorkers error:', e); }
+    }
+
+    // ── Sync project to schedule program (creates/updates schedule_sites + schedule_entries) ──
+    async function syncProjectToSchedule(index) {
+      const project = projects[index];
+      if (!project) return;
+
+      const validDates = (project.days || [])
+        .map(d => d.date)
+        .filter(d => d && d !== '미지정')
+        .sort();
+
+      if (validDates.length === 0) {
+        alert('시공 날짜가 입력된 항목이 없어 연동할 수 없습니다.\n프로젝트의 Day별 날짜를 먼저 입력해주세요.');
+        return;
+      }
+
+      const startDate = validDates[0];
+      const endDate = validDates[validDates.length - 1];
+
+      // Collect unique worker names across all days
+      const allWorkerNames = new Set();
+      (project.days || []).forEach(day => (day.workers || []).forEach(name => allWorkerNames.add(name)));
+
+      if (allWorkerNames.size === 0) {
+        if (!confirm('배정된 인력이 없습니다. 현장 정보만 일정 프로그램에 등록할까요?')) return;
+      }
+
+      const siteName = project.siteName || '미지정 현장';
+      if (!confirm(`"${siteName}" 현장을 일정 프로그램에 연동할까요?\n\n기간: ${startDate} ~ ${endDate}\n인력: ${allWorkerNames.size}명\n\n일정 프로그램의 캘린더에 현장 기간이 표시되고, 배정된 인력의 일정이 자동 등록됩니다.`)) return;
+
+      try {
+        const { doc, setDoc } = window._fbFns;
+        const SITE_COLORS = ['#6B46C1','#0EA5E9','#F59E0B','#10B981','#EC4899','#8B5CF6','#14B8A6','#F97316','#6366F1','#EF4444'];
+
+        // Ensure each worker exists in schedule_workers; create if missing
+        for (const name of allWorkerNames) {
+          if (!scheduleWorkerNameToId[name]) {
+            const newId = `worker_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+            const color = SITE_COLORS[Object.keys(scheduleWorkerNameToId).length % SITE_COLORS.length];
+            await setDoc(doc(window._db, 'schedule_workers', newId), { id: newId, name, color, phone: '' });
+            scheduleWorkerNameToId[name] = newId;
+          }
+        }
+
+        // Create or update the site (use a stable key tied to this project)
+        const siteId = project.scheduleSiteId || `site_fromSales_${siteName}_${startDate}`.replace(/\s+/g,'_');
+        const siteColor = SITE_COLORS[Math.abs(hashCode(siteName)) % SITE_COLORS.length];
+        const assignedWorkerIds = Array.from(allWorkerNames).map(n => scheduleWorkerNameToId[n]);
+
+        await setDoc(doc(window._db, 'schedule_sites', siteId), {
+          id: siteId, name: siteName, startDate, endDate,
+          address: '', memo: '매출관리 프로그램에서 자동 연동됨',
+          color: siteColor, neededWorkers: allWorkerNames.size, workerMemo: '',
+          assignedWorkerIds
+        });
+
+        // Create per-day schedule entries reflecting actual day-by-day assignment
+        for (const day of (project.days || [])) {
+          if (!day.date || day.date === '미지정') continue;
+          for (const workerName of (day.workers || [])) {
+            const workerId = scheduleWorkerNameToId[workerName];
+            if (!workerId) continue;
+            const entryId = `sync_${siteId}_${day.date}_${workerId}`;
+            await setDoc(doc(window._db, 'schedule_entries', entryId), {
+              id: entryId, workerId, date: day.date, session: 'full',
+              location: siteName, memo: '', siteId, addedBy: window._user?.uid
+            });
+          }
+        }
+
+        // Remember the link on the project so future syncs update the same site
+        project.scheduleSiteId = siteId;
+        await saveProjects();
+
+        alert(`✅ "${siteName}" 현장이 일정 프로그램에 연동되었습니다!\n시공팀 일정 캘린더에서 확인하세요.`);
+      } catch(e) {
+        console.error(e);
+        alert('연동 중 오류가 발생했습니다: ' + e.message);
+      }
+    }
+
+    function hashCode(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return hash;
+    }
+
     async function loadAllDataFromFirebase() {
       if (!window._user) return;
       const { doc, getDocs, collection } = window._fbFns;
@@ -1653,6 +1767,8 @@
         // Load workers
         const wSnap = await window._fbFns.getDocs(window._fbFns.collection(window._db, 'sales_workers'));
         wSnap.forEach(d => { if (d.id === uid && d.data().workers) workers = d.data().workers; });
+        // Merge in schedule program's workers (by name, skip duplicates)
+        await mergeScheduleWorkers();
         // Load materials
         const mSnap = await window._fbFns.getDocs(window._fbFns.collection(window._db, 'sales_materials'));
         mSnap.forEach(d => { if (d.id === uid && d.data().materials) materials = d.data().materials; });
