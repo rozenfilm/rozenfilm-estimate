@@ -106,8 +106,13 @@
 
     <!-- Project Management Tab -->
     <div id="projectContent" class="bg-white p-6 rounded-lg shadow-md mb-6">
-      <h2 class="text-xl font-semibold mb-4">프로젝트 추가/수정</h2>
-      <form id="projectForm" class="space-y-4">
+      <div class="flex items-center justify-between mb-4 cursor-pointer" onclick="toggleProjectForm()">
+        <h2 class="text-xl font-semibold flex items-center gap-2">
+          <span id="projectFormIcon">▶</span> 프로젝트 추가/수정
+        </h2>
+        <span id="projectFormHint" class="text-xs text-gray-400">클릭하여 펼치기</span>
+      </div>
+      <form id="projectForm" class="space-y-4" style="display:none">
         <input type="hidden" id="projectIndex" value="-1">
         <div>
           <label for="siteName" class="block text-sm font-medium text-gray-700">현장명</label>
@@ -162,61 +167,53 @@
         </div>
       </form>
 
-      <!-- Sales table and export/import controls -->
+      <!-- Sales card list and export/import controls -->
       <div class="mt-6">
-        <h2 class="text-xl font-semibold mb-4">매출 기록</h2>
-        <div class="flex space-x-2 mb-4">
-          <button type="button" id="exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">📥 JSON 내보내기</button>
-          <button type="button" id="importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">📂 JSON 불러오기</button>
-          <button type="button" onclick="cloudExport()" class="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700">☁️ 클라우드 내보내기</button>
-          <button type="button" onclick="openCloudImportModal()" class="bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700">☁️ 클라우드 불러오기</button>
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h2 class="text-xl font-semibold">매출 기록</h2>
+          <input type="text" id="projectSearchInput" placeholder="🔍 현장명 검색..."
+            class="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500" style="width:200px">
+        </div>
+        <div class="flex flex-wrap gap-2 mb-4">
+          <button type="button" id="exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">📥 JSON 내보내기</button>
+          <button type="button" id="importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">📂 JSON 불러오기</button>
+          <button type="button" onclick="cloudExport()" class="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 text-sm">☁️ 클라우드 내보내기</button>
+          <button type="button" onclick="openCloudImportModal()" class="bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 text-sm">☁️ 클라우드 불러오기</button>
           <input type="file" id="fileInput" accept=".json" class="hidden">
-          <select id="monthSelector" class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+          <select id="monthSelector" class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
             <option value="">월 선택</option>
-            <!-- Options will be populated by JavaScript -->
           </select>
-          <button type="button" id="exportMonth" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700" disabled>월별 데이터 내보내기</button>
+          <button type="button" id="exportMonth" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm" disabled>월별 데이터 내보내기</button>
         </div>
-        <table class="w-full border-collapse">
-          <thead>
-            <tr class="bg-gray-200">
-              <th class="border p-2">현장명</th>
-              <th class="border p-2">시공 시작 날짜</th>
-              <th class="border p-2">자재</th>
-              <th class="border p-2">필름 사용량 (미터)</th>
-              <th class="border p-2">자재 비용 (원)</th>
-              <th class="border p-2">부대비용 (원)</th>
-              <th class="border p-2">인력 (일별)</th>
-              <th class="border p-2">총 비용 (원)</th>
-              <th class="border p-2">총 견적 금액 (원)</th>
-              <th class="border p-2">이윤 (원)</th>
-              <th class="border p-2">이윤율 (%)</th>
-            </tr>
-          </thead>
-          <tbody id="salesTableBody"></tbody>
-        </table>
-        <div class="mt-4 text-right space-y-2">
-          <div>
-            <span class="font-semibold">총 매출: </span>
-            <span id="totalRevenue" class="font-bold">0 원</span>
+
+        <!-- Summary strip -->
+        <div class="grid gap-3 mb-4" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">
+          <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+            <p class="text-xs font-bold text-indigo-500">총 매출</p>
+            <p id="totalRevenue" class="text-lg font-bold text-indigo-700">0 원</p>
           </div>
-          <div>
-            <span class="font-semibold">총 이윤: </span>
-            <span id="totalProfit" class="font-bold">0 원</span>
+          <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+            <p class="text-xs font-bold text-green-500">총 이윤</p>
+            <p id="totalProfit" class="text-lg font-bold text-green-700">0 원</p>
           </div>
-          <div>
-            <span class="font-semibold">총 부대비용: </span>
-            <span id="totalAdditionalCost" class="font-bold">0 원</span>
+          <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p class="text-xs font-bold text-red-500">총 자재비</p>
+            <p id="totalMaterialCost" class="text-lg font-bold text-red-700">0 원</p>
           </div>
-          <div>
-            <span class="font-semibold">총 인건비: </span>
-            <span id="totalLaborCostSummary" class="font-bold">0 원</span>
+          <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <p class="text-xs font-bold text-yellow-600">총 인건비</p>
+            <p id="totalLaborCostSummary" class="text-lg font-bold text-yellow-700">0 원</p>
           </div>
-          <div>
-            <span class="font-semibold">총 자재비: </span>
-            <span id="totalMaterialCost" class="font-bold">0 원</span>
+          <div class="bg-purple-50 border border-purple-200 rounded-lg p-3">
+            <p class="text-xs font-bold text-purple-500">총 부대비용</p>
+            <p id="totalAdditionalCost" class="text-lg font-bold text-purple-700">0 원</p>
           </div>
         </div>
+
+        <!-- Card list -->
+        <div id="salesCardList" class="space-y-2"></div>
+        <!-- Hidden legacy table body kept for compatibility with existing JS references -->
+        <table class="hidden"><tbody id="salesTableBody"></tbody></table>
       </div>
     </div>
 
@@ -299,19 +296,13 @@
             <label for="workerCost" class="block text-sm font-medium text-gray-700">인건비 (원)</label>
             <input type="number" id="workerCost" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
           </div>
-          <button type="submit" class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600">인력 추가</button>
+          <div class="flex gap-2">
+            <button type="submit" id="workerSubmitBtn" class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600">인력 추가</button>
+            <button type="button" id="workerCancelBtn" onclick="cancelEditWorker()" class="bg-gray-400 text-white py-2 px-4 rounded-md hover:bg-gray-500 hidden">취소</button>
+          </div>
         </form>
         <h3 class="text-lg font-medium mt-6">등록된 인력</h3>
-        <table class="w-full border-collapse">
-          <thead>
-            <tr class="bg-gray-200">
-              <th class="border p-2">인력 이름</th>
-              <th class="border p-2">인건비 (원)</th>
-              <th class="border p-2">작업</th>
-            </tr>
-          </thead>
-          <tbody id="workerTableBody"></tbody>
-        </table>
+        <div id="workerTableBody" class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
       </div>
     </div>
 
@@ -329,19 +320,13 @@
             <label for="materialUnitPrice" class="block text-sm font-medium text-gray-700">단가 (원/미터)</label>
             <input type="number" id="materialUnitPrice" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
           </div>
-          <button type="submit" class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600">자재 추가</button>
+          <div class="flex gap-2">
+            <button type="submit" id="materialSubmitBtn" class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600">자재 추가</button>
+            <button type="button" id="materialCancelBtn" onclick="cancelEditMaterial()" class="bg-gray-400 text-white py-2 px-4 rounded-md hover:bg-gray-500 hidden">취소</button>
+          </div>
         </form>
         <h3 class="text-lg font-medium mt-6">등록된 자재</h3>
-        <table class="w-full border-collapse">
-          <thead>
-            <tr class="bg-gray-200">
-              <th class="border p-2">자재 이름</th>
-              <th class="border p-2">단가 (원/미터)</th>
-              <th class="border p-2">작업</th>
-            </tr>
-          </thead>
-          <tbody id="materialTableBody"></tbody>
-        </table>
+        <div id="materialTableBody" class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
       </div>
     </div>
 
@@ -391,6 +376,10 @@
           <p id="statsTotalMeters" class="text-2xl font-bold text-teal-700">0 m</p>
         </div>
       </div>
+
+      <!-- 6-month trend chart -->
+      <h3 class="font-semibold text-base mb-3">최근 6개월 매출 추이</h3>
+      <div id="statsTrendChart" class="mb-6" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px"></div>
 
       <!-- Project list for month -->
       <h3 class="font-semibold text-base mb-3">이 달의 프로젝트</h3>
@@ -1020,20 +1009,32 @@
       updateDeleteDayButton();
     }
 
+    let editingWorkerIndex = -1;
+
     // Function to populate worker management table
     function populateWorkerTable() {
       const workerTableBody = document.getElementById('workerTableBody');
       workerTableBody.innerHTML = '';
       workers.forEach((worker, index) => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td class="border p-2">${worker.name}</td>
-          <td class="border p-2">${worker.cost.toLocaleString()}</td>
-          <td class="border p-2">
-            <button type="button" class="delete-worker bg-red-500 text-white py-1 px-2 rounded-md hover:bg-red-600" data-index="${index}">삭제</button>
-          </td>
+        const card = document.createElement('div');
+        card.className = 'bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center gap-3';
+        card.innerHTML = `
+          <span style="width:32px;height:32px;border-radius:50%;background:#4f46e5;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${worker.name[0]}</span>
+          <div style="flex:1;min-width:0">
+            <div class="font-bold text-sm">${worker.name}</div>
+            <div class="text-xs text-gray-500">${worker.cost.toLocaleString()} 원/일</div>
+          </div>
+          <button type="button" class="edit-worker bg-indigo-500 text-white py-1 px-2 rounded-md hover:bg-indigo-600 text-xs" data-index="${index}">수정</button>
+          <button type="button" class="delete-worker bg-red-500 text-white py-1 px-2 rounded-md hover:bg-red-600 text-xs" data-index="${index}">삭제</button>
         `;
-        workerTableBody.appendChild(row);
+        workerTableBody.appendChild(card);
+      });
+
+      document.querySelectorAll('.edit-worker').forEach(button => {
+        button.addEventListener('click', () => {
+          const index = parseInt(button.getAttribute('data-index'));
+          startEditWorker(index);
+        });
       });
 
       document.querySelectorAll('.delete-worker').forEach(button => {
@@ -1044,7 +1045,24 @@
       });
     }
 
-    // Function to add a worker
+    function startEditWorker(index) {
+      editingWorkerIndex = index;
+      const worker = workers[index];
+      document.getElementById('workerName').value = worker.name;
+      document.getElementById('workerCost').value = worker.cost;
+      document.getElementById('workerSubmitBtn').textContent = '인력 수정';
+      document.getElementById('workerCancelBtn').classList.remove('hidden');
+      document.getElementById('workerForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function cancelEditWorker() {
+      editingWorkerIndex = -1;
+      document.getElementById('workerForm').reset();
+      document.getElementById('workerSubmitBtn').textContent = '인력 추가';
+      document.getElementById('workerCancelBtn').classList.add('hidden');
+    }
+
+    // Function to add or update a worker
     function addWorker(name, cost) {
       if (!name || name.trim() === '') {
         alert('인력 이름은 비어 있을 수 없습니다.');
@@ -1054,11 +1072,50 @@
         alert('인건비는 0보다 큰 숫자여야 합니다.');
         return;
       }
+      name = name.trim();
+
+      if (editingWorkerIndex >= 0) {
+        // Editing existing worker
+        const oldWorker = workers[editingWorkerIndex];
+        const oldName = oldWorker.name;
+
+        if (name !== oldName && workers.some((w, i) => i !== editingWorkerIndex && w.name === name)) {
+          alert('이미 존재하는 인력 이름입니다.');
+          return;
+        }
+
+        // Update worker
+        workers[editingWorkerIndex] = { name, cost: parseInt(cost) };
+
+        // Propagate name change to all projects referencing the old name
+        if (name !== oldName) {
+          projects.forEach(project => {
+            (project.days || []).forEach(day => {
+              if (Array.isArray(day.workers)) {
+                day.workers = day.workers.map(w => w === oldName ? name : w);
+              }
+            });
+          });
+          saveProjects();
+          updateSalesTable();
+          populateCalendarMonthSelector();
+        }
+
+        saveWorkers();
+        populateWorkerTable();
+        if (document.getElementById('projectContent').classList.contains('hidden') === false) {
+          populateDays();
+        }
+        cancelEditWorker();
+        return;
+      }
+
+      // Adding new worker
       if (workers.some(w => w.name === name)) {
         alert('이미 존재하는 인력 이름입니다.');
         return;
       }
-      workers.push({ name: name.trim(), cost: parseInt(cost) });
+      workers.push({ name, cost: parseInt(cost) });
       saveWorkers();
       populateWorkerTable();
       if (document.getElementById('projectContent').classList.contains('hidden') === false) {
@@ -1084,6 +1141,7 @@
         if (document.getElementById('projectContent').classList.contains('hidden') === false) {
           populateDays();
         }
+        if (editingWorkerIndex === index) cancelEditWorker();
       }
     }
 
@@ -1149,23 +1207,67 @@
     }
 
     // Function to update the sales table
+    let projectSearchQuery = '';
+
+    function toggleProjectForm() {
+      const form = document.getElementById('projectForm');
+      const icon = document.getElementById('projectFormIcon');
+      const hint = document.getElementById('projectFormHint');
+      const isHidden = form.style.display === 'none';
+      form.style.display = isHidden ? 'block' : 'none';
+      icon.textContent = isHidden ? '▼' : '▶';
+      hint.textContent = isHidden ? '클릭하여 접기' : '클릭하여 펼치기';
+    }
+
+    function toggleProjectCard(idx) {
+      const detail = document.getElementById(`projectDetail-${idx}`);
+      const arrow = document.getElementById(`projectArrow-${idx}`);
+      if (!detail) return;
+      const isHidden = detail.style.display === 'none';
+      detail.style.display = isHidden ? 'block' : 'none';
+      if (arrow) arrow.textContent = isHidden ? '▼' : '▶';
+    }
+
     function updateSalesTable() {
-      const tableBody = document.getElementById('salesTableBody');
-      tableBody.innerHTML = '';
+      const cardList = document.getElementById('salesCardList');
+      cardList.innerHTML = '';
       let totalRevenue = 0;
       let totalProfit = 0;
       let totalAdditionalCost = 0;
       let totalLaborCost = 0;
       let totalMaterialCost = 0;
 
-      const sortedProjects = [...projects].sort((a, b) => {
-        const dateA = a.constructionDate && a.constructionDate !== '미지정' ? new Date(a.constructionDate) : new Date(0);
-        const dateB = b.constructionDate && b.constructionDate !== '미지정' ? new Date(b.constructionDate) : new Date(0);
-        return dateB - dateA;
+      const query = (projectSearchQuery || '').trim().toLowerCase();
+
+      const sortedProjects = [...projects]
+        .filter(p => !query || (p.siteName || '').toLowerCase().includes(query))
+        .sort((a, b) => {
+          const dateA = a.constructionDate && a.constructionDate !== '미지정' ? new Date(a.constructionDate) : new Date(0);
+          const dateB = b.constructionDate && b.constructionDate !== '미지정' ? new Date(b.constructionDate) : new Date(0);
+          return dateB - dateA;
+        });
+
+      // Totals are always computed across ALL projects, not just filtered search results
+      projects.forEach(project => {
+        const materialCost = project.materialCost || 0;
+        const laborCost = project.laborCost || 0;
+        const additionalCost = project.additionalCost || 0;
+        const totalCost = calculateTotalCost(materialCost, laborCost, additionalCost);
+        const profit = calculateProfit(project.totalEstimate, totalCost);
+        totalRevenue += (project.totalEstimate || 0);
+        totalProfit += profit;
+        totalAdditionalCost += additionalCost;
+        totalLaborCost += laborCost;
+        totalMaterialCost += materialCost;
       });
 
-      sortedProjects.forEach((project, index) => {
-        const originalIndex = projects.findIndex(p => 
+      if (sortedProjects.length === 0) {
+        cardList.innerHTML = '<div class="text-center text-gray-400 py-10 text-sm">' +
+          (query ? '검색 결과가 없습니다.' : '등록된 프로젝트가 없습니다.') + '</div>';
+      }
+
+      sortedProjects.forEach((project, idx) => {
+        const originalIndex = projects.findIndex(p =>
           p.siteName === project.siteName && p.constructionDate === project.constructionDate
         );
 
@@ -1175,11 +1277,6 @@
         const totalCost = calculateTotalCost(materialCost, laborCost, additionalCost);
         const profit = calculateProfit(project.totalEstimate, totalCost);
         const profitMargin = calculateProfitMargin(profit, project.totalEstimate);
-        totalRevenue += (project.totalEstimate || 0);
-        totalProfit += profit;
-        totalAdditionalCost += additionalCost;
-        totalLaborCost += laborCost;
-        totalMaterialCost += materialCost;
 
         const materialDisplay = project.materials && project.materials.length > 0
           ? project.materials.map(m => `${m.name} (${m.meters.toFixed(1)}m)`).join(', ')
@@ -1188,46 +1285,73 @@
           ? project.materials.reduce((sum, m) => sum + (m.meters || 0), 0)
           : 0;
         const workerDisplay = project.days && project.days.length > 0
-          ? project.days.map((day, index) => {
+          ? project.days.map((day, dIdx) => {
               const workerNames = day.workers.length ? day.workers.map(name => {
                 const worker = workers.find(w => w.name === name);
                 return worker ? `${name} (${worker.cost.toLocaleString()}원)` : name;
               }).join(', ') : '없음';
-              return `Day ${index + 1} (${day.date || '미지정'}): ${workerNames}`;
-            }).join('; ')
+              return `Day ${dIdx + 1} (${day.date || '미지정'}): ${workerNames}`;
+            }).join('<br>')
           : '없음';
         const additionalCostDisplay = project.additionalCosts && project.additionalCosts.length > 0
           ? project.additionalCosts.filter(c => c.amount > 0).map(c => `${c.category}: ${c.amount.toLocaleString()}원`).join(', ')
           : '없음';
 
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td class="border p-2">
-            <button type="button" class="edit-button bg-indigo-600 text-white py-1 px-3 rounded-md hover:bg-indigo-700" data-index="${originalIndex}">${project.siteName || '미지정'}</button>
-          </td>
-          <td class="border p-2">${project.constructionDate || '미지정'}</td>
-          <td class="border p-2">${materialDisplay}</td>
-          <td class="border p-2">${totalMeters.toFixed(1)}</td>
-          <td class="border p-2">${materialCost.toLocaleString()}</td>
-          <td class="border p-2">${additionalCostDisplay}</td>
-          <td class="border p-2">${workerDisplay}</td>
-          <td class="border p-2">${totalCost.toLocaleString()}</td>
-          <td class="border p-2">${(project.totalEstimate || 0).toLocaleString()}</td>
-          <td class="border p-2">${profit.toLocaleString()}</td>
-          <td class="border p-2">${profitMargin.toFixed(2)}% <button type="button" class="delete-button bg-red-500 text-white py-1 px-2 rounded-md hover:bg-red-600 ml-2" data-index="${originalIndex}">삭제</button></td>
+        const marginColor = profitMargin >= 30 ? '#16a34a' : profitMargin >= 15 ? '#ca8a04' : '#dc2626';
+
+        const card = document.createElement('div');
+        card.className = 'border border-gray-200 rounded-lg overflow-hidden';
+        card.innerHTML = `
+          <div class="flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50" onclick="toggleProjectCard(${idx})">
+            <span id="projectArrow-${idx}" class="text-gray-400 text-xs">▶</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-bold text-sm truncate">${project.siteName || '미지정'}</div>
+              <div class="text-xs text-gray-400">${project.constructionDate || '미지정'}</div>
+            </div>
+            <div class="text-right hidden sm:block">
+              <div class="text-xs text-gray-400">견적</div>
+              <div class="text-sm font-bold">${(project.totalEstimate || 0).toLocaleString()}원</div>
+            </div>
+            <div class="text-right">
+              <div class="text-xs text-gray-400">이윤율</div>
+              <div class="text-sm font-bold" style="color:${marginColor}">${profitMargin.toFixed(1)}%</div>
+            </div>
+          </div>
+          <div id="projectDetail-${idx}" style="display:none" class="border-t border-gray-100 bg-gray-50 p-4 text-sm space-y-2">
+            <div class="grid grid-cols-2 gap-2" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
+              <div><span class="text-gray-400 text-xs">자재</span><div>${materialDisplay}</div></div>
+              <div><span class="text-gray-400 text-xs">필름 사용량</span><div>${totalMeters.toFixed(1)} m</div></div>
+              <div><span class="text-gray-400 text-xs">자재 비용</span><div>${materialCost.toLocaleString()} 원</div></div>
+              <div><span class="text-gray-400 text-xs">부대비용</span><div>${additionalCostDisplay}</div></div>
+              <div><span class="text-gray-400 text-xs">총 비용</span><div>${totalCost.toLocaleString()} 원</div></div>
+              <div><span class="text-gray-400 text-xs">이윤</span><div style="color:${marginColor}">${profit.toLocaleString()} 원</div></div>
+            </div>
+            <div><span class="text-gray-400 text-xs">인력 (일별)</span><div class="mt-1">${workerDisplay}</div></div>
+            <div class="flex gap-2 pt-2">
+              <button type="button" class="edit-button bg-indigo-600 text-white py-1.5 px-3 rounded-md hover:bg-indigo-700 text-xs" data-index="${originalIndex}">수정</button>
+              <button type="button" class="delete-button bg-red-500 text-white py-1.5 px-3 rounded-md hover:bg-red-600 text-xs" data-index="${originalIndex}">삭제</button>
+            </div>
+          </div>
         `;
-        tableBody.appendChild(row);
+        cardList.appendChild(card);
       });
 
       document.querySelectorAll('.edit-button').forEach(button => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (e) => {
+          e.stopPropagation();
           const index = parseInt(button.getAttribute('data-index'));
           populateFormForEdit(index);
+          // Auto-expand the form when editing
+          document.getElementById('projectForm').style.display = 'block';
+          document.getElementById('projectFormIcon').textContent = '▼';
+          document.getElementById('projectFormHint').textContent = '클릭하여 접기';
+          document.getElementById('projectForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
       });
 
       document.querySelectorAll('.delete-button').forEach(button => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (e) => {
+          e.stopPropagation();
           const index = parseInt(button.getAttribute('data-index'));
           deleteProject(index);
         });
@@ -1535,6 +1659,7 @@
       } catch(e) { console.error('Firebase load error:', e); }
       populateMaterials(); populateDays(); populateAdditionalCosts();
       updateSalesTable(); populateCalendarMonthSelector(); populateWorkerTable();
+      populateMaterialTable();
       showProjectTab();
     }
 
@@ -1588,6 +1713,42 @@
       renderStats();
     }
 
+    function render6MonthTrend() {
+      const container = document.getElementById('statsTrendChart');
+      if (!container) return;
+
+      // Build last 6 months ending at currently viewed statsYear/statsMonth
+      const months = [];
+      for (let i = 5; i >= 0; i--) {
+        let y = statsYear, m = statsMonth - i;
+        while (m < 0) { m += 12; y--; }
+        months.push({ y, m, key: y + '-' + String(m + 1).padStart(2, '0') });
+      }
+
+      const monthRevenues = months.map(mo => {
+        return projects
+          .filter(p => p.constructionDate && p.constructionDate !== '미지정' && p.constructionDate.startsWith(mo.key))
+          .reduce((sum, p) => sum + (p.totalEstimate || 0), 0);
+      });
+
+      const maxRev = Math.max(...monthRevenues, 1);
+
+      container.innerHTML = `
+        <div style="display:flex;align-items:flex-end;gap:12px;height:140px;padding:0 4px">
+          ${months.map((mo, i) => {
+            const h = Math.round((monthRevenues[i] / maxRev) * 100);
+            const isCurrent = mo.y === statsYear && mo.m === statsMonth;
+            return `
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+                <div style="font-size:11px;color:#64748b;margin-bottom:4px;font-weight:${isCurrent ? '700' : '400'}">${monthRevenues[i] > 0 ? (monthRevenues[i]/10000).toFixed(0) + '만' : ''}</div>
+                <div style="width:100%;max-width:36px;height:${Math.max(h,2)}%;background:${isCurrent ? '#4f46e5' : '#a5b4fc'};border-radius:4px 4px 0 0;transition:height .3s"></div>
+                <div style="font-size:11px;color:${isCurrent ? '#4f46e5' : '#94a3b8'};font-weight:${isCurrent ? '700' : '400'};margin-top:6px">${mo.m + 1}월</div>
+              </div>`;
+          }).join('')}
+        </div>
+      `;
+    }
+
     function renderStats() {
       document.getElementById('statsMonthTitle').textContent = statsYear + '년 ' + (statsMonth + 1) + '월';
       const monthKey = statsYear + '-' + String(statsMonth + 1).padStart(2, '0');
@@ -1607,6 +1768,8 @@
         totalMeters += (p.materials||[]).reduce((s,m) => s + (m.meters||0), 0);
       });
       const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100).toFixed(1) : 0;
+
+      render6MonthTrend();
 
       document.getElementById('statsTotalRevenue').textContent = totalRevenue.toLocaleString() + ' 원';
       document.getElementById('statsTotalProfit').textContent = totalProfit.toLocaleString() + ' 원';
@@ -1773,20 +1936,32 @@
       }
     }
 
+    let editingMaterialIndex = -1;
+
     // Function to populate material management table
     function populateMaterialTable() {
       const materialTableBody = document.getElementById('materialTableBody');
       materialTableBody.innerHTML = '';
       materials.forEach((material, index) => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td class="border p-2">${material.name}</td>
-          <td class="border p-2">${material.unitPrice.toLocaleString()}</td>
-          <td class="border p-2">
-            <button type="button" class="delete-material bg-red-500 text-white py-1 px-2 rounded-md hover:bg-red-600" data-index="${index}">삭제</button>
-          </td>
+        const card = document.createElement('div');
+        card.className = 'bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center gap-3';
+        card.innerHTML = `
+          <span style="width:32px;height:32px;border-radius:8px;background:#0d9488;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">🎞️</span>
+          <div style="flex:1;min-width:0">
+            <div class="font-bold text-sm">${material.name}</div>
+            <div class="text-xs text-gray-500">${material.unitPrice.toLocaleString()} 원/m</div>
+          </div>
+          <button type="button" class="edit-material bg-indigo-500 text-white py-1 px-2 rounded-md hover:bg-indigo-600 text-xs" data-index="${index}">수정</button>
+          <button type="button" class="delete-material bg-red-500 text-white py-1 px-2 rounded-md hover:bg-red-600 text-xs" data-index="${index}">삭제</button>
         `;
-        materialTableBody.appendChild(row);
+        materialTableBody.appendChild(card);
+      });
+
+      document.querySelectorAll('.edit-material').forEach(button => {
+        button.addEventListener('click', () => {
+          const index = parseInt(button.getAttribute('data-index'));
+          startEditMaterial(index);
+        });
       });
 
       document.querySelectorAll('.delete-material').forEach(button => {
@@ -1797,7 +1972,24 @@
       });
     }
 
-    // Function to add a material
+    function startEditMaterial(index) {
+      editingMaterialIndex = index;
+      const material = materials[index];
+      document.getElementById('materialName').value = material.name;
+      document.getElementById('materialUnitPrice').value = material.unitPrice;
+      document.getElementById('materialSubmitBtn').textContent = '자재 수정';
+      document.getElementById('materialCancelBtn').classList.remove('hidden');
+      document.getElementById('materialForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function cancelEditMaterial() {
+      editingMaterialIndex = -1;
+      document.getElementById('materialForm').reset();
+      document.getElementById('materialSubmitBtn').textContent = '자재 추가';
+      document.getElementById('materialCancelBtn').classList.add('hidden');
+    }
+
+    // Function to add or update a material
     function addMaterial(name, unitPrice) {
       if (!name || name.trim() === '') {
         alert('자재 이름은 비어 있을 수 없습니다.');
@@ -1807,11 +1999,44 @@
         alert('단가는 0보다 큰 숫자여야 합니다.');
         return;
       }
+      name = name.trim();
+
+      if (editingMaterialIndex >= 0) {
+        const oldMaterial = materials[editingMaterialIndex];
+        const oldName = oldMaterial.name;
+
+        if (name !== oldName && materials.some((m, i) => i !== editingMaterialIndex && m.name === name)) {
+          alert('이미 존재하는 자재 이름입니다.');
+          return;
+        }
+
+        materials[editingMaterialIndex] = { name, unitPrice: parseInt(unitPrice) };
+
+        // Propagate name change to all projects referencing the old name
+        if (name !== oldName) {
+          projects.forEach(project => {
+            (project.materials || []).forEach(m => {
+              if (m.name === oldName) m.name = name;
+            });
+          });
+          saveProjects();
+          updateSalesTable();
+        }
+
+        saveMaterials();
+        populateMaterialTable();
+        if (document.getElementById('projectContent').classList.contains('hidden') === false) {
+          populateMaterials();
+        }
+        cancelEditMaterial();
+        return;
+      }
+
       if (materials.some(m => m.name === name)) {
         alert('이미 존재하는 자재 이름입니다.');
         return;
       }
-      materials.push({ name: name.trim(), unitPrice: parseInt(unitPrice) });
+      materials.push({ name, unitPrice: parseInt(unitPrice) });
       saveMaterials();
       populateMaterialTable();
       if (document.getElementById('projectContent').classList.contains('hidden') === false) {
@@ -1837,11 +2062,21 @@
         if (document.getElementById('projectContent').classList.contains('hidden') === false) {
           populateMaterials();
         }
+        if (editingMaterialIndex === index) cancelEditMaterial();
       }
     }
 
     // Initialize event listeners after DOM is fully loaded
     document.addEventListener('DOMContentLoaded', () => {
+      // Project search filter
+      const searchInput = document.getElementById('projectSearchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          projectSearchQuery = e.target.value;
+          updateSalesTable();
+        });
+      }
+
       // Handle worker form submission
       document.getElementById('workerForm').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -1906,6 +2141,10 @@
         resetForm();
         updateSalesTable();
         populateCalendarMonthSelector();
+        // Auto-collapse the form after saving
+        document.getElementById('projectForm').style.display = 'none';
+        document.getElementById('projectFormIcon').textContent = '▶';
+        document.getElementById('projectFormHint').textContent = '클릭하여 펼치기';
       });
 
       // Handle cancel edit button
