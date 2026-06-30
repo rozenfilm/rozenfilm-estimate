@@ -429,16 +429,51 @@
     let editingIndex = -1; // Track index of project being edited
 
     // Function to save projects to Firebase
+    // Saves projects to Firebase, but first re-fetches the latest server copy and merges by id.
+    // This prevents one device's stale in-memory data from wiping out changes made on another
+    // device in the meantime (the bug that caused projects to "disappear").
     async function saveProjects() {
       if (!window._user) return;
       try {
-        const { doc, setDoc } = window._fbFns;
+        const { doc, setDoc, getDoc } = window._fbFns;
         const uid = window._user.uid;
+
+        // Ensure every local project has a stable id (older data may not)
+        projects.forEach(p => {
+          if (!p.id) p.id = `proj_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+        });
+
+        // Fetch latest server state to merge against
+        let serverProjects = [];
+        try {
+          const snap = await getDoc(doc(window._db, 'sales_data', uid));
+          if (snap.exists()) serverProjects = snap.data().projects || [];
+        } catch(e) { console.warn('Could not fetch latest server data before save, proceeding with local only:', e); }
+
+        // Merge: local changes win for any project also present locally;
+        // server-only projects (added on another device) are preserved.
+        const localById = new Map(projects.map(p => [p.id, p]));
+        const merged = [];
+        const seenIds = new Set();
+
+        // Keep local projects (in local order), using local version
+        projects.forEach(p => { merged.push(p); seenIds.add(p.id); });
+        // Add any server projects not present locally (created elsewhere since last load),
+        // but never resurrect projects the user explicitly deleted on this device.
+        serverProjects.forEach(sp => {
+          if (sp.id && !seenIds.has(sp.id) && !pendingDeletedIds.includes(sp.id)) {
+            merged.push(sp);
+            seenIds.add(sp.id);
+          }
+        });
+
+        projects = merged.map(p => ({
+          ...p,
+          days: (p.days || []).map(d => ({ ...d, workers: Array.isArray(d.workers) ? d.workers : Array.from(d.workers || []) }))
+        }));
+
         await setDoc(doc(window._db, 'sales_data', uid), {
-          projects: projects.map(p => ({
-            ...p,
-            days: p.days.map(d => ({ ...d, workers: Array.isArray(d.workers) ? d.workers : Array.from(d.workers || []) }))
-          })),
+          projects,
           updatedAt: new Date().toISOString()
         });
       } catch (e) { console.error('Error saving projects to Firebase:', e); }
@@ -1202,8 +1237,12 @@
     }
 
     // Function to delete a project
+    let pendingDeletedIds = []; // IDs explicitly deleted locally, to exclude during merge-on-save
+
     function deleteProject(index) {
       if (confirm(`정말로 "${projects[index].siteName || '미지정'}" 프로젝트를 삭제하시겠습니까?`)) {
+        const removed = projects[index];
+        if (removed?.id) pendingDeletedIds.push(removed.id);
         projects.splice(index, 1);
         saveProjects();
         resetForm();
@@ -1611,7 +1650,10 @@
           const exists = projects.some(ep =>
             ep.siteName === p.siteName && ep.constructionDate === p.constructionDate
           );
-          if (!exists) { projects.push(p); added++; }
+          if (!exists) {
+            projects.push({ ...p, id: `proj_${Date.now()}_${Math.random().toString(36).slice(2,8)}` });
+            added++;
+          }
         });
 
         // Merge workers (skip duplicates by name)
@@ -1835,11 +1877,13 @@
         const pSnap = await window._fbFns.getDocs(window._fbFns.collection(window._db, 'sales_data'));
         pSnap.forEach(d => { if (d.id === uid) {
           const data = d.data();
-          projects = (data.projects || []).map(p => ({
+          projects = (data.projects || []).map((p, i) => ({
             ...p,
+            id: p.id || `proj_legacy_${i}_${(p.siteName||'').replace(/\s+/g,'_')}_${p.constructionDate||''}`,
             days: (p.days || []).map(day => ({ ...day, workers: Array.isArray(day.workers) ? day.workers : [] }))
           }));
         }});
+        pendingDeletedIds = []; // fresh load — no pending deletions yet
         // Load workers
         const wSnap = await window._fbFns.getDocs(window._fbFns.collection(window._db, 'sales_workers'));
         wSnap.forEach(d => { if (d.id === uid && d.data().workers) workers = d.data().workers; });
@@ -2304,7 +2348,10 @@
         const laborCost = calculateLaborCost();
         const materialCost = calculateMaterialCost();
         const additionalCost = calculateAdditionalCost();
+        const projectIndexForId = parseInt(document.getElementById('projectIndex').value);
+        const existingProject = projectIndexForId >= 0 ? projects[projectIndexForId] : null;
         const project = {
+          id: existingProject?.id || `proj_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
           siteName: document.getElementById('siteName').value.trim() || '미지정',
           constructionDate: document.getElementById('constructionDate').value || '미지정',
           materials: validMaterials.map(entry => ({
@@ -2325,7 +2372,9 @@
             date: day.date || '미지정',
             workers: Array.from(day.selectedWorkers)
           })),
-          totalEstimate: parseInt(document.getElementById('totalEstimate').value) || 0
+          totalEstimate: parseInt(document.getElementById('totalEstimate').value) || 0,
+          scheduleSiteId: existingProject?.scheduleSiteId,
+          updatedAt: new Date().toISOString()
         };
 
         const projectIndex = parseInt(document.getElementById('projectIndex').value);
