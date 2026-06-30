@@ -10,7 +10,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-    import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc }
+    import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -25,7 +25,7 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
     window._auth = auth; window._db = db;
-    window._fbFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, collection, doc, setDoc, getDocs, deleteDoc };
+    window._fbFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, collection, doc, setDoc, getDoc, getDocs, deleteDoc };
 
     onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -989,11 +989,13 @@
       days.forEach((day, index) => {
         const dayDiv = document.createElement('div');
         dayDiv.className = 'border p-4 rounded-md bg-gray-50';
+        const workerCount = day.selectedWorkers ? day.selectedWorkers.size : 0;
         dayDiv.innerHTML = `
           <div class="flex justify-between items-center mb-2">
             <label class="text-sm font-medium text-gray-700">일자 ${index + 1}</label>
-            <input type="date" id="dayDate-${index}" class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="${day.date || ''}" required>
+            <input type="date" id="dayDate-${index}" class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="${day.date || ''}">
           </div>
+          ${workerCount === 0 ? '<p class="text-xs text-amber-600 mb-2">⚠️ 인력 미배치 — 일정 연동 후 스케줄 프로그램에서 배치할 수 있습니다</p>' : ''}
           <div id="workerButtons-${index}" class="grid grid-cols-2 gap-2"></div>
           <button type="button" id="clearWorkers-${index}" class="mt-2 bg-gray-500 text-white py-1 px-3 rounded-md hover:bg-gray-600">이 일자 인력 초기화</button>
         `;
@@ -1329,10 +1331,11 @@
               <div><span class="text-gray-400 text-xs">이윤</span><div style="color:${marginColor}">${profit.toLocaleString()} 원</div></div>
             </div>
             <div><span class="text-gray-400 text-xs">인력 (일별)</span><div class="mt-1">${workerDisplay}</div></div>
+            ${project.scheduleSiteId ? '<div class="text-xs text-teal-600 font-semibold">🔗 일정 프로그램에 연동됨 (인력 배치는 일정 프로그램에서 자동 반영)</div>' : ''}
             <div class="flex gap-2 pt-2 flex-wrap">
               <button type="button" class="edit-button bg-indigo-600 text-white py-1.5 px-3 rounded-md hover:bg-indigo-700 text-xs" data-index="${originalIndex}">수정</button>
               <button type="button" class="delete-button bg-red-500 text-white py-1.5 px-3 rounded-md hover:bg-red-600 text-xs" data-index="${originalIndex}">삭제</button>
-              <button type="button" onclick="event.stopPropagation(); syncProjectToSchedule(${originalIndex})" class="bg-teal-600 text-white py-1.5 px-3 rounded-md hover:bg-teal-700 text-xs">📅 일정에 연동</button>
+              <button type="button" onclick="event.stopPropagation(); syncProjectToSchedule(${originalIndex})" class="bg-teal-600 text-white py-1.5 px-3 rounded-md hover:bg-teal-700 text-xs">${project.scheduleSiteId ? '📅 일정 정보 갱신' : '📅 일정에 연동'}</button>
             </div>
           </div>
         `;
@@ -1678,67 +1681,50 @@
 
       const startDate = validDates[0];
       const endDate = validDates[validDates.length - 1];
-
-      // Collect unique worker names across all days
-      const allWorkerNames = new Set();
-      (project.days || []).forEach(day => (day.workers || []).forEach(name => allWorkerNames.add(name)));
-
-      if (allWorkerNames.size === 0) {
-        if (!confirm('배정된 인력이 없습니다. 현장 정보만 일정 프로그램에 등록할까요?')) return;
-      }
-
       const siteName = project.siteName || '미지정 현장';
-      if (!confirm(`"${siteName}" 현장을 일정 프로그램에 연동할까요?\n\n기간: ${startDate} ~ ${endDate}\n인력: ${allWorkerNames.size}명\n\n일정 프로그램의 캘린더에 현장 기간이 표시되고, 배정된 인력의 일정이 자동 등록됩니다.`)) return;
+
+      if (!confirm(`"${siteName}" 현장을 일정 프로그램에 등록할까요?\n\n기간: ${startDate} ~ ${endDate}\n\n현장 정보만 먼저 등록되며, 시공자 배치는 일정 프로그램의 현장 탭에서 진행합니다.\n배치 후에는 이 프로젝트의 Day별 인력에도 자동으로 반영됩니다.`)) return;
 
       try {
         const { doc, setDoc } = window._fbFns;
         const SITE_COLORS = ['#6B46C1','#0EA5E9','#F59E0B','#10B981','#EC4899','#8B5CF6','#14B8A6','#F97316','#6366F1','#EF4444'];
 
-        // Ensure each worker exists in schedule_workers; create if missing
-        for (const name of allWorkerNames) {
-          if (!scheduleWorkerNameToId[name]) {
-            const newId = `worker_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
-            const color = SITE_COLORS[Object.keys(scheduleWorkerNameToId).length % SITE_COLORS.length];
-            await setDoc(doc(window._db, 'schedule_workers', newId), { id: newId, name, color, phone: '' });
-            scheduleWorkerNameToId[name] = newId;
-          }
-        }
-
-        // Create or update the site (use a stable key tied to this project)
+        // Create or update the site (use a stable key tied to this project). No workers assigned yet —
+        // staffing is done from the schedule program's site tab, which then syncs back to this project.
         const siteId = project.scheduleSiteId || `site_fromSales_${siteName}_${startDate}`.replace(/\s+/g,'_');
         const siteColor = SITE_COLORS[Math.abs(hashCode(siteName)) % SITE_COLORS.length];
-        const assignedWorkerIds = Array.from(allWorkerNames).map(n => scheduleWorkerNameToId[n]);
+        const existingSite = (await getScheduleSite(siteId));
+        const assignedWorkerIds = existingSite?.assignedWorkerIds || [];
 
         await setDoc(doc(window._db, 'schedule_sites', siteId), {
           id: siteId, name: siteName, startDate, endDate,
-          address: '', memo: '매출관리 프로그램에서 자동 연동됨',
-          color: siteColor, neededWorkers: allWorkerNames.size, workerMemo: '',
-          assignedWorkerIds
+          address: existingSite?.address || '',
+          memo: existingSite?.memo || '매출관리 프로그램에서 자동 연동됨 (시공자는 일정 프로그램에서 배치)',
+          color: existingSite?.color || siteColor,
+          neededWorkers: existingSite?.neededWorkers || 0,
+          workerMemo: existingSite?.workerMemo || '',
+          assignedWorkerIds,
+          salesProjectIndex: index // back-reference so the schedule program can sync staffing back
         });
-
-        // Create per-day schedule entries reflecting actual day-by-day assignment
-        for (const day of (project.days || [])) {
-          if (!day.date || day.date === '미지정') continue;
-          for (const workerName of (day.workers || [])) {
-            const workerId = scheduleWorkerNameToId[workerName];
-            if (!workerId) continue;
-            const entryId = `sync_${siteId}_${day.date}_${workerId}`;
-            await setDoc(doc(window._db, 'schedule_entries', entryId), {
-              id: entryId, workerId, date: day.date, session: 'full',
-              location: siteName, memo: '', siteId, addedBy: window._user?.uid
-            });
-          }
-        }
 
         // Remember the link on the project so future syncs update the same site
         project.scheduleSiteId = siteId;
         await saveProjects();
 
-        alert(`✅ "${siteName}" 현장이 일정 프로그램에 연동되었습니다!\n시공팀 일정 캘린더에서 확인하세요.`);
+        alert(`✅ "${siteName}" 현장이 일정 프로그램에 등록되었습니다!\n시공팀 일정 → 현장 탭에서 시공자를 배치해주세요.\n배치하면 이 프로젝트에도 자동 반영됩니다.`);
       } catch(e) {
         console.error(e);
         alert('연동 중 오류가 발생했습니다: ' + e.message);
       }
+    }
+
+    async function getScheduleSite(siteId) {
+      try {
+        const { doc, getDoc } = window._fbFns;
+        if (!getDoc) return null; // getDoc not imported in this app; fall back to collection scan
+        const snap = await getDoc(doc(window._db, 'schedule_sites', siteId));
+        return snap.exists() ? snap.data() : null;
+      } catch(e) { return null; }
     }
 
     function hashCode(str) {
@@ -1748,6 +1734,67 @@
         hash |= 0;
       }
       return hash;
+    }
+
+    // Pull staffing done in the schedule program's site tab back into linked sales projects.
+    // For each project with a scheduleSiteId, read schedule_entries for that site and rebuild
+    // the project's days[].workers to match what was assigned in the calendar.
+    async function pullScheduleStaffing() {
+      const linkedProjects = projects
+        .map((p, idx) => ({ p, idx }))
+        .filter(({ p }) => p.scheduleSiteId);
+
+      if (linkedProjects.length === 0) return;
+
+      try {
+        const { collection, getDocs } = window._fbFns;
+        const entriesSnap = await getDocs(collection(window._db, 'schedule_entries'));
+        const workersSnap = await getDocs(collection(window._db, 'schedule_workers'));
+
+        const scheduleWorkerIdToName = {};
+        workersSnap.forEach(d => { scheduleWorkerIdToName[d.id] = d.data().name; });
+
+        // Group entries by siteId -> date -> [workerName]
+        const entriesBySite = {};
+        entriesSnap.forEach(d => {
+          const e = d.data();
+          if (!e.siteId) return;
+          if (!entriesBySite[e.siteId]) entriesBySite[e.siteId] = {};
+          if (!entriesBySite[e.siteId][e.date]) entriesBySite[e.siteId][e.date] = [];
+          const name = scheduleWorkerIdToName[e.workerId];
+          if (name && e.session !== 'off') entriesBySite[e.siteId][e.date].push(name);
+        });
+
+        let changed = false;
+        linkedProjects.forEach(({ p, idx }) => {
+          const siteEntries = entriesBySite[p.scheduleSiteId];
+          if (!siteEntries) return;
+
+          (p.days || []).forEach(day => {
+            if (!day.date || day.date === '미지정') return;
+            const assignedNames = siteEntries[day.date] || [];
+            const currentNames = (day.workers || []).slice().sort().join(',');
+            const newNames = assignedNames.slice().sort().join(',');
+            if (currentNames !== newNames) {
+              day.workers = assignedNames;
+              changed = true;
+            }
+          });
+
+          // Recalculate labor cost based on updated staffing
+          if (changed) {
+            p.laborCost = (p.days || []).reduce((total, day) => {
+              const dayCost = (day.workers || []).reduce((sum, name) => {
+                const w = workers.find(w => w.name === name);
+                return sum + (w ? w.cost : 0);
+              }, 0);
+              return total + dayCost;
+            }, 0);
+          }
+        });
+
+        if (changed) await saveProjects();
+      } catch(e) { console.error('pullScheduleStaffing error:', e); }
     }
 
     async function loadAllDataFromFirebase() {
@@ -1769,6 +1816,8 @@
         wSnap.forEach(d => { if (d.id === uid && d.data().workers) workers = d.data().workers; });
         // Merge in schedule program's workers (by name, skip duplicates)
         await mergeScheduleWorkers();
+        // Pull back any staffing done in the schedule program for linked sites
+        await pullScheduleStaffing();
         // Load materials
         const mSnap = await window._fbFns.getDocs(window._fbFns.collection(window._db, 'sales_materials'));
         mSnap.forEach(d => { if (d.id === uid && d.data().materials) materials = d.data().materials; });
@@ -2218,6 +2267,10 @@
           alert('최소 한 개의 자재를 선택하고 필름 사용량을 입력해주세요 (0보다 커야 합니다).');
           return;
         }
+
+        // Note: workers are intentionally NOT required here.
+        // Projects can be saved with zero assigned workers, and staffing can be
+        // done later via the schedule program after clicking "일정에 연동".
 
         const laborCost = calculateLaborCost();
         const materialCost = calculateMaterialCost();
