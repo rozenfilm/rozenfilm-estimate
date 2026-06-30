@@ -1,0 +1,1824 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>인테리어필름 시공 매출관리 프로그램</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyD1Nqi0J2ust7UTo6XQOLofZobOHS2O7dU",
+      authDomain: "rozenfilm-estimate.firebaseapp.com",
+      projectId: "rozenfilm-estimate",
+      storageBucket: "rozenfilm-estimate.firebasestorage.app",
+      messagingSenderId: "205994221853",
+      appId: "1:205994221853:web:66cf3b8f7e90f9672581f4"
+    };
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    window._auth = auth; window._db = db;
+    window._fbFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, collection, doc, setDoc, getDocs, deleteDoc };
+
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        window._user = user;
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('appScreen').classList.remove('hidden');
+        document.getElementById('currentUser').textContent = user.email;
+        await loadAllDataFromFirebase();
+      } else {
+        window._user = null;
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('appScreen').classList.add('hidden');
+      }
+    });
+  </script>
+</head>
+<body class="bg-gray-100 font-sans">
+
+<!-- Login Screen -->
+<div id="loginScreen" class="fixed inset-0 flex items-center justify-center z-50" style="background:linear-gradient(135deg,#312e81 0%,#4f46e5 100%)">
+  <div style="background:#fff;border-radius:20px;padding:36px;width:380px;max-width:90vw;box-shadow:0 24px 64px rgba(0,0,0,.3)">
+    <div class="text-center mb-6">
+      <p style="font-size:24px;font-weight:800;color:#4338ca">📊 매출관리 시스템</p>
+      <p style="font-size:13px;color:#6b7280;margin-top:4px">ROZEN FILM</p>
+    </div>
+    <!-- Tab -->
+    <div style="display:flex;background:#f3f4f6;border-radius:10px;padding:3px;margin-bottom:16px">
+      <button id="loginTabBtn" onclick="switchLoginTab('login')"
+        style="flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:#4f46e5;color:#fff">로그인</button>
+      <button id="signupTabBtn" onclick="switchLoginTab('signup')"
+        style="flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:#6b7280">회원가입</button>
+    </div>
+    <!-- Login form -->
+    <div id="loginForm" class="space-y-3">
+      <input type="email" id="loginEmail" placeholder="이메일" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-indigo-500">
+      <input type="password" id="loginPassword" placeholder="비밀번호" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-indigo-500"
+        onkeydown="if(event.key==='Enter')doLogin()">
+      <p id="loginErr" class="text-xs text-red-500 hidden">이메일 또는 비밀번호가 올바르지 않습니다.</p>
+      <button onclick="doLogin()" class="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-semibold hover:bg-indigo-700">로그인</button>
+    </div>
+    <!-- Signup form -->
+    <div id="signupForm" class="space-y-3 hidden">
+      <input type="text" id="signupName" placeholder="이름" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-indigo-500">
+      <input type="email" id="signupEmail" placeholder="이메일" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-indigo-500">
+      <input type="password" id="signupPw" placeholder="비밀번호 (6자 이상)" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-indigo-500">
+      <input type="password" id="signupPw2" placeholder="비밀번호 확인" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-indigo-500"
+        onkeydown="if(event.key==='Enter')doSignup()">
+      <p id="signupErr" class="text-xs text-red-500 hidden"></p>
+      <p id="signupOk" class="text-xs text-green-600 hidden bg-green-50 p-2 rounded">✅ 가입 완료! 로그인해주세요.</p>
+      <button onclick="doSignup()" class="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-semibold hover:bg-indigo-700">가입하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- App Screen -->
+<div id="appScreen" class="hidden">
+  <!-- Top bar -->
+  <div style="background:#312e81;color:#fff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:0">
+    <span style="font-weight:800;font-size:16px">📊 ROZEN FILM 매출관리</span>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="currentUser" style="font-size:12px;opacity:.7"></span>
+      <button onclick="doLogout()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer">로그아웃</button>
+    </div>
+  </div>
+
+  <div class="container mx-auto p-4">
+    <h1 class="text-2xl font-bold text-center mb-6">인테리어필름 시공 매출관리 프로그램</h1>
+
+    <!-- Tab Navigation -->
+    <div class="flex space-x-4 mb-6">
+      <button id="projectTab" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">프로젝트 관리</button>
+      <button id="laborTab" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300">주간 인건비 정산</button>
+      <button id="calendarTab" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300">인력 배치 현황</button>
+      <button id="workerTab" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300">인력 관리</button>
+      <button id="materialTab" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300">자재 관리</button>
+      <button id="statsTab" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300">📊 월별 통계</button>
+    </div>
+
+    <!-- Project Management Tab -->
+    <div id="projectContent" class="bg-white p-6 rounded-lg shadow-md mb-6">
+      <h2 class="text-xl font-semibold mb-4">프로젝트 추가/수정</h2>
+      <form id="projectForm" class="space-y-4">
+        <input type="hidden" id="projectIndex" value="-1">
+        <div>
+          <label for="siteName" class="block text-sm font-medium text-gray-700">현장명</label>
+          <input type="text" id="siteName" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+        <div>
+          <label for="constructionDate" class="block text-sm font-medium text-gray-700">시공 시작 날짜</label>
+          <input type="date" id="constructionDate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">자재 선택</label>
+          <div id="materialsContainer" class="space-y-4 mt-1">
+            <!-- Material sections will be populated by JavaScript -->
+          </div>
+          <button type="button" id="addMaterial" class="mt-2 bg-blue-500 text-white py-1 px-3 rounded-md hover:bg-blue-600">자재 추가</button>
+          <div class="mt-2">
+            <span class="font-semibold">총 자재 비용: </span>
+            <span id="materialCostDisplay" class="font-bold">0 원</span>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">부대비용</label>
+          <div id="additionalCostsContainer" class="space-y-4 mt-1">
+            <!-- Additional cost sections will be populated by JavaScript -->
+          </div>
+          <div class="mt-2">
+            <span class="font-semibold">총 부대비용: </span>
+            <span id="additionalCostDisplay" class="font-bold">0 원</span>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">인력 선택 (일별)</label>
+          <div id="daysContainer" class="space-y-4 mt-1">
+            <!-- Day sections will be populated by JavaScript -->
+          </div>
+          <div class="flex space-x-2 mt-2">
+            <button type="button" id="addDay" class="bg-green-500 text-white py-1 px-3 rounded-md hover:bg-green-600">새로운 일자 추가</button>
+            <button type="button" id="deleteDay" class="bg-red-500 text-white py-1 px-3 rounded-md hover:bg-red-600" disabled>일자 삭제</button>
+          </div>
+          <div class="mt-2">
+            <span class="font-semibold">총 인건비: </span>
+            <span id="totalLaborCost" class="font-bold">0 원</span>
+          </div>
+        </div>
+        <div>
+          <label for="totalEstimate" class="block text-sm font-medium text-gray-700">총 견적 금액 (원)</label>
+          <input type="number" id="totalEstimate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+        <div class="flex space-x-2">
+          <button type="submit" id="submitButton" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">프로젝트 추가</button>
+          <button type="button" id="cancelEdit" class="w-full bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 hidden">수정 취소</button>
+        </div>
+      </form>
+
+      <!-- Sales table and export/import controls -->
+      <div class="mt-6">
+        <h2 class="text-xl font-semibold mb-4">매출 기록</h2>
+        <div class="flex space-x-2 mb-4">
+          <button type="button" id="exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">모든 데이터 내보내기</button>
+          <button type="button" id="importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">JSON 파일 불러오기</button>
+          <input type="file" id="fileInput" accept=".json" class="hidden">
+          <select id="monthSelector" class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+            <option value="">월 선택</option>
+            <!-- Options will be populated by JavaScript -->
+          </select>
+          <button type="button" id="exportMonth" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700" disabled>월별 데이터 내보내기</button>
+        </div>
+        <table class="w-full border-collapse">
+          <thead>
+            <tr class="bg-gray-200">
+              <th class="border p-2">현장명</th>
+              <th class="border p-2">시공 시작 날짜</th>
+              <th class="border p-2">자재</th>
+              <th class="border p-2">필름 사용량 (미터)</th>
+              <th class="border p-2">자재 비용 (원)</th>
+              <th class="border p-2">부대비용 (원)</th>
+              <th class="border p-2">인력 (일별)</th>
+              <th class="border p-2">총 비용 (원)</th>
+              <th class="border p-2">총 견적 금액 (원)</th>
+              <th class="border p-2">이윤 (원)</th>
+              <th class="border p-2">이윤율 (%)</th>
+            </tr>
+          </thead>
+          <tbody id="salesTableBody"></tbody>
+        </table>
+        <div class="mt-4 text-right space-y-2">
+          <div>
+            <span class="font-semibold">총 매출: </span>
+            <span id="totalRevenue" class="font-bold">0 원</span>
+          </div>
+          <div>
+            <span class="font-semibold">총 이윤: </span>
+            <span id="totalProfit" class="font-bold">0 원</span>
+          </div>
+          <div>
+            <span class="font-semibold">총 부대비용: </span>
+            <span id="totalAdditionalCost" class="font-bold">0 원</span>
+          </div>
+          <div>
+            <span class="font-semibold">총 인건비: </span>
+            <span id="totalLaborCostSummary" class="font-bold">0 원</span>
+          </div>
+          <div>
+            <span class="font-semibold">총 자재비: </span>
+            <span id="totalMaterialCost" class="font-bold">0 원</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Weekly Labor Cost Settlement Tab -->
+    <div id="laborContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+      <h2 class="text-xl font-semibold mb-4">주간 인건비 정산</h2>
+      <div class="space-y-4">
+        <div>
+          <label for="startDate" class="block text-sm font-medium text-gray-700">시작 날짜</label>
+          <input type="date" id="startDate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+        <div>
+          <label for="endDate" class="block text-sm font-medium text-gray-700">종료 날짜</label>
+          <input type="date" id="endDate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+        <div>
+          <label for="prepaidExpenses" class="block text-sm font-medium text-gray-700">선지출한 경비 (원)</label>
+          <input type="number" id="prepaidExpenses" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="0">
+        </div>
+        <div>
+          <label for="amountPaid" class="block text-sm font-medium text-gray-700">이미 지급된 금액 (원)</label>
+          <input type="number" id="amountPaid" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="0">
+        </div>
+        <div class="flex space-x-2">
+          <button type="button" id="calculateLabor" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700" disabled>계산</button>
+          <button type="button" id="resetLabor" class="bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600">초기화</button>
+        </div>
+        <div class="mt-4 space-y-2">
+          <div>
+            <span class="font-semibold">총 인건비: </span>
+            <span id="totalLaborCostResult" class="font-bold">0 원</span>
+          </div>
+          <div>
+            <span class="font-semibold">최종 지급 금액: </span>
+            <span id="finalAmount" class="font-bold">0 원</span>
+          </div>
+          <div>
+            <span class="font-semibold">인력별 상세 내역:</span>
+            <table class="w-full border-collapse mt-2">
+              <thead>
+                <tr class="bg-gray-200">
+                  <th class="border p-2">인력 이름</th>
+                  <th class="border p-2">인건비 (원)</th>
+                  <th class="border p-2">투입 일정 및 현장</th>
+                </tr>
+              </thead>
+              <tbody id="workerDetailsTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Worker Assignment Calendar Tab -->
+    <div id="calendarContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+      <h2 class="text-xl font-semibold mb-4">인력 배치 현황</h2>
+      <div class="space-y-4">
+        <div>
+          <label for="calendarMonthSelector" class="block text-sm font-medium text-gray-700">월 선택</label>
+          <select id="calendarMonthSelector" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+            <option value="">월 선택</option>
+            <!-- Options will be populated by JavaScript -->
+          </select>
+        </div>
+        <div id="calendarDisplay" class="mt-4"></div>
+      </div>
+    </div>
+
+    <!-- Worker Management Tab -->
+    <div id="workerContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+      <h2 class="text-xl font-semibold mb-4">인력 관리</h2>
+      <div class="space-y-4">
+        <h3 class="text-lg font-medium">인력 추가</h3>
+        <form id="workerForm" class="space-y-4">
+          <div>
+            <label for="workerName" class="block text-sm font-medium text-gray-700">인력 이름</label>
+            <input type="text" id="workerName" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+          </div>
+          <div>
+            <label for="workerCost" class="block text-sm font-medium text-gray-700">인건비 (원)</label>
+            <input type="number" id="workerCost" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+          </div>
+          <button type="submit" class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600">인력 추가</button>
+        </form>
+        <h3 class="text-lg font-medium mt-6">등록된 인력</h3>
+        <table class="w-full border-collapse">
+          <thead>
+            <tr class="bg-gray-200">
+              <th class="border p-2">인력 이름</th>
+              <th class="border p-2">인건비 (원)</th>
+              <th class="border p-2">작업</th>
+            </tr>
+          </thead>
+          <tbody id="workerTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Material Management Tab -->
+    <div id="materialContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+      <h2 class="text-xl font-semibold mb-4">자재 관리</h2>
+      <div class="space-y-4">
+        <h3 class="text-lg font-medium">자재 추가</h3>
+        <form id="materialForm" class="space-y-4">
+          <div>
+            <label for="materialName" class="block text-sm font-medium text-gray-700">자재 이름</label>
+            <input type="text" id="materialName" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+          </div>
+          <div>
+            <label for="materialUnitPrice" class="block text-sm font-medium text-gray-700">단가 (원/미터)</label>
+            <input type="number" id="materialUnitPrice" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required>
+          </div>
+          <button type="submit" class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600">자재 추가</button>
+        </form>
+        <h3 class="text-lg font-medium mt-6">등록된 자재</h3>
+        <table class="w-full border-collapse">
+          <thead>
+            <tr class="bg-gray-200">
+              <th class="border p-2">자재 이름</th>
+              <th class="border p-2">단가 (원/미터)</th>
+              <th class="border p-2">작업</th>
+            </tr>
+          </thead>
+          <tbody id="materialTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Monthly Stats Tab -->
+    <div id="statsContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+      <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <h2 class="text-xl font-semibold">📊 월별 매출 통계</h2>
+        <div class="flex items-center gap-2">
+          <button onclick="changeStatsMonth(-1)" class="bg-gray-200 text-gray-700 py-1 px-3 rounded-md hover:bg-gray-300">◀</button>
+          <span id="statsMonthTitle" class="font-bold text-lg min-w-32 text-center"></span>
+          <button onclick="changeStatsMonth(1)" class="bg-gray-200 text-gray-700 py-1 px-3 rounded-md hover:bg-gray-300">▶</button>
+        </div>
+      </div>
+
+      <!-- Summary cards -->
+      <div class="grid grid-cols-2 gap-4 mb-6" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+          <p class="text-xs font-bold text-indigo-500 mb-1">총 매출</p>
+          <p id="statsTotalRevenue" class="text-2xl font-bold text-indigo-700">0 원</p>
+        </div>
+        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+          <p class="text-xs font-bold text-green-500 mb-1">총 이윤</p>
+          <p id="statsTotalProfit" class="text-2xl font-bold text-green-700">0 원</p>
+        </div>
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p class="text-xs font-bold text-yellow-600 mb-1">총 인건비</p>
+          <p id="statsTotalLabor" class="text-2xl font-bold text-yellow-700">0 원</p>
+        </div>
+        <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p class="text-xs font-bold text-red-500 mb-1">총 자재비</p>
+          <p id="statsTotalMaterial" class="text-2xl font-bold text-red-700">0 원</p>
+        </div>
+        <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <p class="text-xs font-bold text-purple-500 mb-1">총 부대비용</p>
+          <p id="statsTotalAdditional" class="text-2xl font-bold text-purple-700">0 원</p>
+        </div>
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <p class="text-xs font-bold text-gray-500 mb-1">평균 이윤율</p>
+          <p id="statsAvgMargin" class="text-2xl font-bold text-gray-700">0%</p>
+        </div>
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <p class="text-xs font-bold text-blue-500 mb-1">시공 건수</p>
+          <p id="statsProjectCount" class="text-2xl font-bold text-blue-700">0 건</p>
+        </div>
+        <div class="bg-teal-50 border border-teal-200 rounded-lg p-4">
+          <p class="text-xs font-bold text-teal-500 mb-1">총 필름 사용량</p>
+          <p id="statsTotalMeters" class="text-2xl font-bold text-teal-700">0 m</p>
+        </div>
+      </div>
+
+      <!-- Project list for month -->
+      <h3 class="font-semibold text-base mb-3">이 달의 프로젝트</h3>
+      <div id="statsProjectList" class="space-y-2"></div>
+
+      <!-- Worker stats -->
+      <h3 class="font-semibold text-base mt-6 mb-3">인력별 투입 현황</h3>
+      <div id="statsWorkerList" class="grid gap-3" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))"></div>
+    </div>
+
+
+  </div>
+</div><!-- /appScreen -->
+
+  <script>
+    // Workers (loaded from Firebase)
+    let workers = [
+      { name: '이석현', cost: 250000 }, { name: '강민석', cost: 230000 },
+      { name: '육한수', cost: 250000 }, { name: '이명권', cost: 250000 },
+      { name: '권기표', cost: 190000 }, { name: '박민경', cost: 120000 },
+      { name: '조경현', cost: 250000 }, { name: '조수희', cost: 120000 }
+    ];
+
+    // Materials (loaded from Firebase)
+    let materials = [
+      { name: '영림 기본패턴', unitPrice: 4900 }, { name: '현대 기본패턴', unitPrice: 5600 },
+      { name: '현대 ZSW', unitPrice: 6700 }, { name: '현대 SMT, PNT', unitPrice: 8300 },
+      { name: '현대 PNC, RM, NS', unitPrice: 9300 }, { name: '현대 PM, SPW', unitPrice: 10500 }
+    ];
+
+    // Additional cost categories
+    const additionalCostCategories = [
+      { name: '식대' },
+      { name: '물류비' },
+      { name: '부자재비' }
+    ];
+
+    // Projects (loaded from Firebase)
+    let projects = [];
+    let days = [{ selectedWorkers: new Set(), date: '' }]; // Initialize with one day
+    let selectedMaterials = [{ material: null, dispatched: 0, returned: 0, meters: 0 }]; // Initialize with one material entry
+    let selectedAdditionalCosts = additionalCostCategories.map(category => ({ category: category.name, amount: 0 })); // Initialize additional costs
+    let editingIndex = -1; // Track index of project being edited
+
+    // Function to save projects to Firebase
+    async function saveProjects() {
+      if (!window._user) return;
+      try {
+        const { doc, setDoc } = window._fbFns;
+        const uid = window._user.uid;
+        await setDoc(doc(window._db, 'sales_data', uid), {
+          projects: projects.map(p => ({
+            ...p,
+            days: p.days.map(d => ({ ...d, workers: Array.isArray(d.workers) ? d.workers : Array.from(d.workers || []) }))
+          })),
+          updatedAt: new Date().toISOString()
+        });
+      } catch (e) { console.error('Error saving projects to Firebase:', e); }
+    }
+
+    // Function to save workers to Firebase
+    async function saveWorkers() {
+      if (!window._user) return;
+      try {
+        const { doc, setDoc } = window._fbFns;
+        const uid = window._user.uid;
+        await setDoc(doc(window._db, 'sales_workers', uid), { workers, updatedAt: new Date().toISOString() });
+      } catch (e) { console.error('Error saving workers:', e); }
+    }
+
+    // Function to save materials to Firebase
+    async function saveMaterials() {
+      if (!window._user) return;
+      try {
+        const { doc, setDoc } = window._fbFns;
+        const uid = window._user.uid;
+        await setDoc(doc(window._db, 'sales_materials', uid), { materials, updatedAt: new Date().toISOString() });
+      } catch (e) { console.error('Error saving materials:', e); }
+    }
+
+    // Function to download JSON file
+    function downloadJSON(data, filename) {
+      try {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error('Error downloading JSON:', e);
+        alert('JSON 파일 다운로드 중 오류가 발생했습니다.');
+      }
+    }
+
+    // saveMonthlyJSON removed (Firebase handles persistence)
+
+    // Function to validate and import JSON projects
+    function importProjects(file) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const importedData = JSON.parse(e.target.result);
+          if (!Array.isArray(importedData)) {
+            alert('JSON 파일은 프로젝트 배열이어야 합니다.');
+            return;
+          }
+
+          const validProjects = [];
+          const errors = [];
+
+          importedData.forEach((project, index) => {
+            if (!project.siteName || typeof project.siteName !== 'string') {
+              errors.push(`프로젝트 ${index + 1}: 현장명이 유효하지 않습니다.`);
+              return;
+            }
+            if (!project.constructionDate || typeof project.constructionDate !== 'string') {
+              errors.push(`프로젝트 ${index + 1}: 시공 시작 날짜가 유효하지 않습니다.`);
+              return;
+            }
+            if (!Array.isArray(project.materials) || project.materials.length === 0) {
+              errors.push(`프로젝트 ${index + 1}: 자재 목록이 유효하지 않습니다.`);
+              return;
+            }
+            if (!Array.isArray(project.days)) {
+              errors.push(`프로젝트 ${index + 1}: 일자 목록이 유효하지 않습니다.`);
+              return;
+            }
+            if (typeof project.totalEstimate !== 'number' || project.totalEstimate < 0) {
+              errors.push(`프로젝트 ${index + 1}: 총 견적 금액이 유효하지 않습니다.`);
+              return;
+            }
+
+            const validMaterials = project.materials.every(m => {
+              const material = materials.find(mat => mat.name === m.name);
+              return material && typeof m.meters === 'number' && m.meters >= 0;
+            });
+            if (!validMaterials) {
+              errors.push(`프로젝트 ${index + 1}: 자재 데이터가 유효하지 않습니다.`);
+              return;
+            }
+
+            const validDays = project.days.every(day => {
+              if (!day.date || typeof day.date !== 'string') return false;
+              if (!Array.isArray(day.workers)) return false;
+              day.workers.forEach(workerName => {
+                if (!workers.find(w => w.name === workerName)) {
+                  const workerCost = project.laborCost && day.workers.length > 0
+                    ? Math.round(project.laborCost / project.days.reduce((sum, d) => sum + d.workers.length, 0))
+                    : 0;
+                  workers.push({ name: workerName, cost: workerCost });
+                }
+              });
+              return true;
+            });
+            if (!validDays) {
+              errors.push(`프로젝트 ${index + 1}: 인력 데이터가 유효하지 않습니다.`);
+              return;
+            }
+
+            const validAdditionalCosts = Array.isArray(project.additionalCosts) && project.additionalCosts.every(c => {
+              return additionalCostCategories.find(cat => cat.name === c.category) && typeof c.amount === 'number' && c.amount >= 0;
+            });
+            if (!validAdditionalCosts) {
+              errors.push(`프로젝트 ${index + 1}: 부대비용 데이터가 유효하지 않습니다.`);
+              return;
+            }
+
+            const isDuplicate = projects.some(p => 
+              p.siteName === project.siteName && p.constructionDate === project.constructionDate
+            );
+            if (isDuplicate) {
+              if (!confirm(`"${project.siteName}" (${project.constructionDate}) 프로젝트가 이미 존재합니다. 덮어쓰시겠습니까?`)) {
+                return;
+              }
+              projects = projects.filter(p => 
+                !(p.siteName === project.siteName && p.constructionDate === project.constructionDate)
+              );
+            }
+
+            const materialCost = project.materials.reduce((sum, m) => {
+              const material = materials.find(mat => mat.name === m.name);
+              return sum + (material ? material.unitPrice * m.meters : 0);
+            }, 0);
+            const laborCost = project.days.reduce((sum, day) => {
+              return sum + day.workers.reduce((ws, workerName) => {
+                const worker = workers.find(w => w.name === workerName);
+                return ws + (worker ? worker.cost : 0);
+              }, 0);
+            }, 0);
+            const additionalCost = project.additionalCosts.reduce((sum, c) => sum + (c.amount || 0), 0);
+
+            validProjects.push({
+              siteName: project.siteName,
+              constructionDate: project.constructionDate,
+              materials: project.materials.map(m => ({
+                name: m.name,
+                dispatched: m.dispatched || m.meters || 0,
+                returned: m.returned || 0,
+                meters: m.meters || 0
+              })),
+              materialCost,
+              days: project.days,
+              laborCost,
+              additionalCosts: project.additionalCosts,
+              additionalCost,
+              totalEstimate: project.totalEstimate
+            });
+          });
+
+          if (validProjects.length === 0) {
+            alert('유효한 프로젝트가 JSON 파일에 없습니다.\n오류:\n' + errors.join('\n'));
+            return;
+          }
+
+          projects.push(...validProjects);
+          saveProjects();
+          saveWorkers(); // Save updated workers from import
+          updateSalesTable();
+          alert(`${validProjects.length}개의 프로젝트가 성공적으로 불러와졌습니다.`);
+          if (errors.length > 0) {
+            console.warn('일부 프로젝트를 불러오지 못했습니다:\n' + errors.join('\n'));
+            alert('일부 프로젝트를 불러오지 못했습니다:\n' + errors.join('\n'));
+          }
+        } catch (e) {
+          console.error('Error parsing JSON file:', e);
+          alert('JSON 파일을 파싱하는 중 오류가 발생했습니다. 유효한 JSON 파일인지 확인하세요.');
+        }
+      };
+      reader.onerror = function() {
+        alert('파일을 읽는 중 오류가 발생했습니다.');
+      };
+      reader.readAsText(file);
+    }
+
+    // Function to populate month selector
+    function populateMonthSelector() {
+      const monthSelector = document.getElementById('monthSelector');
+      const exportMonthButton = document.getElementById('exportMonth');
+      const months = new Set();
+
+      projects.forEach(project => {
+        if (project.constructionDate && project.constructionDate !== '미지정') {
+          const date = new Date(project.constructionDate);
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          months.add(monthKey);
+        }
+      });
+
+      monthSelector.innerHTML = '<option value="">월 선택</option>';
+      Array.from(months).sort().forEach(month => {
+        const option = document.createElement('option');
+        option.value = month;
+        option.textContent = month;
+        monthSelector.appendChild(option);
+      });
+
+      exportMonthButton.disabled = months.size === 0;
+      exportMonthButton.className = `bg-indigo-600 text-white py-2 px-4 rounded-md ${months.size === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'}`;
+    }
+
+    // Function to populate calendar month selector
+    function populateCalendarMonthSelector() {
+      const calendarMonthSelector = document.getElementById('calendarMonthSelector');
+      const months = new Set();
+
+      projects.forEach(project => {
+        project.days.forEach(day => {
+          if (day.date && day.date !== '미지정') {
+            const date = new Date(day.date);
+            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            months.add(monthKey);
+          }
+        });
+      });
+
+      calendarMonthSelector.innerHTML = '<option value="">월 선택</option>';
+      Array.from(months).sort().forEach(month => {
+        const option = document.createElement('option');
+        option.value = month;
+        option.textContent = month;
+        calendarMonthSelector.appendChild(option);
+      });
+    }
+
+    // Function to generate calendar for a given month
+    function generateCalendar(monthKey) {
+      if (!monthKey) return;
+
+      const [year, month] = monthKey.split('-').map(Number);
+      const firstDay = new Date(year, month - 1, 1);
+      const lastDay = new Date(year, month, 0);
+      const firstDayOfWeek = firstDay.getDay();
+      const totalDays = lastDay.getDate();
+
+      const assignments = {};
+      projects.forEach(project => {
+        project.days.forEach(day => {
+          if (day.date && day.date !== '미지정') {
+            const date = new Date(day.date);
+            if (date.getFullYear() === year && date.getMonth() + 1 === month) {
+              const dateKey = day.date;
+              if (!assignments[dateKey]) {
+                assignments[dateKey] = [];
+              }
+              assignments[dateKey].push({
+                project: project.siteName || '미지정',
+                workers: day.workers.join(', ') || '없음'
+              });
+            }
+          }
+        });
+      });
+
+      const calendarDisplay = document.getElementById('calendarDisplay');
+      calendarDisplay.innerHTML = '';
+
+      const table = document.createElement('table');
+      table.className = 'w-full border-collapse';
+      const thead = document.createElement('thead');
+      thead.innerHTML = `
+        <tr class="bg-gray-200">
+          <th class="border p-2">일</th>
+          <th class="border p-2">월</th>
+          <th class="border p-2">화</th>
+          <th class="border p-2">수</th>
+          <th class="border p-2">목</th>
+          <th class="border p-2">금</th>
+          <th class="border p-2">토</th>
+        </tr>
+      `;
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      let row = document.createElement('tr');
+      let dayCount = 1;
+
+      for (let i = 0; i < firstDayOfWeek; i++) {
+        const td = document.createElement('td');
+        td.className = 'border p-2';
+        row.appendChild(td);
+      }
+
+      while (dayCount <= totalDays) {
+        if (row.children.length === 7) {
+          tbody.appendChild(row);
+          row = document.createElement('tr');
+        }
+
+        const td = document.createElement('td');
+        td.className = 'border p-2 align-top';
+        const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(dayCount).padStart(2, '0')}`;
+        const dayAssignments = assignments[dateKey] || [];
+
+        let content = `<div class="font-bold">${dayCount}</div>`;
+        dayAssignments.forEach(assignment => {
+          content += `<div class="text-sm mt-1"><span class="font-semibold">${assignment.project}:</span> ${assignment.workers}</div>`;
+        });
+
+        td.innerHTML = content;
+        row.appendChild(td);
+        dayCount++;
+      }
+
+      while (row.children.length < 7) {
+        const td = document.createElement('td');
+        td.className = 'border p-2';
+        row.appendChild(td);
+      }
+      tbody.appendChild(row);
+
+      table.appendChild(tbody);
+      calendarDisplay.appendChild(table);
+    }
+
+    // Function to calculate total cost
+    function calculateTotalCost(materialCost, laborCost, additionalCost) {
+      return (materialCost || 0) + (laborCost || 0) + (additionalCost || 0);
+    }
+
+    // Function to calculate profit
+    function calculateProfit(totalEstimate, totalCost) {
+      return (totalEstimate || 0) - (totalCost || 0);
+    }
+
+    // Function to calculate profit margin
+    function calculateProfitMargin(profit, totalEstimate) {
+      return totalEstimate > 0 ? (profit / totalEstimate) * 100 : 0;
+    }
+
+    // Function to calculate labor cost for all days
+    function calculateLaborCost() {
+      return days.reduce((total, day) => {
+        const dayCost = Array.from(day.selectedWorkers).reduce((sum, workerName) => {
+          const worker = workers.find(w => w.name === workerName);
+          return sum + (worker ? worker.cost : 0);
+        }, 0);
+        return total + dayCost;
+      }, 0);
+    }
+
+    // Function to calculate material cost
+    function calculateMaterialCost() {
+      return selectedMaterials.reduce((total, entry) => {
+        if (!entry.material || entry.meters <= 0) return total;
+        return total + (entry.material.unitPrice * entry.meters);
+      }, 0);
+    }
+
+    // Function to calculate additional cost
+    function calculateAdditionalCost() {
+      return selectedAdditionalCosts.reduce((total, entry) => {
+        return total + (entry.amount || 0);
+      }, 0);
+    }
+
+    // Function to update material cost display
+    function updateMaterialCostDisplay() {
+      const materialCost = calculateMaterialCost();
+      document.getElementById('materialCostDisplay').textContent = `${materialCost.toLocaleString()} 원`;
+      return materialCost;
+    }
+
+    // Function to update labor cost display
+    function updateLaborCostDisplay() {
+      const totalLaborCost = calculateLaborCost();
+      document.getElementById('totalLaborCost').textContent = `${totalLaborCost.toLocaleString()} 원`;
+      return totalLaborCost;
+    }
+
+    // Function to update additional cost display
+    function updateAdditionalCostDisplay() {
+      const additionalCost = calculateAdditionalCost();
+      document.getElementById('additionalCostDisplay').textContent = `${additionalCost.toLocaleString()} 원`;
+      return additionalCost;
+    }
+
+    // Function to update delete day button state
+    function updateDeleteDayButton() {
+      const deleteDayButton = document.getElementById('deleteDay');
+      deleteDayButton.disabled = days.length <= 1;
+      deleteDayButton.className = `bg-red-500 text-white py-1 px-3 rounded-md ${days.length <= 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-600'}`;
+    }
+
+    // Function to update remove material button state
+    function updateRemoveMaterialButtons() {
+      const removeButtons = document.querySelectorAll('[id^="removeMaterial-"]');
+      removeButtons.forEach(button => {
+        button.disabled = selectedMaterials.length <= 1;
+        button.className = `mt-2 bg-red-500 text-white py-1 px-3 rounded-md ${selectedMaterials.length <= 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-600'}`;
+      });
+    }
+
+    // Function to populate material buttons for a specific material entry
+    function populateMaterialButtons(materialIndex) {
+      const materialButtonsDiv = document.getElementById(`materialButtons-${materialIndex}`);
+      materialButtonsDiv.innerHTML = '';
+      materials.forEach(material => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'py-2 px-4 border rounded-md ' + (selectedMaterials[materialIndex].material && selectedMaterials[materialIndex].material.name === material.name ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300');
+        button.textContent = `${material.name} (${material.unitPrice.toLocaleString()}원/미터)`;
+        button.addEventListener('click', () => {
+          selectedMaterials[materialIndex].material = material;
+          document.querySelectorAll(`#materialButtons-${materialIndex} button`).forEach(btn => {
+            btn.className = 'py-2 px-4 border rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300';
+          });
+          button.className = 'py-2 px-4 border rounded-md bg-indigo-600 text-white';
+          updateMaterialCostDisplay();
+        });
+        materialButtonsDiv.appendChild(button);
+      });
+    }
+
+    // Function to populate material sections
+    function populateMaterials() {
+      const materialsContainer = document.getElementById('materialsContainer');
+      materialsContainer.innerHTML = '';
+      selectedMaterials.forEach((entry, index) => {
+        const materialDiv = document.createElement('div');
+        materialDiv.className = 'border p-4 rounded-md bg-gray-50';
+        materialDiv.innerHTML = `
+          <div class="flex justify-between items-center mb-2">
+            <label class="text-sm font-medium text-gray-700">자재 ${index + 1}</label>
+          </div>
+          <div id="materialButtons-${index}" class="grid grid-cols-2 gap-2 mb-2"></div>
+          <div>
+            <label for="dispatched-${index}" class="block text-sm font-medium text-gray-700">출고 (미터)</label>
+            <input type="number" id="dispatched-${index}" step="0.1" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="${entry.dispatched || 0}">
+          </div>
+          <div>
+            <label for="returned-${index}" class="block text-sm font-medium text-gray-700">반납 (미터)</label>
+            <input type="number" id="returned-${index}" step="0.1" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="${entry.returned || 0}">
+          </div>
+          <div>
+            <label for="materialMeters-${index}" class="block text-sm font-medium text-gray-700">총 사용량 (미터)</label>
+            <input type="number" id="materialMeters-${index}" step="0.1" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="${entry.meters || 0}" required>
+          </div>
+          <button type="button" id="removeMaterial-${index}" class="mt-2 bg-red-500 text-white py-1 px-3 rounded-md hover:bg-red-600">자재 삭제</button>
+        `;
+        materialsContainer.appendChild(materialDiv);
+        populateMaterialButtons(index);
+        const dispatchedInput = document.getElementById(`dispatched-${index}`);
+        const returnedInput = document.getElementById(`returned-${index}`);
+        const metersInput = document.getElementById(`materialMeters-${index}`);
+        dispatchedInput.addEventListener('input', (e) => {
+          selectedMaterials[index].dispatched = parseFloat(e.target.value) || 0;
+          const returned = selectedMaterials[index].returned;
+          if (selectedMaterials[index].dispatched >= returned) {
+            selectedMaterials[index].meters = selectedMaterials[index].dispatched - returned;
+            metersInput.value = selectedMaterials[index].meters;
+          } else {
+            alert('출고량은 반납량보다 크거나 같아야 합니다.');
+            selectedMaterials[index].meters = 0;
+            metersInput.value = 0;
+          }
+          updateMaterialCostDisplay();
+        });
+        returnedInput.addEventListener('input', (e) => {
+          selectedMaterials[index].returned = parseFloat(e.target.value) || 0;
+          const dispatched = selectedMaterials[index].dispatched;
+          if (dispatched >= selectedMaterials[index].returned) {
+            selectedMaterials[index].meters = dispatched - selectedMaterials[index].returned;
+            metersInput.value = selectedMaterials[index].meters;
+          } else {
+            alert('반납량은 출고량보다 작거나 같아야 합니다.');
+            selectedMaterials[index].meters = 0;
+            metersInput.value = 0;
+          }
+          updateMaterialCostDisplay();
+        });
+        metersInput.addEventListener('input', (e) => {
+          selectedMaterials[index].meters = parseFloat(e.target.value) || 0;
+          updateMaterialCostDisplay();
+        });
+        document.getElementById(`removeMaterial-${index}`).addEventListener('click', () => {
+          if (selectedMaterials.length > 1) {
+            selectedMaterials.splice(index, 1);
+            populateMaterials();
+            updateMaterialCostDisplay();
+          }
+        });
+      });
+      updateRemoveMaterialButtons();
+    }
+
+    // Function to populate additional cost sections
+    function populateAdditionalCosts() {
+      const additionalCostsContainer = document.getElementById('additionalCostsContainer');
+      additionalCostsContainer.innerHTML = '';
+      selectedAdditionalCosts.forEach((entry, index) => {
+        const costDiv = document.createElement('div');
+        costDiv.className = 'flex items-center space-x-2';
+        costDiv.innerHTML = `
+          <button type="button" id="additionalCostButton-${index}" class="py-2 px-4 border rounded-md ${entry.amount > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">${entry.category}</button>
+          <input type="number" id="additionalCostAmount-${index}" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="${entry.amount || 0}" placeholder="${entry.category} 금액 (원)">
+        `;
+        additionalCostsContainer.appendChild(costDiv);
+        document.getElementById(`additionalCostButton-${index}`).addEventListener('click', () => {
+          const input = document.getElementById(`additionalCostAmount-${index}`);
+          const currentAmount = parseInt(input.value) || 0;
+          selectedAdditionalCosts[index].amount = currentAmount > 0 ? 0 : 1;
+          input.value = selectedAdditionalCosts[index].amount;
+          document.getElementById(`additionalCostButton-${index}`).className = `py-2 px-4 border rounded-md ${selectedAdditionalCosts[index].amount > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+          updateAdditionalCostDisplay();
+        });
+        document.getElementById(`additionalCostAmount-${index}`).addEventListener('input', (e) => {
+          selectedAdditionalCosts[index].amount = parseInt(e.target.value) || 0;
+          document.getElementById(`additionalCostButton-${index}`).className = `py-2 px-4 border rounded-md ${selectedAdditionalCosts[index].amount > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+          updateAdditionalCostDisplay();
+        });
+      });
+    }
+
+    // Function to populate worker buttons for a specific day
+    function populateWorkerButtons(dayIndex) {
+      const dayContainer = document.getElementById(`workerButtons-${dayIndex}`);
+      dayContainer.innerHTML = '';
+      workers.forEach(worker => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'py-2 px-4 border rounded-md ' + (days[dayIndex].selectedWorkers.has(worker.name) ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300');
+        button.textContent = `${worker.name} (${worker.cost.toLocaleString()}원)`;
+        button.addEventListener('click', () => {
+          if (days[dayIndex].selectedWorkers.has(worker.name)) {
+            days[dayIndex].selectedWorkers.delete(worker.name);
+            button.className = 'py-2 px-4 border rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300';
+          } else {
+            days[dayIndex].selectedWorkers.add(worker.name);
+            button.className = 'py-2 px-4 border rounded-md bg-indigo-600 text-white';
+          }
+          updateLaborCostDisplay();
+        });
+        dayContainer.appendChild(button);
+      });
+    }
+
+    // Function to populate day sections
+    function populateDays() {
+      const daysContainer = document.getElementById('daysContainer');
+      daysContainer.innerHTML = '';
+      days.forEach((day, index) => {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'border p-4 rounded-md bg-gray-50';
+        dayDiv.innerHTML = `
+          <div class="flex justify-between items-center mb-2">
+            <label class="text-sm font-medium text-gray-700">일자 ${index + 1}</label>
+            <input type="date" id="dayDate-${index}" class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" value="${day.date || ''}" required>
+          </div>
+          <div id="workerButtons-${index}" class="grid grid-cols-2 gap-2"></div>
+          <button type="button" id="clearWorkers-${index}" class="mt-2 bg-gray-500 text-white py-1 px-3 rounded-md hover:bg-gray-600">이 일자 인력 초기화</button>
+        `;
+        daysContainer.appendChild(dayDiv);
+        populateWorkerButtons(index);
+        document.getElementById(`dayDate-${index}`).addEventListener('change', (e) => {
+          days[index].date = e.target.value;
+        });
+        document.getElementById(`clearWorkers-${index}`).addEventListener('click', () => {
+          days[index].selectedWorkers.clear();
+          populateWorkerButtons(index);
+          updateLaborCostDisplay();
+        });
+      });
+      updateDeleteDayButton();
+    }
+
+    // Function to populate worker management table
+    function populateWorkerTable() {
+      const workerTableBody = document.getElementById('workerTableBody');
+      workerTableBody.innerHTML = '';
+      workers.forEach((worker, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="border p-2">${worker.name}</td>
+          <td class="border p-2">${worker.cost.toLocaleString()}</td>
+          <td class="border p-2">
+            <button type="button" class="delete-worker bg-red-500 text-white py-1 px-2 rounded-md hover:bg-red-600" data-index="${index}">삭제</button>
+          </td>
+        `;
+        workerTableBody.appendChild(row);
+      });
+
+      document.querySelectorAll('.delete-worker').forEach(button => {
+        button.addEventListener('click', () => {
+          const index = parseInt(button.getAttribute('data-index'));
+          deleteWorker(index);
+        });
+      });
+    }
+
+    // Function to add a worker
+    function addWorker(name, cost) {
+      if (!name || name.trim() === '') {
+        alert('인력 이름은 비어 있을 수 없습니다.');
+        return;
+      }
+      if (isNaN(cost) || cost <= 0) {
+        alert('인건비는 0보다 큰 숫자여야 합니다.');
+        return;
+      }
+      if (workers.some(w => w.name === name)) {
+        alert('이미 존재하는 인력 이름입니다.');
+        return;
+      }
+      workers.push({ name: name.trim(), cost: parseInt(cost) });
+      saveWorkers();
+      populateWorkerTable();
+      if (document.getElementById('projectContent').classList.contains('hidden') === false) {
+        populateDays();
+      }
+      document.getElementById('workerForm').reset();
+    }
+
+    // Function to delete a worker
+    function deleteWorker(index) {
+      const workerName = workers[index].name;
+      const isAssigned = projects.some(project => 
+        project.days.some(day => day.workers.includes(workerName))
+      );
+      if (isAssigned) {
+        alert('이 인력은 프로젝트에 배정되어 있어 삭제할 수 없습니다.');
+        return;
+      }
+      if (confirm(`"${workerName}" 인력을 삭제하시겠습니까?`)) {
+        workers.splice(index, 1);
+        saveWorkers();
+        populateWorkerTable();
+        if (document.getElementById('projectContent').classList.contains('hidden') === false) {
+          populateDays();
+        }
+      }
+    }
+
+    // Function to populate form for editing
+    function populateFormForEdit(index) {
+      const project = projects[index];
+      editingIndex = index;
+      document.getElementById('projectIndex').value = index;
+      document.getElementById('siteName').value = project.siteName || '';
+      document.getElementById('constructionDate').value = project.constructionDate || '';
+      document.getElementById('totalEstimate').value = project.totalEstimate || 0;
+      selectedMaterials = project.materials.map(m => ({
+        material: materials.find(mat => mat.name === m.name) || null,
+        dispatched: m.dispatched || m.meters || 0,
+        returned: m.returned || 0,
+        meters: m.meters || 0
+      }));
+      days = project.days.map(d => ({
+        date: d.date || '',
+        selectedWorkers: new Set(d.workers || [])
+      }));
+      selectedAdditionalCosts = additionalCostCategories.map(category => ({
+        category: category.name,
+        amount: (project.additionalCosts && project.additionalCosts.find(c => c.category === category.name) || { amount: 0 }).amount
+      }));
+      populateMaterials();
+      populateDays();
+      populateAdditionalCosts();
+      updateMaterialCostDisplay();
+      updateLaborCostDisplay();
+      updateAdditionalCostDisplay();
+      document.getElementById('submitButton').textContent = '프로젝트 수정';
+      document.getElementById('cancelEdit').classList.remove('hidden');
+    }
+
+    // Function to reset form
+    function resetForm() {
+      editingIndex = -1;
+      document.getElementById('projectIndex').value = -1;
+      document.getElementById('projectForm').reset();
+      days = [{ selectedWorkers: new Set(), date: '' }];
+      selectedMaterials = [{ material: null, dispatched: 0, returned: 0, meters: 0 }];
+      selectedAdditionalCosts = additionalCostCategories.map(category => ({ category: category.name, amount: 0 }));
+      populateDays();
+      populateMaterials();
+      populateAdditionalCosts();
+      updateMaterialCostDisplay();
+      updateLaborCostDisplay();
+      updateAdditionalCostDisplay();
+      document.getElementById('submitButton').textContent = '프로젝트 추가';
+      document.getElementById('cancelEdit').classList.add('hidden');
+    }
+
+    // Function to delete a project
+    function deleteProject(index) {
+      if (confirm(`정말로 "${projects[index].siteName || '미지정'}" 프로젝트를 삭제하시겠습니까?`)) {
+        projects.splice(index, 1);
+        saveProjects();
+        resetForm();
+        updateSalesTable();
+        populateCalendarMonthSelector();
+      }
+    }
+
+    // Function to update the sales table
+    function updateSalesTable() {
+      const tableBody = document.getElementById('salesTableBody');
+      tableBody.innerHTML = '';
+      let totalRevenue = 0;
+      let totalProfit = 0;
+      let totalAdditionalCost = 0;
+      let totalLaborCost = 0;
+      let totalMaterialCost = 0;
+
+      const sortedProjects = [...projects].sort((a, b) => {
+        const dateA = a.constructionDate && a.constructionDate !== '미지정' ? new Date(a.constructionDate) : new Date(0);
+        const dateB = b.constructionDate && b.constructionDate !== '미지정' ? new Date(b.constructionDate) : new Date(0);
+        return dateB - dateA;
+      });
+
+      sortedProjects.forEach((project, index) => {
+        const originalIndex = projects.findIndex(p => 
+          p.siteName === project.siteName && p.constructionDate === project.constructionDate
+        );
+
+        const materialCost = project.materialCost || 0;
+        const laborCost = project.laborCost || 0;
+        const additionalCost = project.additionalCost || 0;
+        const totalCost = calculateTotalCost(materialCost, laborCost, additionalCost);
+        const profit = calculateProfit(project.totalEstimate, totalCost);
+        const profitMargin = calculateProfitMargin(profit, project.totalEstimate);
+        totalRevenue += (project.totalEstimate || 0);
+        totalProfit += profit;
+        totalAdditionalCost += additionalCost;
+        totalLaborCost += laborCost;
+        totalMaterialCost += materialCost;
+
+        const materialDisplay = project.materials && project.materials.length > 0
+          ? project.materials.map(m => `${m.name} (${m.meters.toFixed(1)}m)`).join(', ')
+          : '없음';
+        const totalMeters = project.materials && project.materials.length > 0
+          ? project.materials.reduce((sum, m) => sum + (m.meters || 0), 0)
+          : 0;
+        const workerDisplay = project.days && project.days.length > 0
+          ? project.days.map((day, index) => {
+              const workerNames = day.workers.length ? day.workers.map(name => {
+                const worker = workers.find(w => w.name === name);
+                return worker ? `${name} (${worker.cost.toLocaleString()}원)` : name;
+              }).join(', ') : '없음';
+              return `Day ${index + 1} (${day.date || '미지정'}): ${workerNames}`;
+            }).join('; ')
+          : '없음';
+        const additionalCostDisplay = project.additionalCosts && project.additionalCosts.length > 0
+          ? project.additionalCosts.filter(c => c.amount > 0).map(c => `${c.category}: ${c.amount.toLocaleString()}원`).join(', ')
+          : '없음';
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="border p-2">
+            <button type="button" class="edit-button bg-indigo-600 text-white py-1 px-3 rounded-md hover:bg-indigo-700" data-index="${originalIndex}">${project.siteName || '미지정'}</button>
+          </td>
+          <td class="border p-2">${project.constructionDate || '미지정'}</td>
+          <td class="border p-2">${materialDisplay}</td>
+          <td class="border p-2">${totalMeters.toFixed(1)}</td>
+          <td class="border p-2">${materialCost.toLocaleString()}</td>
+          <td class="border p-2">${additionalCostDisplay}</td>
+          <td class="border p-2">${workerDisplay}</td>
+          <td class="border p-2">${totalCost.toLocaleString()}</td>
+          <td class="border p-2">${(project.totalEstimate || 0).toLocaleString()}</td>
+          <td class="border p-2">${profit.toLocaleString()}</td>
+          <td class="border p-2">${profitMargin.toFixed(2)}% <button type="button" class="delete-button bg-red-500 text-white py-1 px-2 rounded-md hover:bg-red-600 ml-2" data-index="${originalIndex}">삭제</button></td>
+        `;
+        tableBody.appendChild(row);
+      });
+
+      document.querySelectorAll('.edit-button').forEach(button => {
+        button.addEventListener('click', () => {
+          const index = parseInt(button.getAttribute('data-index'));
+          populateFormForEdit(index);
+        });
+      });
+
+      document.querySelectorAll('.delete-button').forEach(button => {
+        button.addEventListener('click', () => {
+          const index = parseInt(button.getAttribute('data-index'));
+          deleteProject(index);
+        });
+      });
+
+      document.getElementById('totalRevenue').textContent = `${totalRevenue.toLocaleString()} 원`;
+      document.getElementById('totalProfit').textContent = `${totalProfit.toLocaleString()} 원`;
+      document.getElementById('totalAdditionalCost').textContent = `${totalAdditionalCost.toLocaleString()} 원`;
+      document.getElementById('totalLaborCostSummary').textContent = `${totalLaborCost.toLocaleString()} 원`;
+      document.getElementById('totalMaterialCost').textContent = `${totalMaterialCost.toLocaleString()} 원`;
+      populateMonthSelector();
+      populateCalendarMonthSelector();
+    }
+
+    // Function to calculate weekly labor cost
+    function calculateWeeklyLaborCost() {
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value;
+      const prepaidExpenses = parseInt(document.getElementById('prepaidExpenses').value) || 0;
+      const amountPaid = parseInt(document.getElementById('amountPaid').value) || 0;
+
+      if (!startDate || !endDate) {
+        alert('시작 날짜와 종료 날짜를 모두 입력해주세요.');
+        return;
+      }
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      if (start > end) {
+        alert('시작 날짜는 종료 날짜보다 늦을 수 없습니다.');
+        return;
+      }
+
+      const workerDetails = {};
+      let totalLaborCost = 0;
+
+      projects.forEach(project => {
+        project.days.forEach(day => {
+          if (day.date && day.date !== '미지정') {
+            const dayDate = new Date(day.date);
+            if (dayDate >= start && dayDate <= end) {
+              day.workers.forEach(workerName => {
+                const worker = workers.find(w => w.name === workerName);
+                if (worker) {
+                  if (!workerDetails[workerName]) {
+                    workerDetails[workerName] = { cost: worker.cost, schedule: [] };
+                  }
+                  workerDetails[workerName].schedule.push(`${day.date} (${project.siteName || '미지정'})`);
+                  totalLaborCost += worker.cost;
+                }
+              });
+            }
+          }
+        });
+      });
+
+      const finalAmount = amountPaid - (totalLaborCost + prepaidExpenses);
+
+      document.getElementById('totalLaborCostResult').textContent = `${totalLaborCost.toLocaleString()} 원`;
+      document.getElementById('finalAmount').textContent = `${finalAmount.toLocaleString()} 원`;
+
+      const workerDetailsTable = document.getElementById('workerDetailsTable');
+      workerDetailsTable.innerHTML = '';
+      Object.entries(workerDetails).forEach(([workerName, details]) => {
+        const totalWorkerCost = details.schedule.length * details.cost;
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="border p-2">${workerName}</td>
+          <td class="border p-2">${totalWorkerCost.toLocaleString()}</td>
+          <td class="border p-2">${details.schedule.join(', ')}</td>
+        `;
+        workerDetailsTable.appendChild(row);
+      });
+    }
+
+    // Function to reset labor cost inputs
+    function resetLaborInputs() {
+      document.getElementById('startDate').value = '';
+      document.getElementById('endDate').value = '';
+      document.getElementById('prepaidExpenses').value = '0';
+      document.getElementById('amountPaid').value = '0';
+      document.getElementById('totalLaborCostResult').textContent = '0 원';
+      document.getElementById('finalAmount').textContent = '0 원';
+      document.getElementById('workerDetailsTable').innerHTML = '';
+      updateCalculateButtonState();
+    }
+
+    // Function to update calculate button state
+    function updateCalculateButtonState() {
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value;
+      const calculateButton = document.getElementById('calculateLabor');
+      calculateButton.disabled = !startDate || !endDate;
+      calculateButton.className = `bg-indigo-600 text-white py-2 px-4 rounded-md ${!startDate || !endDate ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'}`;
+    }
+
+
+    // ── Firebase Load ──
+    async function loadAllDataFromFirebase() {
+      if (!window._user) return;
+      const { doc, getDocs, collection } = window._fbFns;
+      const uid = window._user.uid;
+      try {
+        // Load projects
+        const pSnap = await window._fbFns.getDocs(window._fbFns.collection(window._db, 'sales_data'));
+        pSnap.forEach(d => { if (d.id === uid) {
+          const data = d.data();
+          projects = (data.projects || []).map(p => ({
+            ...p,
+            days: (p.days || []).map(day => ({ ...day, workers: Array.isArray(day.workers) ? day.workers : [] }))
+          }));
+        }});
+        // Load workers
+        const wSnap = await window._fbFns.getDocs(window._fbFns.collection(window._db, 'sales_workers'));
+        wSnap.forEach(d => { if (d.id === uid && d.data().workers) workers = d.data().workers; });
+        // Load materials
+        const mSnap = await window._fbFns.getDocs(window._fbFns.collection(window._db, 'sales_materials'));
+        mSnap.forEach(d => { if (d.id === uid && d.data().materials) materials = d.data().materials; });
+      } catch(e) { console.error('Firebase load error:', e); }
+      populateMaterials(); populateDays(); populateAdditionalCosts();
+      updateSalesTable(); populateCalendarMonthSelector(); populateWorkerTable();
+      showProjectTab();
+    }
+
+    // ── Auth ──
+    function switchLoginTab(tab) {
+      const isLogin = tab === 'login';
+      document.getElementById('loginForm').classList.toggle('hidden', !isLogin);
+      document.getElementById('signupForm').classList.toggle('hidden', isLogin);
+      document.getElementById('loginTabBtn').style.cssText = isLogin ? 'flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:#4f46e5;color:#fff' : 'flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:#6b7280';
+      document.getElementById('signupTabBtn').style.cssText = isLogin ? 'flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:#6b7280' : 'flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:#4f46e5;color:#fff';
+    }
+    function doLogin() {
+      const { signInWithEmailAndPassword } = window._fbFns;
+      const e = document.getElementById('loginEmail').value.trim();
+      const p = document.getElementById('loginPassword').value;
+      document.getElementById('loginErr').classList.add('hidden');
+      signInWithEmailAndPassword(window._auth, e, p).catch(() => document.getElementById('loginErr').classList.remove('hidden'));
+    }
+    async function doSignup() {
+      const { createUserWithEmailAndPassword, updateProfile } = window._fbFns;
+      const name = document.getElementById('signupName').value.trim();
+      const email = document.getElementById('signupEmail').value.trim();
+      const pw = document.getElementById('signupPw').value;
+      const pw2 = document.getElementById('signupPw2').value;
+      const err = document.getElementById('signupErr');
+      const ok = document.getElementById('signupOk');
+      err.classList.add('hidden'); ok.classList.add('hidden');
+      if (!name) { err.textContent='이름을 입력해주세요.'; err.classList.remove('hidden'); return; }
+      if (pw.length < 6) { err.textContent='비밀번호는 6자 이상이어야 합니다.'; err.classList.remove('hidden'); return; }
+      if (pw !== pw2) { err.textContent='비밀번호가 일치하지 않습니다.'; err.classList.remove('hidden'); return; }
+      try {
+        const cred = await createUserWithEmailAndPassword(window._auth, email, pw);
+        await updateProfile(cred.user, { displayName: name });
+        ok.classList.remove('hidden');
+        setTimeout(() => switchLoginTab('login'), 1500);
+      } catch(e) {
+        err.textContent = e.code === 'auth/email-already-in-use' ? '이미 사용 중인 이메일입니다.' : '오류: ' + e.message;
+        err.classList.remove('hidden');
+      }
+    }
+    function doLogout() { window._fbFns.signOut(window._auth); }
+
+    // ── Monthly Stats ──
+    let statsYear = new Date().getFullYear();
+    let statsMonth = new Date().getMonth();
+
+    function changeStatsMonth(delta) {
+      statsMonth += delta;
+      if (statsMonth > 11) { statsMonth = 0; statsYear++; }
+      if (statsMonth < 0)  { statsMonth = 11; statsYear--; }
+      renderStats();
+    }
+
+    function renderStats() {
+      document.getElementById('statsMonthTitle').textContent = statsYear + '년 ' + (statsMonth + 1) + '월';
+      const monthKey = statsYear + '-' + String(statsMonth + 1).padStart(2, '0');
+      const monthProjects = projects.filter(p => {
+        if (!p.constructionDate || p.constructionDate === '미지정') return false;
+        return p.constructionDate.startsWith(monthKey);
+      });
+
+      let totalRevenue = 0, totalProfit = 0, totalLabor = 0, totalMaterial = 0, totalAdditional = 0, totalMeters = 0;
+      monthProjects.forEach(p => {
+        const cost = (p.materialCost||0) + (p.laborCost||0) + (p.additionalCost||0);
+        totalRevenue += p.totalEstimate || 0;
+        totalProfit += (p.totalEstimate||0) - cost;
+        totalLabor += p.laborCost || 0;
+        totalMaterial += p.materialCost || 0;
+        totalAdditional += p.additionalCost || 0;
+        totalMeters += (p.materials||[]).reduce((s,m) => s + (m.meters||0), 0);
+      });
+      const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100).toFixed(1) : 0;
+
+      document.getElementById('statsTotalRevenue').textContent = totalRevenue.toLocaleString() + ' 원';
+      document.getElementById('statsTotalProfit').textContent = totalProfit.toLocaleString() + ' 원';
+      document.getElementById('statsTotalLabor').textContent = totalLabor.toLocaleString() + ' 원';
+      document.getElementById('statsTotalMaterial').textContent = totalMaterial.toLocaleString() + ' 원';
+      document.getElementById('statsTotalAdditional').textContent = totalAdditional.toLocaleString() + ' 원';
+      document.getElementById('statsAvgMargin').textContent = avgMargin + '%';
+      document.getElementById('statsProjectCount').textContent = monthProjects.length + ' 건';
+      document.getElementById('statsTotalMeters').textContent = totalMeters.toFixed(1) + ' m';
+
+      // Project list
+      const projectList = document.getElementById('statsProjectList');
+      if (monthProjects.length === 0) {
+        projectList.innerHTML = '<p class="text-gray-400 text-sm">이 달의 프로젝트가 없습니다.</p>';
+      } else {
+        projectList.innerHTML = monthProjects.map(p => {
+          const cost = (p.materialCost||0) + (p.laborCost||0) + (p.additionalCost||0);
+          const profit = (p.totalEstimate||0) - cost;
+          const margin = p.totalEstimate > 0 ? (profit/p.totalEstimate*100).toFixed(1) : 0;
+          return '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+            '<div style="flex:1;min-width:150px"><div style="font-weight:700">' + (p.siteName||'미지정') + '</div>' +
+            '<div style="font-size:12px;color:#64748b">' + (p.constructionDate||'') + '</div></div>' +
+            '<div style="text-align:right"><div style="font-size:13px">견적 <strong>' + (p.totalEstimate||0).toLocaleString() + '원</strong></div>' +
+            '<div style="font-size:12px;color:' + (profit>=0?'#16a34a':'#dc2626') + '">이윤 ' + profit.toLocaleString() + '원 (' + margin + '%)</div></div>' +
+            '</div>';
+        }).join('');
+      }
+
+      // Worker stats
+      const workerStats = {};
+      monthProjects.forEach(p => {
+        (p.days||[]).forEach(day => {
+          (day.workers||[]).forEach(wName => {
+            if (!workerStats[wName]) workerStats[wName] = { days: 0, cost: 0 };
+            const w = workers.find(w => w.name === wName);
+            workerStats[wName].days++;
+            workerStats[wName].cost += w ? w.cost : 0;
+          });
+        });
+      });
+      const workerList = document.getElementById('statsWorkerList');
+      const workerEntries = Object.entries(workerStats);
+      if (workerEntries.length === 0) {
+        workerList.innerHTML = '<p class="text-gray-400 text-sm">투입된 인력이 없습니다.</p>';
+      } else {
+        workerList.innerHTML = workerEntries.map(([name, stat]) =>
+          '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px">' +
+          '<div style="font-weight:700;margin-bottom:4px">' + name + '</div>' +
+          '<div style="font-size:13px;color:#0284c7">' + stat.days + '일 · ' + stat.cost.toLocaleString() + '원</div>' +
+          '</div>'
+        ).join('');
+      }
+    }
+
+    function showStatsTab() {
+      ['projectContent','laborContent','calendarContent','workerContent','materialContent','statsContent'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+      });
+      document.getElementById('statsContent').classList.remove('hidden');
+      ['projectTab','laborTab','calendarTab','workerTab','materialTab'].forEach(id => {
+        document.getElementById(id).className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+      });
+      document.getElementById('statsTab').className = 'bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700';
+      statsYear = new Date().getFullYear();
+      statsMonth = new Date().getMonth();
+      renderStats();
+    }
+
+    // Tab switching logic
+    function showProjectTab() {
+      try {
+        document.getElementById('projectContent').classList.remove('hidden');
+        document.getElementById('laborContent').classList.add('hidden');
+        document.getElementById('calendarContent').classList.add('hidden');
+        document.getElementById('workerContent').classList.add('hidden');
+        document.getElementById('materialContent').classList.add('hidden');
+        document.getElementById('statsContent').classList.add('hidden');
+        document.getElementById('statsContent').classList.add('hidden');
+        document.getElementById('statsContent').classList.add('hidden');
+        document.getElementById('statsContent').classList.add('hidden');
+        document.getElementById('projectTab').className = 'bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700';
+        document.getElementById('laborTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('calendarTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('workerTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('materialTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        populateDays(); // Refresh worker list when showing project tab
+        populateMaterials(); // Refresh material list when showing project tab
+      } catch (e) {
+        console.error('Error in showProjectTab:', e);
+      }
+    }
+
+    function showLaborTab() {
+      try {
+        document.getElementById('projectContent').classList.add('hidden');
+        document.getElementById('laborContent').classList.remove('hidden');
+        document.getElementById('calendarContent').classList.add('hidden');
+        document.getElementById('workerContent').classList.add('hidden');
+        document.getElementById('materialContent').classList.add('hidden');
+        document.getElementById('projectTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('laborTab').className = 'bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700';
+        document.getElementById('calendarTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('workerTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('materialTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+      } catch (e) {
+        console.error('Error in showLaborTab:', e);
+        alert('주간 인건비 정산 탭을 표시하는 중 오류가 발생했습니다.');
+      }
+    }
+
+    function showCalendarTab() {
+      try {
+        document.getElementById('projectContent').classList.add('hidden');
+        document.getElementById('laborContent').classList.add('hidden');
+        document.getElementById('calendarContent').classList.remove('hidden');
+        document.getElementById('workerContent').classList.add('hidden');
+        document.getElementById('materialContent').classList.add('hidden');
+        document.getElementById('projectTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('laborTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('calendarTab').className = 'bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700';
+        document.getElementById('workerTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('materialTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+      } catch (e) {
+        console.error('Error in showCalendarTab:', e);
+      }
+    }
+
+    function showWorkerTab() {
+      try {
+        document.getElementById('projectContent').classList.add('hidden');
+        document.getElementById('laborContent').classList.add('hidden');
+        document.getElementById('calendarContent').classList.add('hidden');
+        document.getElementById('workerContent').classList.remove('hidden');
+        document.getElementById('materialContent').classList.add('hidden');
+        document.getElementById('projectTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('laborTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('calendarTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('workerTab').className = 'bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700';
+        document.getElementById('materialTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        populateWorkerTable();
+      } catch (e) {
+        console.error('Error in showWorkerTab:', e);
+        alert('인력 관리 탭을 표시하는 중 오류가 발생했습니다.');
+      }
+    }
+
+    function showMaterialTab() {
+      try {
+        document.getElementById('projectContent').classList.add('hidden');
+        document.getElementById('laborContent').classList.add('hidden');
+        document.getElementById('calendarContent').classList.add('hidden');
+        document.getElementById('workerContent').classList.add('hidden');
+        document.getElementById('statsContent').classList.add('hidden');
+        document.getElementById('materialContent').classList.remove('hidden');
+        document.getElementById('projectTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('laborTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('calendarTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('workerTab').className = 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300';
+        document.getElementById('materialTab').className = 'bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700';
+        populateMaterialTable();
+      } catch (e) {
+        console.error('Error in showMaterialTab:', e);
+        alert('자재 관리 탭을 표시하는 중 오류가 발생했습니다.');
+      }
+    }
+
+    // Function to populate material management table
+    function populateMaterialTable() {
+      const materialTableBody = document.getElementById('materialTableBody');
+      materialTableBody.innerHTML = '';
+      materials.forEach((material, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="border p-2">${material.name}</td>
+          <td class="border p-2">${material.unitPrice.toLocaleString()}</td>
+          <td class="border p-2">
+            <button type="button" class="delete-material bg-red-500 text-white py-1 px-2 rounded-md hover:bg-red-600" data-index="${index}">삭제</button>
+          </td>
+        `;
+        materialTableBody.appendChild(row);
+      });
+
+      document.querySelectorAll('.delete-material').forEach(button => {
+        button.addEventListener('click', () => {
+          const index = parseInt(button.getAttribute('data-index'));
+          deleteMaterial(index);
+        });
+      });
+    }
+
+    // Function to add a material
+    function addMaterial(name, unitPrice) {
+      if (!name || name.trim() === '') {
+        alert('자재 이름은 비어 있을 수 없습니다.');
+        return;
+      }
+      if (isNaN(unitPrice) || unitPrice <= 0) {
+        alert('단가는 0보다 큰 숫자여야 합니다.');
+        return;
+      }
+      if (materials.some(m => m.name === name)) {
+        alert('이미 존재하는 자재 이름입니다.');
+        return;
+      }
+      materials.push({ name: name.trim(), unitPrice: parseInt(unitPrice) });
+      saveMaterials();
+      populateMaterialTable();
+      if (document.getElementById('projectContent').classList.contains('hidden') === false) {
+        populateMaterials();
+      }
+      document.getElementById('materialForm').reset();
+    }
+
+    // Function to delete a material
+    function deleteMaterial(index) {
+      const materialName = materials[index].name;
+      const isUsed = projects.some(project => 
+        project.materials.some(m => m.name === materialName)
+      );
+      if (isUsed) {
+        alert('이 자재는 프로젝트에 사용되어 삭제할 수 없습니다.');
+        return;
+      }
+      if (confirm(`"${materialName}" 자재를 삭제하시겠습니까?`)) {
+        materials.splice(index, 1);
+        saveMaterials();
+        populateMaterialTable();
+        if (document.getElementById('projectContent').classList.contains('hidden') === false) {
+          populateMaterials();
+        }
+      }
+    }
+
+    // Initialize event listeners after DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', () => {
+      // Handle worker form submission
+      document.getElementById('workerForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('workerName').value;
+        const cost = parseInt(document.getElementById('workerCost').value);
+        addWorker(name, cost);
+      });
+
+      // Handle material form submission
+      document.getElementById('materialForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('materialName').value;
+        const unitPrice = parseInt(document.getElementById('materialUnitPrice').value);
+        addMaterial(name, unitPrice);
+      });
+
+      // Handle form submission
+      document.getElementById('projectForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const validMaterials = selectedMaterials.filter(entry => entry.material && entry.meters > 0);
+        if (validMaterials.length === 0) {
+          alert('최소 한 개의 자재를 선택하고 필름 사용량을 입력해주세요 (0보다 커야 합니다).');
+          return;
+        }
+
+        const laborCost = calculateLaborCost();
+        const materialCost = calculateMaterialCost();
+        const additionalCost = calculateAdditionalCost();
+        const project = {
+          siteName: document.getElementById('siteName').value.trim() || '미지정',
+          constructionDate: document.getElementById('constructionDate').value || '미지정',
+          materials: validMaterials.map(entry => ({
+            name: entry.material.name,
+            dispatched: entry.dispatched,
+            returned: entry.returned,
+            meters: entry.meters,
+            cost: entry.material.unitPrice * entry.meters
+          })),
+          materialCost: materialCost,
+          additionalCosts: selectedAdditionalCosts.filter(c => c.amount > 0).map(c => ({
+            category: c.category,
+            amount: c.amount
+          })),
+          additionalCost: additionalCost,
+          laborCost: laborCost,
+          days: days.map(day => ({
+            date: day.date || '미지정',
+            workers: Array.from(day.selectedWorkers)
+          })),
+          totalEstimate: parseInt(document.getElementById('totalEstimate').value) || 0
+        };
+
+        const projectIndex = parseInt(document.getElementById('projectIndex').value);
+        if (projectIndex >= 0) {
+          projects[projectIndex] = project;
+        } else {
+          projects.push(project);
+        }
+
+        saveProjects();
+        resetForm();
+        updateSalesTable();
+        populateCalendarMonthSelector();
+      });
+
+      // Handle cancel edit button
+      document.getElementById('cancelEdit').addEventListener('click', () => {
+        resetForm();
+      });
+
+      // Handle add material button
+      document.getElementById('addMaterial').addEventListener('click', () => {
+        selectedMaterials.push({ material: null, dispatched: 0, returned: 0, meters: 0 });
+        populateMaterials();
+      });
+
+      // Handle add day button
+      document.getElementById('addDay').addEventListener('click', () => {
+        days.push({ selectedWorkers: new Set(), date: '' });
+        populateDays();
+      });
+
+      // Handle delete day button
+      document.getElementById('deleteDay').addEventListener('click', () => {
+        if (days.length > 1) {
+          days.pop();
+          populateDays();
+          updateLaborCostDisplay();
+        }
+      });
+
+      // Handle export all data
+      document.getElementById('exportAll').addEventListener('click', () => {
+        downloadJSON(projects, 'all_projects.json');
+      });
+
+      // Handle import JSON
+      document.getElementById('importJson').addEventListener('click', () => {
+        document.getElementById('fileInput').click();
+      });
+
+      document.getElementById('fileInput').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          importProjects(file);
+          e.target.value = '';
+        }
+      });
+
+      // Handle export monthly data
+      document.getElementById('exportMonth').addEventListener('click', () => {
+        const month = document.getElementById('monthSelector').value;
+        if (month) {
+          const monthlyProjects = projects.filter(project => {
+            if (project.constructionDate && project.constructionDate !== '미지정') {
+              const date = new Date(project.constructionDate);
+              const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+              return monthKey === month;
+            }
+            return false;
+          });
+          downloadJSON(monthlyProjects, `projects_${month}.json`);
+        }
+      });
+
+      // Handle month selector change
+      document.getElementById('monthSelector').addEventListener('change', () => {
+        const exportMonthButton = document.getElementById('exportMonth');
+        const month = document.getElementById('monthSelector').value;
+        exportMonthButton.disabled = !month;
+        exportMonthButton.className = `bg-indigo-600 text-white py-2 px-4 rounded-md ${!month ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'}`;
+      });
+
+      // Handle calendar month selector change
+      document.getElementById('calendarMonthSelector').addEventListener('change', (e) => {
+        generateCalendar(e.target.value);
+      });
+
+      // Handle labor cost calculation
+      document.getElementById('calculateLabor').addEventListener('click', calculateWeeklyLaborCost);
+
+      // Handle reset labor inputs
+      document.getElementById('resetLabor').addEventListener('click', resetLaborInputs);
+
+      // Handle date input changes for calculate button state
+      document.getElementById('startDate').addEventListener('change', updateCalculateButtonState);
+      document.getElementById('endDate').addEventListener('change', updateCalculateButtonState);
+
+      // Handle tab switching
+      document.getElementById('projectTab').addEventListener('click', showProjectTab);
+      document.getElementById('laborTab').addEventListener('click', showLaborTab);
+      document.getElementById('calendarTab').addEventListener('click', showCalendarTab);
+      document.getElementById('workerTab').addEventListener('click', showWorkerTab);
+      document.getElementById('materialTab').addEventListener('click', showMaterialTab);
+      document.getElementById('statsTab').addEventListener('click', showStatsTab);
+
+      // Data initialized from Firebase after login (loadAllDataFromFirebase)
+      // Local fallback UI setup only
+      populateMaterials();
+      populateDays();
+      populateAdditionalCosts();
+    });
+  </script>
+  
+</body>
+</html>
