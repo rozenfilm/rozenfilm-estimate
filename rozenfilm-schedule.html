@@ -71,6 +71,7 @@
     .session-am   { background: #FEFCBF; color: #975A16; }
     .session-pm   { background: #C6F6D5; color: #276749; }
     .session-full { background: #BEE3F8; color: #2C5282; }
+    .session-off  { background: #E2E8F0; color: #2D3748; }
 
     /* Sidebar */
     .sidebar { width: 280px; flex-shrink: 0; }
@@ -135,6 +136,7 @@
     .session-btn.active-am   { border-color: #D69E2E; background: #FEFCBF; color: #975A16; }
     .session-btn.active-pm   { border-color: #38A169; background: #C6F6D5; color: #276749; }
     .session-btn.active-full { border-color: #3182CE; background: #BEE3F8; color: #2C5282; }
+    .session-btn.active-off  { border-color: #718096; background: #E2E8F0; color: #2D3748; }
 
     /* Legend & nav */
     .nav-btn {
@@ -199,6 +201,7 @@
         document.getElementById('appScreen').classList.remove('hidden');
         await loadWorkers();
         await loadSchedules();
+        await loadSites();
         renderCalendar();
         renderWorkerList();
       } else {
@@ -294,6 +297,10 @@
           <button onclick="changeMonth(1)" class="nav-btn">▶</button>
         </div>
 
+        <div id="siteAdminBar" class="hidden mb-3">
+          <button onclick="openSiteModal()" class="btn-primary" style="background:#6B46C1;width:100%">🏗️ 현장 등록</button>
+        </div>
+
         <!-- Day headers -->
         <div class="cal-grid mb-1">
           <div class="text-center text-xs font-bold py-1" style="color:#E53E3E">일</div>
@@ -312,12 +319,19 @@
           <span class="session-badge session-am">오전</span>
           <span class="session-badge session-pm">오후</span>
           <span class="session-badge session-full">종일</span>
+          <span class="session-badge session-off">휴무</span>
           <span style="margin-left:8px">클릭 → 일정 추가/확인</span>
         </div>
       </div>
 
       <!-- Sidebar -->
       <div class="sidebar">
+        <!-- Site list -->
+        <div id="siteListPanel" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:12px">
+          <p style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:10px">🏗️ 진행 중인 현장</p>
+          <div id="siteListContainer" class="space-y-2"></div>
+        </div>
+
         <!-- Worker filter -->
         <div style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:12px">
           <div class="flex items-center justify-between mb-2">
@@ -389,12 +403,14 @@
         </div>
         <div>
           <label style="font-size:12px;font-weight:600;color:var(--muted)">근무 시간</label>
-          <div class="flex gap-2 mt-1">
+          <div class="flex gap-2 mt-1 flex-wrap">
             <button class="session-btn" id="btn-am" onclick="selectSession('am')">🌅 오전</button>
             <button class="session-btn" id="btn-pm" onclick="selectSession('pm')">🌇 오후</button>
             <button class="session-btn" id="btn-full" onclick="selectSession('full')">☀️ 종일</button>
+            <button class="session-btn" id="btn-off" onclick="selectSession('off')">🚫 휴무</button>
           </div>
         </div>
+        <div id="scheduleExtraFields">
         <div>
           <label style="font-size:12px;font-weight:600;color:var(--muted)">현장명</label>
           <input type="text" id="scheduleLocation" class="input mt-1" placeholder="예: 강남구 대치동 은마아파트">
@@ -402,6 +418,7 @@
         <div>
           <label style="font-size:12px;font-weight:600;color:var(--muted)">메모 (선택)</label>
           <input type="text" id="scheduleMemo" class="input mt-1" placeholder="예: 문짝 5개, 오전만 가능">
+        </div>
         </div>
         <div class="flex gap-2 pt-2">
           <button onclick="addSchedule()" class="btn-primary flex-1">일정 추가</button>
@@ -442,6 +459,93 @@
   </div>
 </div>
 
+<!-- ─── SITE REGISTRATION MODAL ─── -->
+<div id="siteModal" class="modal-overlay hidden" onclick="if(event.target===this)closeSiteModal()">
+  <div class="modal" style="max-width:480px">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border)">
+      <div class="flex items-center justify-between">
+        <h3 id="siteModalTitle" style="font-size:17px;font-weight:800">🏗️ 현장 등록</h3>
+        <button onclick="closeSiteModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+      </div>
+    </div>
+
+    <!-- Sub-tabs -->
+    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 24px">
+      <button onclick="switchSiteTab('info')" id="siteSubTab-info"
+        style="padding:10px 16px;border:none;background:none;font-size:13px;font-weight:700;cursor:pointer;color:var(--brand);border-bottom:2px solid var(--brand)">📋 현장 정보</button>
+      <button onclick="switchSiteTab('workers')" id="siteSubTab-workers"
+        style="padding:10px 16px;border:none;background:none;font-size:13px;font-weight:700;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent">👷 필요 인원</button>
+    </div>
+
+    <!-- Info tab -->
+    <div id="siteTabContent-info" style="padding:20px 24px" class="space-y-3">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">현장명</label>
+        <input type="text" id="siteName" class="input mt-1" placeholder="예: 강남 래미안 101동">
+      </div>
+      <div class="flex gap-2">
+        <div style="flex:1">
+          <label style="font-size:12px;font-weight:600;color:var(--muted)">시작일</label>
+          <input type="date" id="siteStartDate" class="input mt-1">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:12px;font-weight:600;color:var(--muted)">종료일</label>
+          <input type="date" id="siteEndDate" class="input mt-1">
+        </div>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">현장 주소</label>
+        <input type="text" id="siteAddress" class="input mt-1" placeholder="예: 서울시 강남구 ...">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">메모</label>
+        <textarea id="siteMemo" class="input mt-1" rows="3" placeholder="기타 특이사항, 출입 방법 등"></textarea>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">현장 색상</label>
+        <div id="siteColorPicker" class="flex flex-wrap gap-2 mt-1"></div>
+      </div>
+    </div>
+
+    <!-- Required workers tab -->
+    <div id="siteTabContent-workers" style="padding:20px 24px;display:none" class="space-y-3">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">이 현장에 필요한 일자별 인원 수를 입력하세요.</p>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">필요 인원 (전체 공통)</label>
+        <div class="flex items-center gap-2 mt-1">
+          <button onclick="adjustNeededWorkers(-1)" class="qty-btn" style="width:36px;height:36px;font-size:18px">−</button>
+          <input type="number" id="siteNeededWorkers" min="0" value="0" class="input text-center" style="width:70px;font-weight:700">
+          <button onclick="adjustNeededWorkers(1)" class="qty-btn" style="width:36px;height:36px;font-size:18px">+</button>
+          <span style="font-size:13px;color:var(--muted)">명</span>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">인원 관련 메모</label>
+        <input type="text" id="siteWorkerMemo" class="input mt-1" placeholder="예: 첫 3일은 4명, 이후 2명">
+      </div>
+    </div>
+
+    <div style="padding:16px 24px;border-top:1px solid var(--border)" class="flex gap-2">
+      <button onclick="saveSite()" class="btn-primary flex-1">저장</button>
+      <button id="siteDeleteBtn" onclick="deleteSiteConfirm()" class="btn-danger hidden">삭제</button>
+      <button onclick="closeSiteModal()" class="btn-secondary">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── SITE DETAIL VIEW MODAL ─── -->
+<div id="siteDetailModal" class="modal-overlay hidden" onclick="if(event.target===this)closeSiteDetailModal()">
+  <div class="modal" style="max-width:420px">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border)">
+      <div class="flex items-center justify-between">
+        <h3 id="siteDetailTitle" style="font-size:17px;font-weight:800"></h3>
+        <button onclick="closeSiteDetailModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+      </div>
+    </div>
+    <div id="siteDetailBody" style="padding:20px 24px" class="space-y-2"></div>
+  </div>
+</div>
+
 <script>
 // ─── State ───
 let currentYear = new Date().getFullYear();
@@ -450,6 +554,7 @@ let statsYear = new Date().getFullYear();
 let statsMonth = new Date().getMonth();
 let workers = [];    // [{id, name, color, phone}]
 let schedules = {};  // { 'YYYY-MM-DD': [{id, workerId, session, location, memo, status}] }
+let sites = [];       // [{id, name, startDate, endDate, address, memo, color, neededWorkers, workerMemo}]
 let activeWorkers = new Set();
 let selectedSession = null;
 let selectedDate = null;
@@ -464,6 +569,173 @@ let selectedColor = COLORS[0];
 const ADMIN_EMAIL = 'kilaloss2@gmail.com'; // Firebase 소유자 이메일 → 관리자
 function isAdmin() {
   return window._user && window._user.email === ADMIN_EMAIL;
+}
+
+// ─── Sites (현장) ───
+const SITE_COLORS = [
+  '#6B46C1','#0EA5E9','#F59E0B','#10B981','#EC4899',
+  '#8B5CF6','#14B8A6','#F97316','#6366F1','#EF4444'
+];
+let selectedSiteColor = SITE_COLORS[0];
+let editingSiteId = null;
+let currentSiteSubTab = 'info';
+
+async function loadSites() {
+  const { collection, getDocs } = window._fbFns;
+  const snap = await getDocs(collection(window._db, 'schedule_sites'));
+  sites = [];
+  snap.forEach(d => sites.push({ id: d.id, ...d.data() }));
+}
+
+async function saveSiteToDb(site) {
+  const { doc, setDoc } = window._fbFns;
+  await setDoc(doc(window._db, 'schedule_sites', site.id), site);
+}
+
+async function deleteSiteFromDb(id) {
+  const { doc, deleteDoc } = window._fbFns;
+  await deleteDoc(doc(window._db, 'schedule_sites', id));
+}
+
+function openSiteModal(siteId = null) {
+  editingSiteId = siteId;
+  const site = siteId ? sites.find(s => s.id === siteId) : null;
+
+  document.getElementById('siteModalTitle').textContent = siteId ? '🏗️ 현장 수정' : '🏗️ 현장 등록';
+  document.getElementById('siteName').value = site?.name || '';
+  document.getElementById('siteStartDate').value = site?.startDate || '';
+  document.getElementById('siteEndDate').value = site?.endDate || '';
+  document.getElementById('siteAddress').value = site?.address || '';
+  document.getElementById('siteMemo').value = site?.memo || '';
+  document.getElementById('siteNeededWorkers').value = site?.neededWorkers || 0;
+  document.getElementById('siteWorkerMemo').value = site?.workerMemo || '';
+  selectedSiteColor = site?.color || SITE_COLORS[sites.length % SITE_COLORS.length];
+
+  const picker = document.getElementById('siteColorPicker');
+  picker.innerHTML = SITE_COLORS.map(c => `
+    <div onclick="selectSiteColor('${c}')" id="siteColor-${c.slice(1)}"
+      style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;
+      border:3px solid ${c === selectedSiteColor ? '#1A202C' : 'transparent'};transition:border .1s"></div>
+  `).join('');
+
+  document.getElementById('siteDeleteBtn').classList.toggle('hidden', !siteId);
+  switchSiteTab('info');
+  document.getElementById('siteModal').classList.remove('hidden');
+}
+
+function closeSiteModal() {
+  document.getElementById('siteModal').classList.add('hidden');
+  editingSiteId = null;
+}
+
+function selectSiteColor(c) {
+  selectedSiteColor = c;
+  SITE_COLORS.forEach(col => {
+    const el = document.getElementById(`siteColor-${col.slice(1)}`);
+    if (el) el.style.border = `3px solid ${col === c ? '#1A202C' : 'transparent'}`;
+  });
+}
+
+function switchSiteTab(tab) {
+  currentSiteSubTab = tab;
+  ['info','workers'].forEach(t => {
+    document.getElementById(`siteTabContent-${t}`).style.display = t === tab ? 'block' : 'none';
+    const btn = document.getElementById(`siteSubTab-${t}`);
+    btn.style.color = t === tab ? 'var(--brand)' : 'var(--muted)';
+    btn.style.borderBottomColor = t === tab ? 'var(--brand)' : 'transparent';
+  });
+}
+
+function adjustNeededWorkers(delta) {
+  const input = document.getElementById('siteNeededWorkers');
+  const val = Math.max(0, (parseInt(input.value) || 0) + delta);
+  input.value = val;
+}
+
+async function saveSite() {
+  const name = document.getElementById('siteName').value.trim();
+  const startDate = document.getElementById('siteStartDate').value;
+  const endDate = document.getElementById('siteEndDate').value;
+  const address = document.getElementById('siteAddress').value.trim();
+  const memo = document.getElementById('siteMemo').value.trim();
+  const neededWorkers = parseInt(document.getElementById('siteNeededWorkers').value) || 0;
+  const workerMemo = document.getElementById('siteWorkerMemo').value.trim();
+
+  if (!name) { alert('현장명을 입력해주세요.'); return; }
+  if (!startDate || !endDate) { alert('시작일과 종료일을 입력해주세요.'); return; }
+  if (startDate > endDate) { alert('종료일은 시작일보다 빠를 수 없습니다.'); return; }
+
+  const id = editingSiteId || `site_${Date.now()}`;
+  const site = { id, name, startDate, endDate, address, memo, color: selectedSiteColor, neededWorkers, workerMemo };
+
+  try {
+    await saveSiteToDb(site);
+    const idx = sites.findIndex(s => s.id === id);
+    if (idx > -1) sites[idx] = site; else sites.push(site);
+    closeSiteModal();
+    renderCalendar();
+    renderSiteList();
+  } catch(e) { alert('저장 중 오류가 발생했습니다.'); console.error(e); }
+}
+
+async function deleteSiteConfirm() {
+  if (!editingSiteId) return;
+  if (!confirm('이 현장을 삭제할까요?\n(캘린더의 색상 표시만 사라지며, 개별 일정은 유지됩니다)')) return;
+  try {
+    await deleteSiteFromDb(editingSiteId);
+    sites = sites.filter(s => s.id !== editingSiteId);
+    closeSiteModal();
+    renderCalendar();
+    renderSiteList();
+  } catch(e) { alert('삭제 중 오류가 발생했습니다.'); }
+}
+
+function getSitesForDate(dateKey) {
+  return sites.filter(s => dateKey >= s.startDate && dateKey <= s.endDate);
+}
+
+function renderSiteList() {
+  const container = document.getElementById('siteListContainer');
+  if (!container) return;
+  const today = formatDate(new Date());
+  const sorted = [...sites].sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  if (sorted.length === 0) {
+    container.innerHTML = '<p style="font-size:12px;color:var(--muted);text-align:center;padding:8px 0">등록된 현장이 없습니다</p>';
+    return;
+  }
+
+  container.innerHTML = sorted.map(s => {
+    const isOngoing = today >= s.startDate && today <= s.endDate;
+    const isPast = today > s.endDate;
+    return `
+    <div onclick="openSiteDetailModal('${s.id}')"
+      style="cursor:pointer;border-left:4px solid ${s.color};background:${isOngoing ? hexToRgba(s.color,.08) : '#f8fafc'};border-radius:6px;padding:8px 10px;${isPast ? 'opacity:.5' : ''}">
+      <div style="font-size:13px;font-weight:700;color:${s.color}">${s.name}${isOngoing ? ' 🔴' : ''}</div>
+      <div style="font-size:11px;color:var(--muted)">${s.startDate} ~ ${s.endDate}</div>
+      ${s.neededWorkers > 0 ? `<div style="font-size:11px;color:var(--muted)">👷 필요인원 ${s.neededWorkers}명</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function openSiteDetailModal(siteId) {
+  const site = sites.find(s => s.id === siteId);
+  if (!site) return;
+
+  document.getElementById('siteDetailTitle').innerHTML = `<span style="color:${site.color}">●</span> ${site.name}`;
+  document.getElementById('siteDetailBody').innerHTML = `
+    <div style="font-size:13px"><span style="color:var(--muted)">기간:</span> ${site.startDate} ~ ${site.endDate}</div>
+    ${site.address ? `<div style="font-size:13px"><span style="color:var(--muted)">주소:</span> ${site.address}</div>` : ''}
+    ${site.neededWorkers > 0 ? `<div style="font-size:13px"><span style="color:var(--muted)">필요 인원:</span> ${site.neededWorkers}명</div>` : ''}
+    ${site.workerMemo ? `<div style="font-size:13px"><span style="color:var(--muted)">인원 메모:</span> ${site.workerMemo}</div>` : ''}
+    ${site.memo ? `<div style="font-size:13px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"><span style="color:var(--muted)">메모:</span><br>${site.memo}</div>` : ''}
+    ${isAdmin() ? `<div class="flex gap-2 pt-3"><button onclick="closeSiteDetailModal();openSiteModal('${site.id}')" class="btn-primary flex-1">수정</button></div>` : ''}
+  `;
+  document.getElementById('siteDetailModal').classList.remove('hidden');
+}
+
+function closeSiteDetailModal() {
+  document.getElementById('siteDetailModal').classList.add('hidden');
 }
 
 // ─── Auth Tab / Signup ───
@@ -619,6 +891,11 @@ function renderCalendar() {
   }
 
   renderTodayAvailability();
+  renderSiteList();
+
+  // Show site admin bar only for admins
+  const adminBar = document.getElementById('siteAdminBar');
+  if (adminBar) adminBar.classList.toggle('hidden', !isAdmin());
 }
 
 function makeDayCell(date, otherMonth, isToday = false) {
@@ -631,10 +908,27 @@ function makeDayCell(date, otherMonth, isToday = false) {
     (dow === 0 ? ' sunday' : '') +
     (dow === 6 ? ' saturday' : '');
 
+  // Site period background tint
+  const daySites = getSitesForDate(dateKey);
+  if (daySites.length > 0 && !otherMonth) {
+    cell.style.background = hexToRgba(daySites[0].color, .08);
+    cell.style.borderTop = `3px solid ${daySites[0].color}`;
+  }
+
   const numEl = document.createElement('div');
   numEl.className = 'cal-day-num';
   numEl.textContent = date.getDate();
   cell.appendChild(numEl);
+
+  // Site badges
+  daySites.slice(0, 2).forEach(site => {
+    const badge = document.createElement('div');
+    badge.style.cssText = `font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-bottom:2px;background:${site.color};color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer`;
+    badge.textContent = '🏗️ ' + site.name;
+    badge.title = site.name + (site.neededWorkers ? ` · 필요인원 ${site.neededWorkers}명` : '');
+    badge.onclick = (e) => { e.stopPropagation(); openSiteDetailModal(site.id); };
+    cell.appendChild(badge);
+  });
 
   // Schedule chips
   const dayEntries = (schedules[dateKey] || []).filter(e =>
@@ -645,10 +939,11 @@ function makeDayCell(date, otherMonth, isToday = false) {
     if (!worker) return;
     const chip = document.createElement('div');
     chip.className = 'chip';
-    chip.style.background = hexToRgba(worker.color, .15);
-    chip.style.color = worker.color;
-    const sessionLabel = entry.session === 'am' ? '오전' : entry.session === 'pm' ? '오후' : '종일';
-    chip.innerHTML = `<span class="chip-dot" style="background:${worker.color}"></span>${worker.name} ${sessionLabel}`;
+    const isOff = entry.session === 'off';
+    chip.style.background = isOff ? '#E2E8F0' : hexToRgba(worker.color, .15);
+    chip.style.color = isOff ? '#718096' : worker.color;
+    const sessionLabel = entry.session === 'am' ? '오전' : entry.session === 'pm' ? '오후' : entry.session === 'off' ? '휴무' : '종일';
+    chip.innerHTML = `<span class="chip-dot" style="background:${isOff ? '#A0AEC0' : worker.color}"></span>${worker.name} ${sessionLabel}`;
     chip.title = `${worker.name} · ${sessionLabel}${entry.location ? ' · ' + entry.location : ''}`;
     cell.appendChild(chip);
   });
@@ -674,7 +969,7 @@ function renderTodayAvailability() {
     return;
   }
 
-  const sessionLabel = { am: '🌅 오전', pm: '🌇 오후', full: '☀️ 종일' };
+  const sessionLabel = { am: '🌅 오전', pm: '🌇 오후', full: '☀️ 종일', off: '🚫 휴무' };
   container.innerHTML = todayEntries.map(entry => {
     const worker = workers.find(w => w.id === entry.workerId);
     if (!worker) return '';
@@ -728,7 +1023,7 @@ function openDayModal(date) {
   selectedSession = null;
   document.getElementById('scheduleLocation').value = '';
   document.getElementById('scheduleMemo').value = '';
-  ['am','pm','full'].forEach(s => {
+  ['am','pm','full','off'].forEach(s => {
     document.getElementById(`btn-${s}`).className = 'session-btn';
   });
 
@@ -753,8 +1048,8 @@ function renderDayScheduleList(date) {
   const dateKey = formatDate(date);
   const entries = schedules[dateKey] || [];
   const container = document.getElementById('dayScheduleList');
-  const sessionLabel = { am: '🌅 오전', pm: '🌇 오후', full: '☀️ 종일' };
-  const sessionClass = { am: 'session-am', pm: 'session-pm', full: 'session-full' };
+  const sessionLabel = { am: '🌅 오전', pm: '🌇 오후', full: '☀️ 종일', off: '🚫 휴무' };
+  const sessionClass = { am: 'session-am', pm: 'session-pm', full: 'session-full', off: 'session-off' };
 
   if (entries.length === 0) {
     container.innerHTML = '<p style="font-size:12px;color:var(--muted)">등록된 일정이 없습니다</p>';
@@ -781,9 +1076,12 @@ function renderDayScheduleList(date) {
 
 function selectSession(s) {
   selectedSession = s;
-  ['am','pm','full'].forEach(x => {
+  ['am','pm','full','off'].forEach(x => {
     document.getElementById(`btn-${x}`).className = `session-btn${x === s ? ` active-${x}` : ''}`;
   });
+  // Hide location/memo fields for off-day (not needed)
+  const extraFields = document.getElementById('scheduleExtraFields');
+  if (extraFields) extraFields.style.display = s === 'off' ? 'none' : '';
 }
 
 async function addSchedule() {
@@ -811,7 +1109,7 @@ async function addSchedule() {
     document.getElementById('scheduleLocation').value = '';
     document.getElementById('scheduleMemo').value = '';
     selectedSession = null;
-    ['am','pm','full'].forEach(s => document.getElementById(`btn-${s}`).className = 'session-btn');
+    ['am','pm','full','off'].forEach(s => document.getElementById(`btn-${s}`).className = 'session-btn');
   } catch(e) { alert('저장 중 오류가 발생했습니다.'); console.error(e); }
 }
 
@@ -833,7 +1131,7 @@ function shareKakao() {
   const entries = schedules[dateKey] || [];
   const dow = ['일','월','화','수','목','금','토'][selectedDate.getDay()];
   const dateStr = `${selectedDate.getMonth()+1}/${selectedDate.getDate()}(${dow})`;
-  const sessionLabel = { am: '오전', pm: '오후', full: '종일' };
+  const sessionLabel = { am: '오전', pm: '오후', full: '종일', off: '휴무' };
   let text = `📅 [로젠필름 ${dateStr} 일정]\n`;
   if (entries.length === 0) { text += '등록된 일정 없음'; }
   else {
