@@ -8,8 +8,8 @@
   <!-- Firebase SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-    import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyD1Nqi0J2ust7UTo6XQOLofZobOHS2O7dU",
@@ -27,22 +27,60 @@
     // Expose to global scope
     window._fbAuth = auth;
     window._fbDb = db;
-    window._fbFns = { signInWithEmailAndPassword, signOut, onAuthStateChanged, collection, doc, setDoc, getDocs, deleteDoc, query, where, orderBy };
+    window._fbFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, getDoc, collection, doc, setDoc, getDocs, deleteDoc, query, where, orderBy };
 
     // Auth state listener
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, async (user) => {
       if (user) {
         window._fbUser = user;
-        document.getElementById('loginOverlay').classList.add('hidden');
-        document.getElementById('appContainer').classList.remove('hidden');
-        document.getElementById('userEmail').textContent = user.email;
-        loadCloudEstimates();
+        const ADMIN = 'kilaloss2@gmail.com';
+
+        // Admin always approved
+        if (user.email === ADMIN) {
+          showApp(user);
+          return;
+        }
+
+        // Check approval in Firestore
+        const uRef = doc(db, 'approved_users', user.uid);
+        const uSnap = await getDoc(uRef);
+        if (uSnap.exists() && uSnap.data().approved === true) {
+          showApp(user);
+        } else {
+          // Show pending screen
+          document.getElementById('loginOverlay').classList.add('hidden');
+          document.getElementById('appContainer').classList.add('hidden');
+          document.getElementById('pendingScreen').classList.remove('hidden');
+          document.getElementById('pendingEmail').textContent = user.email;
+          // Save user info for admin to see
+          await setDoc(uRef, {
+            email: user.email,
+            name: user.displayName || '',
+            uid: user.uid,
+            approved: uSnap.exists() ? uSnap.data().approved : false,
+            requestedAt: uSnap.exists() ? uSnap.data().requestedAt : new Date().toISOString()
+          }, { merge: true });
+        }
       } else {
         window._fbUser = null;
         document.getElementById('loginOverlay').classList.remove('hidden');
         document.getElementById('appContainer').classList.add('hidden');
+        document.getElementById('pendingScreen').classList.add('hidden');
       }
     });
+
+    function showApp(user) {
+      document.getElementById('loginOverlay').classList.add('hidden');
+      document.getElementById('pendingScreen').classList.add('hidden');
+      document.getElementById('appContainer').classList.remove('hidden');
+      document.getElementById('userEmail').textContent = user.email;
+      loadCloudEstimates();
+      // Show admin button if admin
+      if (user.email === 'kilaloss2@gmail.com') {
+        const btn = document.getElementById('adminPanelBtn');
+        if (btn) btn.classList.remove('hidden');
+      }
+    }
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -241,12 +279,22 @@
 
 <!-- Login Overlay -->
 <div id="loginOverlay" class="fixed inset-0 flex items-center justify-center z-50" style="background:rgba(15,23,42,0.85);backdrop-filter:blur(4px)">
-  <div class="card p-8" style="width:360px;max-width:90vw">
+  <div class="card p-8" style="width:380px;max-width:90vw">
     <div class="text-center mb-6">
       <p style="font-size:28px;font-weight:800;color:var(--brand)">🏠 ROZEN FILM</p>
       <p class="text-sm mt-1" style="color:var(--muted)">견적 시스템에 로그인하세요</p>
     </div>
-    <div class="space-y-3">
+
+    <!-- Tab -->
+    <div style="display:flex;background:#f1f5f9;border-radius:10px;padding:3px;margin-bottom:16px">
+      <button id="tabLogin" onclick="switchAuthTab('login')"
+        style="flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:#2563EB;color:#fff;transition:all .15s">로그인</button>
+      <button id="tabSignup" onclick="switchAuthTab('signup')"
+        style="flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:#64748b;transition:all .15s">회원가입</button>
+    </div>
+
+    <!-- Login form -->
+    <div id="formLogin" class="space-y-3">
       <div>
         <label class="section-label">이메일</label>
         <input type="email" id="loginEmail" class="input-field w-full" placeholder="이메일 입력">
@@ -259,8 +307,47 @@
       <p id="loginError" class="text-xs hidden" style="color:var(--danger)">이메일 또는 비밀번호가 올바르지 않습니다.</p>
       <button onclick="doLogin()" class="primary-btn w-full mt-2" style="padding:12px">로그인</button>
     </div>
+
+    <!-- Signup form -->
+    <div id="formSignup" class="space-y-3 hidden">
+      <div>
+        <label class="section-label">이름</label>
+        <input type="text" id="signupName" class="input-field w-full" placeholder="이름 입력">
+      </div>
+      <div>
+        <label class="section-label">이메일</label>
+        <input type="email" id="signupEmail" class="input-field w-full" placeholder="이메일 입력">
+      </div>
+      <div>
+        <label class="section-label">비밀번호 (6자 이상)</label>
+        <input type="password" id="signupPassword" class="input-field w-full" placeholder="비밀번호 입력">
+      </div>
+      <div>
+        <label class="section-label">비밀번호 확인</label>
+        <input type="password" id="signupConfirm" class="input-field w-full" placeholder="비밀번호 재입력"
+          onkeydown="if(event.key==='Enter') doSignup()">
+      </div>
+      <p id="signupError" class="text-xs hidden" style="color:var(--danger)"></p>
+      <p id="signupSuccess" class="text-xs hidden" style="color:#16a34a;background:#f0fdf4;padding:8px;border-radius:6px">✅ 가입 완료! 로그인해주세요.</p>
+      <button onclick="doSignup()" class="primary-btn w-full mt-2" style="padding:12px">가입하기</button>
+    </div>
   </div>
 </div>
+
+<!-- Pending Approval Screen -->
+<div id="pendingScreen" class="fixed inset-0 flex items-center justify-center z-50 hidden" style="background:rgba(15,23,42,0.85);backdrop-filter:blur(4px)">
+  <div class="card p-8 text-center" style="width:380px;max-width:90vw">
+    <div style="font-size:56px;margin-bottom:16px">⏳</div>
+    <p style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:8px">승인 대기 중</p>
+    <p id="pendingEmail" style="font-size:13px;color:var(--brand);font-weight:600;margin-bottom:12px"></p>
+    <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:20px">
+      관리자의 승인을 기다리고 있습니다.<br>승인 후 이 페이지를 새로고침해 주세요.
+    </p>
+    <button onclick="window.location.reload()" class="secondary-btn" style="margin-right:8px">새로고침</button>
+    <button onclick="doLogout()" class="danger-btn">로그아웃</button>
+  </div>
+</div>
+
 
 <!-- App (hidden until logged in) -->
 <div id="appContainer" class="hidden">
@@ -277,10 +364,23 @@
         <input type="text" id="siteName" class="input-field" placeholder="현장명" style="width:130px">
         <button onclick="saveEstimate()" class="secondary-btn" style="padding:8px 14px;font-size:13px">☁️ 저장</button>
         <span id="userEmail" class="text-xs" style="color:var(--muted)"></span>
+        <button id="adminPanelBtn" onclick="toggleAdminPanel()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">👑 사용자 관리</button>
         <button onclick="doLogout()" class="danger-btn" style="padding:6px 12px;font-size:12px">로그아웃</button>
       </div>
     </div>
   </div>
+
+  <!-- Admin Panel (hidden, admin only) -->
+  <div id="adminPanel" class="card p-4 hidden">
+    <div class="flex items-center justify-between mb-3">
+      <p class="font-semibold text-sm">👑 사용자 승인 관리</p>
+      <button onclick="loadPendingUsers()" class="secondary-btn" style="padding:4px 12px;font-size:12px">새로고침</button>
+    </div>
+    <div id="pendingUserList">
+      <p style="font-size:13px;color:var(--muted)">로딩 중...</p>
+    </div>
+  </div>
+
 
   <!-- Saved Estimates & File Import -->
   <div class="card p-4">
@@ -933,6 +1033,119 @@ function getFileDateFormat() {
 }
 
 // ───────── Save / Load ─────────
+
+
+// ───────── Signup ─────────
+function switchAuthTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('formLogin').classList.toggle('hidden', !isLogin);
+  document.getElementById('formSignup').classList.toggle('hidden', isLogin);
+  document.getElementById('tabLogin').style.background = isLogin ? '#2563EB' : 'transparent';
+  document.getElementById('tabLogin').style.color = isLogin ? '#fff' : '#64748b';
+  document.getElementById('tabSignup').style.background = isLogin ? 'transparent' : '#2563EB';
+  document.getElementById('tabSignup').style.color = isLogin ? '#64748b' : '#fff';
+  document.getElementById('loginError').classList.add('hidden');
+  document.getElementById('signupError').classList.add('hidden');
+  document.getElementById('signupSuccess').classList.add('hidden');
+}
+
+async function doSignup() {
+  const name = document.getElementById('signupName').value.trim();
+  const email = document.getElementById('signupEmail').value.trim();
+  const pw = document.getElementById('signupPassword').value;
+  const confirm = document.getElementById('signupConfirm').value;
+  const errEl = document.getElementById('signupError');
+  const okEl = document.getElementById('signupSuccess');
+  errEl.classList.add('hidden');
+  okEl.classList.add('hidden');
+
+  if (!name) { errEl.textContent = '이름을 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+  if (!email) { errEl.textContent = '이메일을 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+  if (pw.length < 6) { errEl.textContent = '비밀번호는 6자 이상이어야 합니다.'; errEl.classList.remove('hidden'); return; }
+  if (pw !== confirm) { errEl.textContent = '비밀번호가 일치하지 않습니다.'; errEl.classList.remove('hidden'); return; }
+
+  try {
+    const { createUserWithEmailAndPassword, updateProfile } = window._fbFns;
+    const cred = await createUserWithEmailAndPassword(window._fbAuth, email, pw);
+    await updateProfile(cred.user, { displayName: name });
+    okEl.classList.remove('hidden');
+    document.getElementById('signupName').value = '';
+    document.getElementById('signupEmail').value = '';
+    document.getElementById('signupPassword').value = '';
+    document.getElementById('signupConfirm').value = '';
+    setTimeout(() => switchAuthTab('login'), 1500);
+  } catch(e) {
+    if (e.code === 'auth/email-already-in-use') errEl.textContent = '이미 사용 중인 이메일입니다.';
+    else if (e.code === 'auth/invalid-email') errEl.textContent = '올바른 이메일 형식이 아닙니다.';
+    else errEl.textContent = '오류가 발생했습니다: ' + e.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+
+// ───────── Admin Panel ─────────
+const ADMIN_EMAIL = 'kilaloss2@gmail.com';
+
+function toggleAdminPanel() {
+  const panel = document.getElementById('adminPanel');
+  const isHidden = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden');
+  if (isHidden) loadPendingUsers();
+}
+
+async function loadPendingUsers() {
+  const { getDocs, collection } = window._fbFns;
+  const container = document.getElementById('pendingUserList');
+  container.innerHTML = '<p style="font-size:13px;color:var(--muted)">로딩 중...</p>';
+
+  try {
+    const snap = await getDocs(collection(window._fbDb, 'approved_users'));
+    const users = [];
+    snap.forEach(d => users.push({ id: d.id, ...d.data() }));
+
+    if (users.length === 0) {
+      container.innerHTML = '<p style="font-size:13px;color:var(--muted)">가입 요청이 없습니다.</p>';
+      return;
+    }
+
+    container.innerHTML = users.map(u => `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600">${u.name || '이름 없음'}</div>
+          <div style="font-size:11px;color:var(--muted)">${u.email}</div>
+          <div style="font-size:10px;color:var(--muted)">${u.requestedAt ? u.requestedAt.slice(0,10) : ''} 가입</div>
+        </div>
+        ${u.approved
+          ? `<span style="font-size:11px;font-weight:700;color:#16a34a;background:#f0fdf4;padding:3px 8px;border-radius:6px">✅ 승인됨</span>
+             <button onclick="revokeUser('${u.id}')" style="font-size:11px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:3px 8px;cursor:pointer">취소</button>`
+          : `<button onclick="approveUser('${u.id}')" style="font-size:12px;font-weight:700;background:var(--brand);color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer">승인</button>
+             <button onclick="deleteUser('${u.id}')" style="font-size:11px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:5px 10px;cursor:pointer">거절</button>`
+        }
+      </div>`).join('');
+  } catch(e) {
+    container.innerHTML = '<p style="font-size:13px;color:var(--danger)">불러오기 실패</p>';
+    console.error(e);
+  }
+}
+
+async function approveUser(uid) {
+  const { doc, setDoc } = window._fbFns;
+  await setDoc(doc(window._fbDb, 'approved_users', uid), { approved: true }, { merge: true });
+  loadPendingUsers();
+}
+
+async function revokeUser(uid) {
+  const { doc, setDoc } = window._fbFns;
+  await setDoc(doc(window._fbDb, 'approved_users', uid), { approved: false }, { merge: true });
+  loadPendingUsers();
+}
+
+async function deleteUser(uid) {
+  if (!confirm('이 사용자를 거절(삭제)할까요?')) return;
+  const { doc, deleteDoc } = window._fbFns;
+  await deleteDoc(doc(window._fbDb, 'approved_users', uid));
+  loadPendingUsers();
+}
 
 // ───────── Firebase Auth ─────────
 function doLogin() {
