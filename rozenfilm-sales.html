@@ -432,7 +432,12 @@
     // Saves projects to Firebase, but first re-fetches the latest server copy and merges by id.
     // This prevents one device's stale in-memory data from wiping out changes made on another
     // device in the meantime (the bug that caused projects to "disappear").
-    async function saveProjects() {
+    //
+    // IMPORTANT: save calls are serialized through a queue (see saveProjects() wrapper below).
+    // Without this, firing saveProjects() multiple times in quick succession (e.g. saving two
+    // projects back-to-back) could cause overlapping async calls to race and overwrite each
+    // other's results, silently dropping data even on a single device/session.
+    async function _saveProjectsInternal() {
       if (!window._user) return;
       try {
         const { doc, setDoc, getDoc } = window._fbFns;
@@ -443,16 +448,26 @@
           if (!p.id) p.id = `proj_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
         });
 
-        // Fetch latest server state to merge against
+        // Fetch latest server state to merge against. If this fails (e.g. permissions,
+        // network), ABORT the save rather than risk overwriting server data with a
+        // possibly-incomplete local copy.
         let serverProjects = [];
+        let fetchOk = false;
         try {
           const snap = await getDoc(doc(window._db, 'sales_data', uid));
           if (snap.exists()) serverProjects = snap.data().projects || [];
-        } catch(e) { console.warn('Could not fetch latest server data before save, proceeding with local only:', e); }
+          fetchOk = true;
+        } catch(e) {
+          console.error('saveProjects: failed to fetch latest server data, aborting save to avoid data loss:', e);
+        }
+
+        if (!fetchOk) {
+          alert('⚠️ 서버 데이터 확인에 실패하여 저장을 중단했습니다.\n네트워크 상태를 확인하고 다시 시도해주세요.\n(데이터 유실 방지를 위한 안전장치입니다)');
+          return;
+        }
 
         // Merge: local changes win for any project also present locally;
         // server-only projects (added on another device) are preserved.
-        const localById = new Map(projects.map(p => [p.id, p]));
         const merged = [];
         const seenIds = new Set();
 
@@ -467,6 +482,8 @@
           }
         });
 
+        console.log(`saveProjects: local=${projects.length}, server=${serverProjects.length}, merged=${merged.length}`);
+
         projects = merged.map(p => ({
           ...p,
           days: (p.days || []).map(d => ({ ...d, workers: Array.isArray(d.workers) ? d.workers : Array.from(d.workers || []) }))
@@ -476,7 +493,19 @@
           projects,
           updatedAt: new Date().toISOString()
         });
-      } catch (e) { console.error('Error saving projects to Firebase:', e); }
+      } catch (e) {
+        console.error('Error saving projects to Firebase:', e);
+        alert('저장 중 오류가 발생했습니다: ' + e.message);
+      }
+    }
+
+    // Queue wrapper: ensures saves run one at a time, in order, even if called rapidly.
+    let _saveProjectsQueue = Promise.resolve();
+    function saveProjects() {
+      _saveProjectsQueue = _saveProjectsQueue
+        .then(() => _saveProjectsInternal())
+        .catch(e => console.error('saveProjects queue error:', e));
+      return _saveProjectsQueue;
     }
 
     // Function to save workers to Firebase
@@ -2332,7 +2361,7 @@
       });
 
       // Handle form submission
-      document.getElementById('projectForm').addEventListener('submit', function(e) {
+      document.getElementById('projectForm').addEventListener('submit', async function(e) {
         e.preventDefault();
 
         const validMaterials = selectedMaterials.filter(entry => entry.material && entry.meters > 0);
@@ -2384,7 +2413,15 @@
           projects.push(project);
         }
 
-        saveProjects();
+        // Disable the submit button while saving to prevent accidental double-submits
+        const submitBtn = document.getElementById('submitButton');
+        const originalLabel = submitBtn ? submitBtn.textContent : '';
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '저장 중...'; }
+
+        await saveProjects();
+
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel; }
+
         resetForm();
         updateSalesTable();
         populateCalendarMonthSelector();
