@@ -175,6 +175,7 @@
             class="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500" style="width:200px">
         </div>
         <div class="flex flex-wrap gap-2 mb-4">
+          <button type="button" onclick="manualSyncFromSchedule()" id="syncScheduleBtn" class="bg-teal-600 text-white py-2 px-4 rounded-md hover:bg-teal-700 text-sm">🔄 일정 프로그램에서 배치 가져오기</button>
           <button type="button" id="exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">📥 JSON 내보내기</button>
           <button type="button" id="importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">📂 JSON 불러오기</button>
           <button type="button" onclick="cloudExport()" class="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 text-sm">☁️ 클라우드 내보내기</button>
@@ -185,6 +186,7 @@
           </select>
           <button type="button" id="exportMonth" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm" disabled>월별 데이터 내보내기</button>
         </div>
+        <p id="syncScheduleStatus" class="text-xs text-teal-600 mb-2 hidden"></p>
 
         <!-- Summary strip -->
         <div class="grid gap-3 mb-4" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">
@@ -1744,7 +1746,7 @@
         .map((p, idx) => ({ p, idx }))
         .filter(({ p }) => p.scheduleSiteId);
 
-      if (linkedProjects.length === 0) return;
+      if (linkedProjects.length === 0) return false;
 
       try {
         const { collection, getDocs } = window._fbFns;
@@ -1765,11 +1767,12 @@
           if (name && e.session !== 'off') entriesBySite[e.siteId][e.date].push(name);
         });
 
-        let changed = false;
+        let anyChanged = false;
         linkedProjects.forEach(({ p, idx }) => {
           const siteEntries = entriesBySite[p.scheduleSiteId];
           if (!siteEntries) return;
 
+          let projectChanged = false;
           (p.days || []).forEach(day => {
             if (!day.date || day.date === '미지정') return;
             const assignedNames = siteEntries[day.date] || [];
@@ -1777,12 +1780,12 @@
             const newNames = assignedNames.slice().sort().join(',');
             if (currentNames !== newNames) {
               day.workers = assignedNames;
-              changed = true;
+              projectChanged = true;
             }
           });
 
           // Recalculate labor cost based on updated staffing
-          if (changed) {
+          if (projectChanged) {
             p.laborCost = (p.days || []).reduce((total, day) => {
               const dayCost = (day.workers || []).reduce((sum, name) => {
                 const w = workers.find(w => w.name === name);
@@ -1790,11 +1793,37 @@
               }, 0);
               return total + dayCost;
             }, 0);
+            anyChanged = true;
           }
         });
 
-        if (changed) await saveProjects();
-      } catch(e) { console.error('pullScheduleStaffing error:', e); }
+        if (anyChanged) await saveProjects();
+        return anyChanged;
+      } catch(e) { console.error('pullScheduleStaffing error:', e); return false; }
+    }
+
+    // Manually triggered by the "🔄 일정 프로그램에서 배치 가져오기" button.
+    // Re-fetches schedule_entries and updates project day/worker assignments without a full page reload.
+    async function manualSyncFromSchedule() {
+      const btn = document.getElementById('syncScheduleBtn');
+      const status = document.getElementById('syncScheduleStatus');
+      if (btn) { btn.disabled = true; btn.textContent = '🔄 가져오는 중...'; }
+      try {
+        await mergeScheduleWorkers();
+        const changed = await pullScheduleStaffing();
+        updateSalesTable();
+        populateWorkerTable();
+        if (status) {
+          status.textContent = changed ? '✅ 일정 프로그램의 배치 변경사항을 반영했습니다.' : 'ℹ️ 변경된 배치 내용이 없습니다.';
+          status.classList.remove('hidden');
+          setTimeout(() => status.classList.add('hidden'), 4000);
+        }
+      } catch(e) {
+        console.error(e);
+        if (status) { status.textContent = '❌ 가져오기 중 오류가 발생했습니다.'; status.classList.remove('hidden'); }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 일정 프로그램에서 배치 가져오기'; }
+      }
     }
 
     async function loadAllDataFromFirebase() {
