@@ -291,10 +291,20 @@
       <!-- Calendar main -->
       <div class="flex-1 min-w-0">
         <!-- Month nav -->
-        <div class="flex items-center justify-between mb-4">
-          <button onclick="changeMonth(-1)" class="nav-btn">◀</button>
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <button onclick="changeCalendarPeriod(-1)" class="nav-btn">◀</button>
           <h2 id="calTitle" style="font-size:20px;font-weight:800"></h2>
-          <button onclick="changeMonth(1)" class="nav-btn">▶</button>
+          <button onclick="changeCalendarPeriod(1)" class="nav-btn">▶</button>
+        </div>
+
+        <div class="flex items-center justify-center gap-2 mb-4">
+          <div style="background:#EDF2F7;border-radius:8px;padding:3px;display:flex;gap:2px">
+            <button onclick="setCalendarView('month')" id="viewBtn-month"
+              style="padding:6px 16px;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;background:#2B6CB0;color:#fff">월간</button>
+            <button onclick="setCalendarView('week')" id="viewBtn-week"
+              style="padding:6px 16px;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:#718096">주간</button>
+          </div>
+          <button onclick="goToToday()" class="nav-btn" style="font-size:12px;padding:6px 12px">오늘</button>
         </div>
 
         <div id="siteAdminBar" class="hidden mb-3">
@@ -302,7 +312,7 @@
         </div>
 
         <!-- Day headers -->
-        <div class="cal-grid mb-1">
+        <div class="cal-grid mb-1" id="dayHeaderRow">
           <div class="text-center text-xs font-bold py-1" style="color:#E53E3E">일</div>
           <div class="text-center text-xs font-bold py-1" style="color:#4A5568">월</div>
           <div class="text-center text-xs font-bold py-1" style="color:#4A5568">화</div>
@@ -486,11 +496,11 @@
       <div class="flex gap-2">
         <div style="flex:1">
           <label style="font-size:12px;font-weight:600;color:var(--muted)">시작일</label>
-          <input type="date" id="siteStartDate" class="input mt-1">
+          <input type="date" id="siteStartDate" class="input mt-1" onchange="renderSiteWorkerAssignList()">
         </div>
         <div style="flex:1">
           <label style="font-size:12px;font-weight:600;color:var(--muted)">종료일</label>
-          <input type="date" id="siteEndDate" class="input mt-1">
+          <input type="date" id="siteEndDate" class="input mt-1" onchange="renderSiteWorkerAssignList()">
         </div>
       </div>
       <div>
@@ -523,6 +533,15 @@
         <label style="font-size:12px;font-weight:600;color:var(--muted)">인원 관련 메모</label>
         <input type="text" id="siteWorkerMemo" class="input mt-1" placeholder="예: 첫 3일은 4명, 이후 2명">
       </div>
+
+      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:12px">
+        <div class="flex items-center justify-between mb-2">
+          <label style="font-size:12px;font-weight:600;color:var(--muted)">시공자 배치</label>
+          <span id="siteAssignedCount" style="font-size:11px;color:var(--brand);font-weight:700"></span>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:8px">선택한 시공자는 현장 기간(시작일~종료일) 동안 자동으로 '종일' 일정에 등록됩니다.</p>
+        <div id="siteWorkerAssignList" class="space-y-1" style="max-height:240px;overflow-y:auto"></div>
+      </div>
     </div>
 
     <div style="padding:16px 24px;border-top:1px solid var(--border)" class="flex gap-2">
@@ -550,6 +569,8 @@
 // ─── State ───
 let currentYear = new Date().getFullYear();
 let currentMonth = new Date().getMonth();
+let calendarView = 'month'; // 'month' or 'week'
+let currentWeekStart = getWeekStart(new Date()); // Date object (Sunday of current week)
 let statsYear = new Date().getFullYear();
 let statsMonth = new Date().getMonth();
 let workers = [];    // [{id, name, color, phone}]
@@ -579,6 +600,7 @@ const SITE_COLORS = [
 let selectedSiteColor = SITE_COLORS[0];
 let editingSiteId = null;
 let currentSiteSubTab = 'info';
+let selectedSiteWorkerIds = new Set(); // Workers assigned to the site being edited
 
 async function loadSites() {
   const { collection, getDocs } = window._fbFns;
@@ -619,13 +641,83 @@ function openSiteModal(siteId = null) {
   `).join('');
 
   document.getElementById('siteDeleteBtn').classList.toggle('hidden', !siteId);
+
+  // Initialize assigned worker selection
+  selectedSiteWorkerIds = new Set(site?.assignedWorkerIds || []);
+  renderSiteWorkerAssignList();
+
   switchSiteTab('info');
   document.getElementById('siteModal').classList.remove('hidden');
+}
+
+function renderSiteWorkerAssignList() {
+  const container = document.getElementById('siteWorkerAssignList');
+  if (!container) return;
+
+  const startDate = document.getElementById('siteStartDate').value;
+  const endDate = document.getElementById('siteEndDate').value;
+
+  if (workers.length === 0) {
+    container.innerHTML = '<p style="font-size:12px;color:var(--muted)">등록된 시공자가 없습니다.</p>';
+  } else {
+    container.innerHTML = workers.map(w => {
+      const checked = selectedSiteWorkerIds.has(w.id);
+      const conflict = (startDate && endDate) ? getConflictingSite(w.id, startDate, endDate) : null;
+      const disabled = !!conflict && !checked;
+
+      return `
+      <label style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:${disabled ? 'not-allowed' : 'pointer'};
+        background:${checked ? hexToRgba(w.color,.1) : disabled ? '#F1F5F9' : 'var(--surface, #F8FAFC)'};
+        border:1.5px solid ${checked ? w.color : 'var(--border)'};opacity:${disabled ? '.55' : '1'}">
+        <input type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}
+          onchange="toggleSiteWorker('${w.id}')" style="width:16px;height:16px;accent-color:${w.color}">
+        <span style="width:18px;height:18px;border-radius:50%;background:${w.color};flex-shrink:0"></span>
+        <span style="font-size:13px;font-weight:600;flex:1">${w.name}</span>
+        ${disabled ? `<span style="font-size:10px;color:#DC2626;font-weight:700">"${conflict.name}" 배치중</span>` : ''}
+      </label>`;
+    }).join('');
+  }
+
+  updateSiteAssignedCount();
+}
+
+// Returns the conflicting site (other than the one being edited) if the worker
+// is already assigned to a site whose date range overlaps [startDate, endDate].
+function getConflictingSite(workerId, startDate, endDate) {
+  return sites.find(s =>
+    s.id !== editingSiteId &&
+    (s.assignedWorkerIds || []).includes(workerId) &&
+    startDate <= s.endDate && endDate >= s.startDate
+  );
+}
+
+function toggleSiteWorker(workerId) {
+  if (selectedSiteWorkerIds.has(workerId)) {
+    selectedSiteWorkerIds.delete(workerId);
+  } else {
+    const startDate = document.getElementById('siteStartDate').value;
+    const endDate = document.getElementById('siteEndDate').value;
+    if (startDate && endDate) {
+      const conflict = getConflictingSite(workerId, startDate, endDate);
+      if (conflict) {
+        alert(`해당 시공자는 이미 "${conflict.name}" 현장(${conflict.startDate} ~ ${conflict.endDate})에 배치되어 있어 중복 배치할 수 없습니다.`);
+        return;
+      }
+    }
+    selectedSiteWorkerIds.add(workerId);
+  }
+  renderSiteWorkerAssignList();
+}
+
+function updateSiteAssignedCount() {
+  const el = document.getElementById('siteAssignedCount');
+  if (el) el.textContent = selectedSiteWorkerIds.size > 0 ? `${selectedSiteWorkerIds.size}명 선택됨` : '';
 }
 
 function closeSiteModal() {
   document.getElementById('siteModal').classList.add('hidden');
   editingSiteId = null;
+  selectedSiteWorkerIds = new Set();
 }
 
 function selectSiteColor(c) {
@@ -660,28 +752,121 @@ async function saveSite() {
   const memo = document.getElementById('siteMemo').value.trim();
   const neededWorkers = parseInt(document.getElementById('siteNeededWorkers').value) || 0;
   const workerMemo = document.getElementById('siteWorkerMemo').value.trim();
+  const assignedWorkerIds = Array.from(selectedSiteWorkerIds);
 
   if (!name) { alert('현장명을 입력해주세요.'); return; }
   if (!startDate || !endDate) { alert('시작일과 종료일을 입력해주세요.'); return; }
   if (startDate > endDate) { alert('종료일은 시작일보다 빠를 수 없습니다.'); return; }
 
+  // Final safety check: ensure no assigned worker conflicts with another site's period
+  for (const workerId of assignedWorkerIds) {
+    const conflict = getConflictingSite(workerId, startDate, endDate);
+    if (conflict) {
+      const w = workers.find(w => w.id === workerId);
+      alert(`${w ? w.name : '해당 시공자'}는 이미 "${conflict.name}" 현장에 배치되어 있어 저장할 수 없습니다.`);
+      return;
+    }
+  }
+
   const id = editingSiteId || `site_${Date.now()}`;
-  const site = { id, name, startDate, endDate, address, memo, color: selectedSiteColor, neededWorkers, workerMemo };
+  const previousSite = editingSiteId ? sites.find(s => s.id === id) : null;
+  const site = { id, name, startDate, endDate, address, memo, color: selectedSiteColor, neededWorkers, workerMemo, assignedWorkerIds };
 
   try {
     await saveSiteToDb(site);
     const idx = sites.findIndex(s => s.id === id);
     if (idx > -1) sites[idx] = site; else sites.push(site);
+
+    await syncSiteWorkerSchedules(site, previousSite);
+
     closeSiteModal();
     renderCalendar();
     renderSiteList();
   } catch(e) { alert('저장 중 오류가 발생했습니다.'); console.error(e); }
 }
 
+// Auto-create/remove '종일' schedule entries for workers assigned to a site,
+// covering the site's date range. Tags entries with siteId for safe cleanup.
+async function syncSiteWorkerSchedules(site, previousSite) {
+  const { doc, setDoc, deleteDoc } = window._fbFns;
+  const dateList = [];
+  let d = new Date(site.startDate);
+  const end = new Date(site.endDate);
+  while (d <= end) {
+    dateList.push(formatDate(d));
+    d.setDate(d.getDate() + 1);
+  }
+
+  const prevWorkerIds = new Set(previousSite?.assignedWorkerIds || []);
+  const newWorkerIds = new Set(site.assignedWorkerIds || []);
+
+  // Remove entries for workers that were unassigned
+  const removedWorkerIds = [...prevWorkerIds].filter(id => !newWorkerIds.has(id));
+  for (const dateKey of dateList) {
+    const entries = schedules[dateKey] || [];
+    for (const entry of entries.filter(e => e.siteId === site.id && removedWorkerIds.includes(e.workerId))) {
+      await deleteScheduleFromDb(entry.id);
+      schedules[dateKey] = schedules[dateKey].filter(e => e.id !== entry.id);
+    }
+  }
+
+  // Also clean up old date-range entries if the site's dates changed
+  if (previousSite && (previousSite.startDate !== site.startDate || previousSite.endDate !== site.endDate)) {
+    const oldDateList = [];
+    let od = new Date(previousSite.startDate);
+    const oend = new Date(previousSite.endDate);
+    while (od <= oend) {
+      const key = formatDate(od);
+      if (!dateList.includes(key)) {
+        const entries = schedules[key] || [];
+        for (const entry of entries.filter(e => e.siteId === site.id)) {
+          await deleteScheduleFromDb(entry.id);
+          schedules[key] = schedules[key].filter(e => e.id !== entry.id);
+        }
+      }
+      od.setDate(od.getDate() + 1);
+    }
+  }
+
+  // Add/update entries for currently assigned workers across the date range
+  for (const workerId of newWorkerIds) {
+    for (const dateKey of dateList) {
+      const entries = schedules[dateKey] || [];
+      const existing = entries.find(e => e.siteId === site.id && e.workerId === workerId);
+      if (!existing) {
+        const id = `${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+        const entry = { id, workerId, date: dateKey, session: 'full', location: site.name, memo: '', siteId: site.id, addedBy: window._user?.uid };
+        await saveScheduleToDb(entry);
+        if (!schedules[dateKey]) schedules[dateKey] = [];
+        schedules[dateKey].push(entry);
+      } else if (existing.location !== site.name) {
+        // Keep location in sync if site name changed
+        existing.location = site.name;
+        await saveScheduleToDb(existing);
+      }
+    }
+  }
+}
+
 async function deleteSiteConfirm() {
   if (!editingSiteId) return;
-  if (!confirm('이 현장을 삭제할까요?\n(캘린더의 색상 표시만 사라지며, 개별 일정은 유지됩니다)')) return;
+  const removeSchedules = confirm(
+    '이 현장을 삭제할까요?\n\n' +
+    '확인: 현장 정보 + 자동 배치된 일정 모두 삭제\n' +
+    '취소: 삭제하지 않음'
+  );
+  if (!removeSchedules) return;
+
   try {
+    // Remove auto-generated schedule entries tagged with this site
+    for (const dateKey of Object.keys(schedules)) {
+      const entries = schedules[dateKey] || [];
+      for (const entry of entries.filter(e => e.siteId === editingSiteId)) {
+        await deleteScheduleFromDb(entry.id);
+      }
+      schedules[dateKey] = entries.filter(e => e.siteId !== editingSiteId);
+    }
+
     await deleteSiteFromDb(editingSiteId);
     sites = sites.filter(s => s.id !== editingSiteId);
     closeSiteModal();
@@ -722,12 +907,25 @@ function openSiteDetailModal(siteId) {
   const site = sites.find(s => s.id === siteId);
   if (!site) return;
 
+  const assignedNames = (site.assignedWorkerIds || [])
+    .map(id => workers.find(w => w.id === id))
+    .filter(Boolean);
+
   document.getElementById('siteDetailTitle').innerHTML = `<span style="color:${site.color}">●</span> ${site.name}`;
   document.getElementById('siteDetailBody').innerHTML = `
     <div style="font-size:13px"><span style="color:var(--muted)">기간:</span> ${site.startDate} ~ ${site.endDate}</div>
     ${site.address ? `<div style="font-size:13px"><span style="color:var(--muted)">주소:</span> ${site.address}</div>` : ''}
     ${site.neededWorkers > 0 ? `<div style="font-size:13px"><span style="color:var(--muted)">필요 인원:</span> ${site.neededWorkers}명</div>` : ''}
     ${site.workerMemo ? `<div style="font-size:13px"><span style="color:var(--muted)">인원 메모:</span> ${site.workerMemo}</div>` : ''}
+    ${assignedNames.length > 0 ? `
+      <div style="font-size:13px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
+        <span style="color:var(--muted)">배치된 시공자 (${assignedNames.length}명):</span>
+        <div class="flex flex-wrap gap-1 mt-1">
+          ${assignedNames.map(w => `<span style="display:inline-flex;align-items:center;gap:4px;background:${hexToRgba(w.color,.12)};color:${w.color};border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600">
+            <span style="width:7px;height:7px;border-radius:50%;background:${w.color}"></span>${w.name}
+          </span>`).join('')}
+        </div>
+      </div>` : ''}
     ${site.memo ? `<div style="font-size:13px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"><span style="color:var(--muted)">메모:</span><br>${site.memo}</div>` : ''}
     ${isAdmin() ? `<div class="flex gap-2 pt-3"><button onclick="closeSiteDetailModal();openSiteModal('${site.id}')" class="btn-primary flex-1">수정</button></div>` : ''}
   `;
@@ -853,18 +1051,82 @@ async function deleteScheduleFromDb(id) {
 }
 
 // ─── Calendar ───
-function changeMonth(delta) {
-  currentMonth += delta;
-  if (currentMonth > 11) { currentMonth = 0; currentYear++; }
-  if (currentMonth < 0)  { currentMonth = 11; currentYear--; }
+function getWeekStart(date) {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay()); // back up to Sunday
+  d.setHours(0,0,0,0);
+  return d;
+}
+
+function setCalendarView(view) {
+  calendarView = view;
+  document.getElementById('viewBtn-month').style.background = view === 'month' ? '#2B6CB0' : 'transparent';
+  document.getElementById('viewBtn-month').style.color = view === 'month' ? '#fff' : '#718096';
+  document.getElementById('viewBtn-week').style.background = view === 'week' ? '#2B6CB0' : 'transparent';
+  document.getElementById('viewBtn-week').style.color = view === 'week' ? '#fff' : '#718096';
+
+  const headerRow = document.getElementById('dayHeaderRow');
+  if (headerRow) headerRow.style.display = view === 'week' ? 'none' : '';
+
+  if (view === 'week') {
+    // Sync week start to currently viewed month (use today if today is in that month, else 1st of month)
+    const today = new Date();
+    if (today.getFullYear() === currentYear && today.getMonth() === currentMonth) {
+      currentWeekStart = getWeekStart(today);
+    } else {
+      currentWeekStart = getWeekStart(new Date(currentYear, currentMonth, 1));
+    }
+  }
   renderCalendar();
 }
 
+function changeCalendarPeriod(delta) {
+  if (calendarView === 'week') {
+    currentWeekStart.setDate(currentWeekStart.getDate() + delta * 7);
+    currentYear = currentWeekStart.getFullYear();
+    currentMonth = currentWeekStart.getMonth();
+  } else {
+    currentMonth += delta;
+    if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+    if (currentMonth < 0)  { currentMonth = 11; currentYear--; }
+  }
+  renderCalendar();
+}
+
+function goToToday() {
+  const today = new Date();
+  currentYear = today.getFullYear();
+  currentMonth = today.getMonth();
+  currentWeekStart = getWeekStart(today);
+  renderCalendar();
+}
+
+// Kept for backward compatibility (no longer used directly by nav buttons)
+function changeMonth(delta) {
+  changeCalendarPeriod(delta);
+}
+
 function renderCalendar() {
+  if (calendarView === 'week') {
+    renderWeekCalendar();
+  } else {
+    renderMonthCalendar();
+  }
+
+  renderTodayAvailability();
+  renderSiteList();
+
+  // Show site admin bar only for admins
+  const adminBar = document.getElementById('siteAdminBar');
+  if (adminBar) adminBar.classList.toggle('hidden', !isAdmin());
+}
+
+function renderMonthCalendar() {
   const title = document.getElementById('calTitle');
   title.textContent = `${currentYear}년 ${currentMonth + 1}월`;
 
   const grid = document.getElementById('calGrid');
+  grid.className = 'cal-grid gap-1';
   grid.innerHTML = '';
 
   const today = new Date();
@@ -889,16 +1151,34 @@ function renderCalendar() {
     const d = new Date(currentYear, currentMonth + 1, i);
     grid.appendChild(makeDayCell(d, true));
   }
-
-  renderTodayAvailability();
-  renderSiteList();
-
-  // Show site admin bar only for admins
-  const adminBar = document.getElementById('siteAdminBar');
-  if (adminBar) adminBar.classList.toggle('hidden', !isAdmin());
 }
 
-function makeDayCell(date, otherMonth, isToday = false) {
+function renderWeekCalendar() {
+  const title = document.getElementById('calTitle');
+  const weekEnd = new Date(currentWeekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+
+  const sameMonth = currentWeekStart.getMonth() === weekEnd.getMonth();
+  if (sameMonth) {
+    title.textContent = `${currentWeekStart.getFullYear()}년 ${currentWeekStart.getMonth() + 1}월 ${currentWeekStart.getDate()}일 ~ ${weekEnd.getDate()}일`;
+  } else {
+    title.textContent = `${currentWeekStart.getMonth() + 1}월 ${currentWeekStart.getDate()}일 ~ ${weekEnd.getMonth() + 1}월 ${weekEnd.getDate()}일`;
+  }
+
+  const grid = document.getElementById('calGrid');
+  grid.className = 'cal-grid gap-1';
+  grid.innerHTML = '';
+
+  const today = new Date();
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(currentWeekStart);
+    date.setDate(date.getDate() + i);
+    const isToday = date.toDateString() === today.toDateString();
+    grid.appendChild(makeDayCell(date, false, isToday, true));
+  }
+}
+
+function makeDayCell(date, otherMonth, isToday = false, isWeekView = false) {
   const dow = date.getDay();
   const dateKey = formatDate(date);
   const cell = document.createElement('div');
@@ -907,6 +1187,10 @@ function makeDayCell(date, otherMonth, isToday = false) {
     (isToday ? ' today' : '') +
     (dow === 0 ? ' sunday' : '') +
     (dow === 6 ? ' saturday' : '');
+
+  if (isWeekView) {
+    cell.style.minHeight = '320px';
+  }
 
   // Site period background tint
   const daySites = getSitesForDate(dateKey);
@@ -917,28 +1201,51 @@ function makeDayCell(date, otherMonth, isToday = false) {
 
   const numEl = document.createElement('div');
   numEl.className = 'cal-day-num';
-  numEl.textContent = date.getDate();
+  numEl.textContent = isWeekView
+    ? `${date.getMonth()+1}/${date.getDate()} (${['일','월','화','수','목','금','토'][dow]})`
+    : date.getDate();
   cell.appendChild(numEl);
 
   // Site badges
-  daySites.slice(0, 2).forEach(site => {
+  const siteBadgeLimit = isWeekView ? daySites.length : 2;
+  const showAssignedNames = daySites.length > 1; // 현장이 중복되는 날만 시공자명 표시
+  daySites.slice(0, siteBadgeLimit).forEach(site => {
+    const badgeWrap = document.createElement('div');
+    badgeWrap.style.cssText = 'margin-bottom:2px';
+
     const badge = document.createElement('div');
-    badge.style.cssText = `font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-bottom:2px;background:${site.color};color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer`;
+    badge.style.cssText = `font-size:${isWeekView ? '11px' : '9px'};font-weight:700;padding:2px 6px;border-radius:3px;background:${site.color};color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer`;
     badge.textContent = '🏗️ ' + site.name;
     badge.title = site.name + (site.neededWorkers ? ` · 필요인원 ${site.neededWorkers}명` : '');
     badge.onclick = (e) => { e.stopPropagation(); openSiteDetailModal(site.id); };
-    cell.appendChild(badge);
+    badgeWrap.appendChild(badge);
+
+    if (showAssignedNames) {
+      const assignedNames = (site.assignedWorkerIds || [])
+        .map(id => workers.find(w => w.id === id))
+        .filter(Boolean);
+      if (assignedNames.length > 0) {
+        const namesEl = document.createElement('div');
+        namesEl.style.cssText = `font-size:${isWeekView ? '10px' : '8px'};color:${site.color};padding:1px 4px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`;
+        namesEl.textContent = '👷 ' + assignedNames.map(w => w.name).join(', ');
+        badgeWrap.appendChild(namesEl);
+      }
+    }
+
+    cell.appendChild(badgeWrap);
   });
 
   // Schedule chips
   const dayEntries = (schedules[dateKey] || []).filter(e =>
     activeWorkers.has(e.workerId)
   );
-  dayEntries.slice(0, 4).forEach(entry => {
+  const chipLimit = isWeekView ? dayEntries.length : 4;
+  dayEntries.slice(0, chipLimit).forEach(entry => {
     const worker = workers.find(w => w.id === entry.workerId);
     if (!worker) return;
     const chip = document.createElement('div');
     chip.className = 'chip';
+    if (isWeekView) chip.style.fontSize = '11px';
     const isOff = entry.session === 'off';
     chip.style.background = isOff ? '#E2E8F0' : hexToRgba(worker.color, .15);
     chip.style.color = isOff ? '#718096' : worker.color;
@@ -947,7 +1254,7 @@ function makeDayCell(date, otherMonth, isToday = false) {
     chip.title = `${worker.name} · ${sessionLabel}${entry.location ? ' · ' + entry.location : ''}`;
     cell.appendChild(chip);
   });
-  if (dayEntries.length > 4) {
+  if (!isWeekView && dayEntries.length > 4) {
     const more = document.createElement('div');
     more.style.cssText = 'font-size:10px;color:var(--muted);padding:1px 4px';
     more.textContent = `+${dayEntries.length - 4}명`;
