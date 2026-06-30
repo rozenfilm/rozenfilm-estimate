@@ -166,8 +166,10 @@
       <div class="mt-6">
         <h2 class="text-xl font-semibold mb-4">매출 기록</h2>
         <div class="flex space-x-2 mb-4">
-          <button type="button" id="exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">모든 데이터 내보내기</button>
-          <button type="button" id="importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">JSON 파일 불러오기</button>
+          <button type="button" id="exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">📥 JSON 내보내기</button>
+          <button type="button" id="importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">📂 JSON 불러오기</button>
+          <button type="button" onclick="cloudExport()" class="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700">☁️ 클라우드 내보내기</button>
+          <button type="button" onclick="openCloudImportModal()" class="bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700">☁️ 클라우드 불러오기</button>
           <input type="file" id="fileInput" accept=".json" class="hidden">
           <select id="monthSelector" class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
             <option value="">월 선택</option>
@@ -1324,6 +1326,191 @@
     }
 
 
+
+    // ── Cloud Export / Import ──
+    let cloudImportData = null;
+
+    function cloudExport() {
+      document.getElementById('cloudExportFrom').value = '';
+      document.getElementById('cloudExportTo').value = '';
+      const s = document.getElementById('cloudExportStatus');
+      s.style.display = 'none';
+      document.getElementById('cloudExportModal').style.display = 'flex';
+    }
+    function closeCloudExportModal() {
+      document.getElementById('cloudExportModal').style.display = 'none';
+    }
+
+    async function doCloudExport() {
+      if (!window._user) return;
+      const from = document.getElementById('cloudExportFrom').value;
+      const to = document.getElementById('cloudExportTo').value;
+      const status = document.getElementById('cloudExportStatus');
+
+      let filtered = projects;
+      if (from || to) {
+        filtered = projects.filter(p => {
+          if (!p.constructionDate || p.constructionDate === '미지정') return false;
+          const d = p.constructionDate.slice(0, 7); // YYYY-MM
+          if (from && d < from) return false;
+          if (to && d > to) return false;
+          return true;
+        });
+      }
+
+      if (filtered.length === 0) {
+        status.textContent = '⚠️ 해당 기간에 프로젝트가 없습니다.';
+        status.style.color = '#dc2626'; status.style.display = 'block';
+        return;
+      }
+
+      try {
+        const { doc, setDoc } = window._fbFns;
+        const exportId = window._user.uid;
+        await setDoc(doc(window._db, 'sales_shared', exportId), {
+          email: window._user.email,
+          displayName: window._user.displayName || window._user.email,
+          projects: filtered.map(p => ({
+            ...p,
+            days: (p.days||[]).map(d => ({ ...d, workers: Array.isArray(d.workers) ? d.workers : [] }))
+          })),
+          workers, materials,
+          exportedAt: new Date().toISOString(),
+          projectCount: filtered.length
+        });
+        status.textContent = '✅ ' + filtered.length + '건 내보내기 완료! 다른 계정에서 이 이메일로 검색하세요: ' + window._user.email;
+        status.style.color = '#16a34a'; status.style.display = 'block';
+      } catch(e) {
+        status.textContent = '❌ 오류: ' + e.message;
+        status.style.color = '#dc2626'; status.style.display = 'block';
+      }
+    }
+
+    function openCloudImportModal() {
+      document.getElementById('cloudImportEmail').value = '';
+      document.getElementById('cloudImportFrom').value = '';
+      document.getElementById('cloudImportTo').value = '';
+      document.getElementById('cloudImportPreview').innerHTML = '';
+      document.getElementById('cloudImportStatus').style.display = 'none';
+      document.getElementById('confirmImportBtn').style.display = 'none';
+      cloudImportData = null;
+      document.getElementById('cloudImportModal').style.display = 'flex';
+    }
+    function closeCloudImportModal() {
+      document.getElementById('cloudImportModal').style.display = 'none';
+      cloudImportData = null;
+    }
+
+    async function previewCloudImport() {
+      const email = document.getElementById('cloudImportEmail').value.trim();
+      const from = document.getElementById('cloudImportFrom').value;
+      const to = document.getElementById('cloudImportTo').value;
+      const status = document.getElementById('cloudImportStatus');
+      const preview = document.getElementById('cloudImportPreview');
+      const confirmBtn = document.getElementById('confirmImportBtn');
+
+      if (!email) {
+        status.textContent = '⚠️ 이메일을 입력해주세요.';
+        status.style.color = '#dc2626'; status.style.display = 'block'; return;
+      }
+
+      status.textContent = '🔍 검색 중...';
+      status.style.color = '#4f46e5'; status.style.display = 'block';
+      preview.innerHTML = ''; confirmBtn.style.display = 'none';
+      cloudImportData = null;
+
+      try {
+        const { getDocs, collection } = window._fbFns;
+        const snap = await getDocs(collection(window._db, 'sales_shared'));
+        let found = null;
+        snap.forEach(d => { if (d.data().email === email) found = d.data(); });
+
+        if (!found) {
+          status.textContent = '❌ 해당 이메일의 내보낸 데이터를 찾을 수 없습니다.';
+          status.style.color = '#dc2626'; return;
+        }
+
+        let importProjects = found.projects || [];
+        if (from || to) {
+          importProjects = importProjects.filter(p => {
+            if (!p.constructionDate || p.constructionDate === '미지정') return false;
+            const d = p.constructionDate.slice(0, 7);
+            if (from && d < from) return false;
+            if (to && d > to) return false;
+            return true;
+          });
+        }
+
+        if (importProjects.length === 0) {
+          status.textContent = '⚠️ 해당 기간에 가져올 데이터가 없습니다.';
+          status.style.color = '#dc2626'; return;
+        }
+
+        cloudImportData = { projects: importProjects, workers: found.workers || [], materials: found.materials || [] };
+
+        // Preview
+        const exportedAt = found.exportedAt ? found.exportedAt.slice(0,10) : '알 수 없음';
+        preview.innerHTML = '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px">' +
+          '<p style="font-weight:700;color:#16a34a;margin-bottom:6px">✅ 데이터 발견!</p>' +
+          '<p>내보낸 사람: <strong>' + (found.displayName||email) + '</strong></p>' +
+          '<p>내보낸 날짜: ' + exportedAt + '</p>' +
+          '<p>가져올 프로젝트: <strong>' + importProjects.length + '건</strong></p>' +
+          '<div style="margin-top:8px;max-height:120px;overflow-y:auto">' +
+          importProjects.map(p => '<div style="font-size:12px;color:#64748b;padding:2px 0">• ' + (p.siteName||'미지정') + ' (' + (p.constructionDate||'') + ')</div>').join('') +
+          '</div></div>';
+
+        status.textContent = importProjects.length + '건을 가져올 수 있습니다.';
+        status.style.color = '#16a34a';
+        confirmBtn.style.display = 'block';
+      } catch(e) {
+        status.textContent = '❌ 오류: ' + e.message;
+        status.style.color = '#dc2626';
+      }
+    }
+
+    async function confirmCloudImport() {
+      if (!cloudImportData || !window._user) return;
+      const status = document.getElementById('cloudImportStatus');
+
+      try {
+        // Merge projects (skip duplicates by siteName+constructionDate)
+        let added = 0;
+        cloudImportData.projects.forEach(p => {
+          const exists = projects.some(ep =>
+            ep.siteName === p.siteName && ep.constructionDate === p.constructionDate
+          );
+          if (!exists) { projects.push(p); added++; }
+        });
+
+        // Merge workers (skip duplicates by name)
+        cloudImportData.workers.forEach(w => {
+          if (!workers.find(ew => ew.name === w.name)) workers.push(w);
+        });
+
+        // Merge materials (skip duplicates by name)
+        cloudImportData.materials.forEach(m => {
+          if (!materials.find(em => em.name === m.name)) materials.push(m);
+        });
+
+        await saveProjects();
+        await saveWorkers();
+        await saveMaterials();
+
+        updateSalesTable();
+        populateWorkerTable();
+        populateMaterials();
+
+        status.textContent = '✅ ' + added + '건 가져오기 완료!';
+        status.style.color = '#16a34a';
+        document.getElementById('confirmImportBtn').style.display = 'none';
+        cloudImportData = null;
+        setTimeout(() => closeCloudImportModal(), 2000);
+      } catch(e) {
+        status.textContent = '❌ 오류: ' + e.message;
+        status.style.color = '#dc2626';
+      }
+    }
+
     // ── Firebase Load ──
     async function loadAllDataFromFirebase() {
       if (!window._user) return;
@@ -1820,5 +2007,67 @@
     });
   </script>
   
+
+<!-- Cloud Import Modal -->
+<div id="cloudImportModal" style="display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:20px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:17px;font-weight:800">☁️ 클라우드 데이터 불러오기</h3>
+      <button onclick="closeCloudImportModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8">✕</button>
+    </div>
+    <div style="padding:16px 24px">
+      <p style="font-size:13px;color:#64748b;margin-bottom:12px">다른 계정의 데이터를 현재 계정으로 가져옵니다.<br>현재 데이터에 <strong>추가</strong>됩니다 (덮어쓰기 아님).</p>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;font-weight:600;color:#64748b">가져올 계정 이메일</label>
+        <input type="email" id="cloudImportEmail" placeholder="이메일 입력"
+          style="width:100%;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 12px;font-size:14px;margin-top:4px;outline:none">
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#64748b">가져올 기간 (선택)</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <input type="month" id="cloudImportFrom" style="flex:1;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px;font-size:13px;outline:none">
+          <span style="align-self:center;color:#94a3b8">~</span>
+          <input type="month" id="cloudImportTo" style="flex:1;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px;font-size:13px;outline:none">
+        </div>
+        <p style="font-size:11px;color:#94a3b8;margin-top:4px">비워두면 전체 기간 가져오기</p>
+      </div>
+      <p id="cloudImportStatus" style="font-size:12px;margin-bottom:10px;display:none"></p>
+      <div id="cloudImportPreview" style="margin-bottom:12px"></div>
+      <div style="display:flex;gap-8px;gap:8px">
+        <button onclick="previewCloudImport()" style="flex:1;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:600;cursor:pointer">🔍 미리보기</button>
+        <button onclick="confirmCloudImport()" id="confirmImportBtn" style="flex:1;background:#16a34a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:600;cursor:pointer;display:none">✅ 가져오기</button>
+        <button onclick="closeCloudImportModal()" style="background:#f1f5f9;color:#374151;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer">취소</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Cloud Export Modal -->
+<div id="cloudExportModal" style="display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:20px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:17px;font-weight:800">☁️ 클라우드 내보내기</h3>
+      <button onclick="closeCloudExportModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8">✕</button>
+    </div>
+    <div style="padding:20px 24px" class="space-y-3">
+      <p style="font-size:13px;color:#64748b">현재 데이터를 클라우드의 공유 공간에 저장합니다.<br>다른 계정에서 이메일로 검색해 불러올 수 있습니다.</p>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#64748b">내보낼 기간 (선택)</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <input type="month" id="cloudExportFrom" style="flex:1;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px;font-size:13px;outline:none">
+          <span style="align-self:center;color:#94a3b8">~</span>
+          <input type="month" id="cloudExportTo" style="flex:1;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px;font-size:13px;outline:none">
+        </div>
+        <p style="font-size:11px;color:#94a3b8;margin-top:4px">비워두면 전체 내보내기</p>
+      </div>
+      <p id="cloudExportStatus" style="font-size:12px;display:none"></p>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button onclick="doCloudExport()" style="flex:1;background:#16a34a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:600;cursor:pointer">☁️ 내보내기</button>
+        <button onclick="closeCloudExportModal()" style="background:#f1f5f9;color:#374151;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer">취소</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
