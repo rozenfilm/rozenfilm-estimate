@@ -169,7 +169,7 @@
   <!-- Firebase -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential }
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, updateDoc, query, orderBy }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -189,7 +189,7 @@
 
     window._auth = auth;
     window._db = db;
-    window._fbFns = { signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential,
+    window._fbFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential,
       collection, doc, setDoc, getDocs, deleteDoc, updateDoc, query, orderBy };
 
     onAuthStateChanged(auth, async (user) => {
@@ -214,17 +214,39 @@
 <!-- ─── LOGIN ─── -->
 <div id="loginScreen" class="fixed inset-0 flex items-center justify-center z-50"
   style="background:linear-gradient(135deg,#1A365D 0%,#2B6CB0 100%)">
-  <div style="background:#fff;border-radius:20px;padding:40px;width:360px;max-width:90vw;box-shadow:0 24px 64px rgba(0,0,0,.3)">
-    <div class="text-center mb-8">
+  <div style="background:#fff;border-radius:20px;padding:32px 36px;width:380px;max-width:90vw;box-shadow:0 24px 64px rgba(0,0,0,.3)">
+    <div class="text-center mb-6">
       <p style="font-size:26px;font-weight:800;color:#2B6CB0;letter-spacing:-.5px">🏠 ROZEN FILM</p>
       <p style="font-size:13px;color:#718096;margin-top:4px">시공팀 일정 관리 시스템</p>
     </div>
-    <div class="space-y-3">
+
+    <!-- Tab -->
+    <div style="display:flex;background:#f1f5f9;border-radius:10px;padding:3px;margin-bottom:16px">
+      <button id="tabLogin" onclick="switchAuthTab('login')"
+        style="flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:#2B6CB0;color:#fff;transition:all .15s">로그인</button>
+      <button id="tabSignup" onclick="switchAuthTab('signup')"
+        style="flex:1;padding:7px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:#718096;transition:all .15s">회원가입</button>
+    </div>
+
+    <!-- Login -->
+    <div id="formLogin" class="space-y-3">
       <input type="email" id="loginEmail" class="input" placeholder="이메일">
       <input type="password" id="loginPassword" class="input" placeholder="비밀번호"
         onkeydown="if(event.key==='Enter')doLogin()">
       <p id="loginErr" class="text-xs hidden" style="color:#E53E3E">이메일 또는 비밀번호가 올바르지 않습니다.</p>
       <button onclick="doLogin()" class="btn-primary w-full" style="padding:12px;font-size:15px">로그인</button>
+    </div>
+
+    <!-- Signup -->
+    <div id="formSignup" class="space-y-3 hidden">
+      <input type="text" id="signupName" class="input" placeholder="이름">
+      <input type="email" id="signupEmail" class="input" placeholder="이메일">
+      <input type="password" id="signupPassword" class="input" placeholder="비밀번호 (6자 이상)">
+      <input type="password" id="signupConfirm" class="input" placeholder="비밀번호 확인"
+        onkeydown="if(event.key==='Enter')doSignup()">
+      <p id="signupError" class="text-xs hidden" style="color:#E53E3E"></p>
+      <p id="signupSuccess" class="text-xs hidden" style="color:#276749;background:#C6F6D5;padding:8px;border-radius:6px">✅ 가입 완료! 로그인해주세요.</p>
+      <button onclick="doSignup()" class="btn-primary w-full" style="padding:12px;font-size:15px">가입하기</button>
     </div>
   </div>
 </div>
@@ -442,6 +464,53 @@ let selectedColor = COLORS[0];
 const ADMIN_EMAIL = 'kilaloss2@gmail.com'; // Firebase 소유자 이메일 → 관리자
 function isAdmin() {
   return window._user && window._user.email === ADMIN_EMAIL;
+}
+
+// ─── Auth Tab / Signup ───
+function switchAuthTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('formLogin').classList.toggle('hidden', !isLogin);
+  document.getElementById('formSignup').classList.toggle('hidden', isLogin);
+  document.getElementById('tabLogin').style.background = isLogin ? '#2B6CB0' : 'transparent';
+  document.getElementById('tabLogin').style.color = isLogin ? '#fff' : '#718096';
+  document.getElementById('tabSignup').style.background = isLogin ? 'transparent' : '#2B6CB0';
+  document.getElementById('tabSignup').style.color = isLogin ? '#718096' : '#fff';
+  if (document.getElementById('loginErr')) document.getElementById('loginErr').classList.add('hidden');
+  if (document.getElementById('signupError')) document.getElementById('signupError').classList.add('hidden');
+  if (document.getElementById('signupSuccess')) document.getElementById('signupSuccess').classList.add('hidden');
+}
+
+async function doSignup() {
+  const name = document.getElementById('signupName').value.trim();
+  const email = document.getElementById('signupEmail').value.trim();
+  const pw = document.getElementById('signupPassword').value;
+  const confirm = document.getElementById('signupConfirm').value;
+  const errEl = document.getElementById('signupError');
+  const okEl = document.getElementById('signupSuccess');
+  errEl.classList.add('hidden');
+  okEl.classList.add('hidden');
+
+  if (!name) { errEl.textContent = '이름을 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+  if (!email) { errEl.textContent = '이메일을 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+  if (pw.length < 6) { errEl.textContent = '비밀번호는 6자 이상이어야 합니다.'; errEl.classList.remove('hidden'); return; }
+  if (pw !== confirm) { errEl.textContent = '비밀번호가 일치하지 않습니다.'; errEl.classList.remove('hidden'); return; }
+
+  try {
+    const { createUserWithEmailAndPassword, updateProfile } = window._fbFns;
+    const cred = await createUserWithEmailAndPassword(window._auth, email, pw);
+    await updateProfile(cred.user, { displayName: name });
+    okEl.classList.remove('hidden');
+    document.getElementById('signupName').value = '';
+    document.getElementById('signupEmail').value = '';
+    document.getElementById('signupPassword').value = '';
+    document.getElementById('signupConfirm').value = '';
+    setTimeout(() => switchAuthTab('login'), 1500);
+  } catch(e) {
+    if (e.code === 'auth/email-already-in-use') errEl.textContent = '이미 사용 중인 이메일입니다.';
+    else if (e.code === 'auth/invalid-email') errEl.textContent = '올바른 이메일 형식이 아닙니다.';
+    else errEl.textContent = '오류: ' + e.message;
+    errEl.classList.remove('hidden');
+  }
 }
 
 // ─── Auth ───
