@@ -489,14 +489,34 @@
           days: (p.days || []).map(d => ({ ...d, workers: Array.isArray(d.workers) ? d.workers : Array.from(d.workers || []) }))
         }));
 
+        // Safety net: Firestore rejects the ENTIRE write if any field is undefined.
+        // Strip undefined values (recursively) so a future bug can't silently brick saving.
+        const cleanProjects = stripUndefined(projects);
+
         await setDoc(doc(window._db, 'sales_data', uid), {
-          projects,
+          projects: cleanProjects,
           updatedAt: new Date().toISOString()
         });
       } catch (e) {
         console.error('Error saving projects to Firebase:', e);
         alert('저장 중 오류가 발생했습니다: ' + e.message);
       }
+    }
+
+    // Recursively removes keys whose value is undefined (Firestore setDoc() throws on these).
+    function stripUndefined(value) {
+      if (Array.isArray(value)) {
+        return value.map(stripUndefined);
+      }
+      if (value && typeof value === 'object' && !(value instanceof Date)) {
+        const result = {};
+        Object.keys(value).forEach(key => {
+          const v = value[key];
+          if (v !== undefined) result[key] = stripUndefined(v);
+        });
+        return result;
+      }
+      return value;
     }
 
     // Queue wrapper: ensures saves run one at a time, in order, even if called rapidly.
@@ -514,7 +534,7 @@
       try {
         const { doc, setDoc } = window._fbFns;
         const uid = window._user.uid;
-        await setDoc(doc(window._db, 'sales_workers', uid), { workers, updatedAt: new Date().toISOString() });
+        await setDoc(doc(window._db, 'sales_workers', uid), { workers: stripUndefined(workers), updatedAt: new Date().toISOString() });
       } catch (e) { console.error('Error saving workers:', e); }
     }
 
@@ -524,7 +544,7 @@
       try {
         const { doc, setDoc } = window._fbFns;
         const uid = window._user.uid;
-        await setDoc(doc(window._db, 'sales_materials', uid), { materials, updatedAt: new Date().toISOString() });
+        await setDoc(doc(window._db, 'sales_materials', uid), { materials: stripUndefined(materials), updatedAt: new Date().toISOString() });
       } catch (e) { console.error('Error saving materials:', e); }
     }
 
@@ -2402,7 +2422,7 @@
             workers: Array.from(day.selectedWorkers)
           })),
           totalEstimate: parseInt(document.getElementById('totalEstimate').value) || 0,
-          scheduleSiteId: existingProject?.scheduleSiteId,
+          scheduleSiteId: existingProject?.scheduleSiteId || null,
           updatedAt: new Date().toISOString()
         };
 
