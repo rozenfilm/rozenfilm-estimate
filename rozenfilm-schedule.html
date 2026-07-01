@@ -202,6 +202,7 @@
         await loadWorkers();
         await loadSchedules();
         await loadSites();
+        await loadSalesProjects();
         renderCalendar();
         renderWorkerList();
       } else {
@@ -277,6 +278,10 @@
         <button onclick="switchTab('workers')" id="tab-workers"
           class="tab-btn" style="padding:5px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;color:rgba(255,255,255,.6);background:transparent">
           👷 팀원
+        </button>
+        <button onclick="switchTab('sales')" id="tab-sales"
+          class="tab-btn" style="padding:5px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;color:rgba(255,255,255,.6);background:transparent">
+          💰 매출
         </button>
       </div>
       <button onclick="openPwModal()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">🔑 비번변경</button>
@@ -383,6 +388,154 @@
     <div id="workerManageList" class="space-y-2"></div>
   </div>
 
+  <!-- ─── 💰 SALES TAB ─── -->
+  <!-- ─── 💰 SALES TAB ─── -->
+  <div id="view-sales" class="hidden" style="background:#f3f4f6;min-height:100vh">
+    <div class="container mx-auto p-4">
+
+      <!-- Sub-tab Navigation -->
+      <div class="flex flex-wrap gap-2 mb-6">
+        <button id="s_projectTab" onclick="s_showTab('project')" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">프로젝트 관리</button>
+        <button id="s_laborTab" onclick="s_showTab('labor')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">주간 인건비 정산</button>
+        <button id="s_calendarTab" onclick="s_showTab('calendar')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">인력 배치 현황</button>
+        <button id="s_workerTab" onclick="s_showTab('worker')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">인력 관리</button>
+        <button id="s_materialTab" onclick="s_showTab('material')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">자재 관리</button>
+      </div>
+
+      <!-- Project Management -->
+      <div id="s_projectContent" class="bg-white p-6 rounded-lg shadow-md mb-6">
+        <h2 class="text-xl font-semibold mb-4">프로젝트 추가/수정</h2>
+        <form id="s_projectForm" class="space-y-4">
+          <input type="hidden" id="s_projectIndex" value="-1">
+          <div><label class="block text-sm font-medium text-gray-700">현장명</label>
+            <input type="text" id="s_siteName" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required></div>
+          <div><label class="block text-sm font-medium text-gray-700">시공 시작 날짜</label>
+            <input type="date" id="s_constructionDate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required></div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">자재 선택</label>
+            <div id="s_materialsContainer" class="space-y-4 mt-1"></div>
+            <button type="button" id="s_addMaterial" class="mt-2 bg-blue-500 text-white py-1 px-3 rounded-md hover:bg-blue-600">자재 추가</button>
+            <div class="mt-2"><span class="font-semibold">총 자재 비용: </span><span id="s_materialCostDisplay" class="font-bold">0 원</span></div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">부대비용</label>
+            <div id="s_additionalCostsContainer" class="space-y-4 mt-1"></div>
+            <div class="mt-2"><span class="font-semibold">총 부대비용: </span><span id="s_additionalCostDisplay" class="font-bold">0 원</span></div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">인력 선택 (일별)</label>
+            <div id="s_daysContainer" class="space-y-4 mt-1"></div>
+            <div class="flex space-x-2 mt-2">
+              <button type="button" id="s_addDay" class="bg-green-500 text-white py-1 px-3 rounded-md hover:bg-green-600">새로운 일자 추가</button>
+              <button type="button" id="s_deleteDay" class="bg-red-500 text-white py-1 px-3 rounded-md opacity-50 cursor-not-allowed" disabled>일자 삭제</button>
+            </div>
+            <div class="mt-2"><span class="font-semibold">총 인건비: </span><span id="s_totalLaborCost" class="font-bold">0 원</span></div>
+          </div>
+          <div><label class="block text-sm font-medium text-gray-700">총 견적 금액 (원)</label>
+            <input type="number" id="s_totalEstimate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required></div>
+          <div class="flex space-x-2">
+            <button type="submit" id="s_submitButton" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">프로젝트 추가</button>
+            <button type="button" id="s_cancelEdit" class="w-full bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 hidden">수정 취소</button>
+          </div>
+        </form>
+        <div class="mt-6">
+          <h2 class="text-xl font-semibold mb-4">매출 기록</h2>
+          <div class="flex flex-wrap gap-2 mb-4">
+            <button type="button" id="s_exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">모든 데이터 내보내기</button>
+            <button type="button" id="s_importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">JSON 파일 불러오기</button>
+            <input type="file" id="s_fileInput" accept=".json" class="hidden">
+            <select id="s_monthSelector" class="border-gray-300 rounded-md shadow-sm text-sm"><option value="">월 선택</option></select>
+            <button type="button" id="s_exportMonth" class="bg-indigo-600 text-white py-2 px-4 rounded-md opacity-50 cursor-not-allowed text-sm" disabled>월별 내보내기</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse text-sm min-w-max">
+              <thead><tr class="bg-gray-200">
+                <th class="border p-2">현장명</th><th class="border p-2">시공날짜</th>
+                <th class="border p-2">자재</th><th class="border p-2">사용량(m)</th>
+                <th class="border p-2">자재비(원)</th><th class="border p-2">부대비용</th>
+                <th class="border p-2">인력</th><th class="border p-2">총비용</th>
+                <th class="border p-2">견적금액</th><th class="border p-2">이윤</th>
+                <th class="border p-2">이윤율</th>
+              </tr></thead>
+              <tbody id="s_salesTableBody"></tbody>
+            </table>
+          </div>
+          <div class="mt-4 text-right space-y-1 text-sm">
+            <div><span class="font-semibold">총 매출: </span><span id="s_totalRevenue" class="font-bold">0 원</span></div>
+            <div><span class="font-semibold">총 이윤: </span><span id="s_totalProfit" class="font-bold">0 원</span></div>
+            <div><span class="font-semibold">총 부대비용: </span><span id="s_totalAdditionalCost" class="font-bold">0 원</span></div>
+            <div><span class="font-semibold">총 인건비: </span><span id="s_totalLaborCostSummary" class="font-bold">0 원</span></div>
+            <div><span class="font-semibold">총 자재비: </span><span id="s_totalMaterialCost" class="font-bold">0 원</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Weekly Labor Cost -->
+      <div id="s_laborContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+        <h2 class="text-xl font-semibold mb-4">주간 인건비 정산</h2>
+        <div class="space-y-4">
+          <div><label class="block text-sm font-medium text-gray-700">시작 날짜</label>
+            <input type="date" id="s_startDate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"></div>
+          <div><label class="block text-sm font-medium text-gray-700">종료 날짜</label>
+            <input type="date" id="s_endDate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"></div>
+          <div><label class="block text-sm font-medium text-gray-700">선지출한 경비 (원)</label>
+            <input type="number" id="s_prepaidExpenses" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" value="0"></div>
+          <div><label class="block text-sm font-medium text-gray-700">이미 지급된 금액 (원)</label>
+            <input type="number" id="s_amountPaid" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" value="0"></div>
+          <div class="flex space-x-2">
+            <button type="button" id="s_calculateLabor" class="bg-indigo-600 text-white py-2 px-4 rounded-md opacity-50 cursor-not-allowed" disabled>계산</button>
+            <button type="button" id="s_resetLabor" class="bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600">초기화</button>
+          </div>
+          <div class="mt-4 space-y-2 text-sm">
+            <div><span class="font-semibold">총 인건비: </span><span id="s_totalLaborCostResult" class="font-bold">0 원</span></div>
+            <div><span class="font-semibold">최종 지급 금액: </span><span id="s_finalAmount" class="font-bold">0 원</span></div>
+            <table class="w-full border-collapse mt-2"><thead><tr class="bg-gray-200">
+              <th class="border p-2">인력</th><th class="border p-2">인건비</th><th class="border p-2">투입 일정</th>
+            </tr></thead><tbody id="s_workerDetailsTable"></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar -->
+      <div id="s_calendarContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+        <h2 class="text-xl font-semibold mb-4">인력 배치 현황</h2>
+        <div><label class="block text-sm font-medium text-gray-700">월 선택</label>
+          <select id="s_calendarMonthSelector" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"><option value="">월 선택</option></select></div>
+        <div id="s_calendarDisplay" class="mt-4 overflow-x-auto"></div>
+      </div>
+
+      <!-- Worker Management -->
+      <div id="s_workerContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+        <h2 class="text-xl font-semibold mb-4">인력 관리</h2>
+        <form id="s_workerForm" class="space-y-4">
+          <h3 class="text-lg font-medium">인력 추가</h3>
+          <div><label class="block text-sm font-medium text-gray-700">이름</label>
+            <input type="text" id="s_workerName" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required></div>
+          <div><label class="block text-sm font-medium text-gray-700">인건비 (원)</label>
+            <input type="number" id="s_workerCost" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required></div>
+          <button type="submit" class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600">인력 추가</button>
+        </form>
+        <h3 class="text-lg font-medium mt-6">등록된 인력</h3>
+        <div id="s_workerTableBody" class="grid gap-2 mt-2" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
+      </div>
+
+      <!-- Material Management -->
+      <div id="s_materialContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+        <h2 class="text-xl font-semibold mb-4">자재 관리</h2>
+        <form id="s_materialForm" class="space-y-4">
+          <h3 class="text-lg font-medium">자재 추가</h3>
+          <div><label class="block text-sm font-medium text-gray-700">자재 이름</label>
+            <input type="text" id="s_materialName" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required></div>
+          <div><label class="block text-sm font-medium text-gray-700">단가 (원/미터)</label>
+            <input type="number" id="s_materialUnitPrice" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required></div>
+          <button type="submit" class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600">자재 추가</button>
+        </form>
+        <h3 class="text-lg font-medium mt-6">등록된 자재</h3>
+        <div id="s_materialTableBody" class="grid gap-2 mt-2" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
+      </div>
+
+    </div>
+  </div>
 </div>
 
 <!-- ─── DAY DETAIL MODAL ─── -->
@@ -1105,7 +1258,7 @@ function doLogout() { window._fbFns.signOut(window._auth); }
 
 // ─── Tab ───
 function switchTab(tab) {
-  ['calendar','stats','workers'].forEach(t => {
+  ['calendar','stats','workers','sales'].forEach(t => {
     document.getElementById(`view-${t}`).classList.toggle('hidden', t !== tab);
     const btn = document.getElementById(`tab-${t}`);
     if (btn) {
@@ -1115,6 +1268,7 @@ function switchTab(tab) {
   });
   if (tab === 'stats') renderStats();
   if (tab === 'workers') renderWorkerManage();
+  if (tab === 'sales') renderSalesTab();
 }
 
 // ─── Firebase: Workers ───
@@ -1729,6 +1883,560 @@ function hexToRgba(hex, alpha) {
   const b = parseInt(hex.slice(5,7),16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
+
+// ─── 💰 Sales Management ───
+// All IDs/vars prefixed with s_ to avoid conflicts with schedule program variables.
+
+let s_projects = [];
+let s_workers_sales = [
+  { name: '이석현', cost: 250000 }, { name: '강민석', cost: 230000 },
+  { name: '육한수', cost: 250000 }, { name: '이명권', cost: 250000 },
+  { name: '권기표', cost: 190000 }, { name: '박민경', cost: 120000 },
+  { name: '조경현', cost: 250000 }, { name: '조수희', cost: 120000 }
+];
+let s_materials_sales = [
+  { name: '영림 기본패턴', unitPrice: 4900 }, { name: '현대 기본패턴', unitPrice: 5600 },
+  { name: '현대 ZSW', unitPrice: 6700 }, { name: '현대 SMT, PNT', unitPrice: 8300 },
+  { name: '현대 PNC, RM, NS', unitPrice: 9300 }, { name: '현대 PM, SPW', unitPrice: 10500 }
+];
+const s_additionalCostCategories = [{ name: '식대' }, { name: '물류비' }, { name: '부자재비' }];
+let s_days = [{ selectedWorkers: new Set(), date: '' }];
+let s_selectedMaterials = [{ material: null, dispatched: 0, returned: 0, meters: 0 }];
+let s_selectedAdditionalCosts = s_additionalCostCategories.map(c => ({ category: c.name, amount: 0 }));
+let s_editingIndex = -1;
+let s_initialized = false;
+
+// ── Firestore save/load ──
+async function s_saveProjects() {
+  if (!window._user) return;
+  const { doc, setDoc } = window._fbFns;
+  const uid = window._user.uid;
+  const clean = JSON.parse(JSON.stringify(s_projects));
+  await setDoc(doc(window._db, 'sales_projects', uid), { projects: clean, updatedAt: new Date().toISOString() });
+}
+async function s_saveWorkers() {
+  if (!window._user) return;
+  const { doc, setDoc } = window._fbFns;
+  const uid = window._user.uid;
+  await setDoc(doc(window._db, 'sales_workers_data', uid), { workers: s_workers_sales, updatedAt: new Date().toISOString() });
+}
+async function s_saveMaterials() {
+  if (!window._user) return;
+  const { doc, setDoc } = window._fbFns;
+  const uid = window._user.uid;
+  await setDoc(doc(window._db, 'sales_materials_data', uid), { materials: s_materials_sales, updatedAt: new Date().toISOString() });
+}
+async function loadSalesProjects() {
+  if (!window._user) return;
+  const { collection, getDocs, doc, getDoc } = window._fbFns;
+  const uid = window._user.uid;
+  try {
+    const ps = await getDoc(doc(window._db, 'sales_projects', uid));
+    if (ps.exists()) s_projects = ps.data().projects || [];
+    const ws = await getDoc(doc(window._db, 'sales_workers_data', uid));
+    if (ws.exists() && ws.data().workers) s_workers_sales = ws.data().workers;
+    const ms = await getDoc(doc(window._db, 'sales_materials_data', uid));
+    if (ms.exists() && ms.data().materials) s_materials_sales = ms.data().materials;
+  } catch(e) { console.error('loadSalesProjects error:', e); }
+}
+
+// ── Sub-tab ──
+function s_showTab(tab) {
+  ['project','labor','calendar','worker','material'].forEach(t => {
+    document.getElementById(`s_${t}Content`).classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById(`s_${t}Tab`);
+    if (btn) btn.className = t === tab
+      ? 'bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm'
+      : 'bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm';
+  });
+  if (tab === 'project') { s_populateDays(); s_populateMaterials(); }
+  if (tab === 'worker') s_populateWorkerTable();
+  if (tab === 'material') s_populateMaterialTable();
+}
+
+function renderSalesTab() {
+  if (!s_initialized) {
+    s_init();
+    s_initialized = true;
+  }
+  s_updateSalesTable();
+}
+
+function s_init() {
+  s_populateMaterials();
+  s_populateDays();
+  s_populateAdditionalCosts();
+  s_updateSalesTable();
+  s_populateCalendarMonthSelector();
+  s_populateWorkerTable();
+  s_showTab('project');
+
+  document.getElementById('s_workerForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    s_addWorker(document.getElementById('s_workerName').value, parseInt(document.getElementById('s_workerCost').value));
+  });
+  document.getElementById('s_materialForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    s_addMaterial(document.getElementById('s_materialName').value, parseInt(document.getElementById('s_materialUnitPrice').value));
+  });
+  document.getElementById('s_projectForm').addEventListener('submit', s_handleProjectSubmit);
+  document.getElementById('s_cancelEdit').addEventListener('click', s_resetForm);
+  document.getElementById('s_addMaterial').addEventListener('click', () => {
+    s_selectedMaterials.push({ material: null, dispatched: 0, returned: 0, meters: 0 });
+    s_populateMaterials();
+  });
+  document.getElementById('s_addDay').addEventListener('click', () => {
+    s_days.push({ selectedWorkers: new Set(), date: '' });
+    s_populateDays();
+  });
+  document.getElementById('s_deleteDay').addEventListener('click', () => {
+    if (s_days.length > 1) { s_days.pop(); s_populateDays(); s_updateLaborCostDisplay(); }
+  });
+  document.getElementById('s_exportAll').addEventListener('click', () => s_downloadJSON(s_projects, 'all_projects.json'));
+  document.getElementById('s_importJson').addEventListener('click', () => document.getElementById('s_fileInput').click());
+  document.getElementById('s_fileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0]; if (file) { s_importProjects(file); e.target.value = ''; }
+  });
+  document.getElementById('s_exportMonth').addEventListener('click', () => {
+    const month = document.getElementById('s_monthSelector').value;
+    if (month) {
+      const mp = s_projects.filter(p => p.constructionDate && p.constructionDate.startsWith(month));
+      s_downloadJSON(mp, `projects_${month}.json`);
+    }
+  });
+  document.getElementById('s_monthSelector').addEventListener('change', () => {
+    const m = document.getElementById('s_monthSelector').value;
+    const btn = document.getElementById('s_exportMonth');
+    btn.disabled = !m;
+    btn.className = `bg-indigo-600 text-white py-2 px-4 rounded-md text-sm ${!m ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'}`;
+  });
+  document.getElementById('s_calendarMonthSelector').addEventListener('change', (e) => s_generateCalendar(e.target.value));
+  document.getElementById('s_calculateLabor').addEventListener('click', s_calculateWeeklyLaborCost);
+  document.getElementById('s_resetLabor').addEventListener('click', s_resetLaborInputs);
+  document.getElementById('s_startDate').addEventListener('change', s_updateCalcBtnState);
+  document.getElementById('s_endDate').addEventListener('change', s_updateCalcBtnState);
+}
+
+async function s_handleProjectSubmit(e) {
+  e.preventDefault();
+  const validMaterials = s_selectedMaterials.filter(entry => entry.material && entry.meters > 0);
+  if (validMaterials.length === 0) { alert('최소 한 개의 자재를 선택하고 필름 사용량을 입력해주세요.'); return; }
+  const laborCost = s_calculateLaborCost();
+  const materialCost = s_calculateMaterialCost();
+  const additionalCost = s_calculateAdditionalCost();
+  const project = {
+    siteName: document.getElementById('s_siteName').value.trim() || '미지정',
+    constructionDate: document.getElementById('s_constructionDate').value || '미지정',
+    materials: validMaterials.map(entry => ({ name: entry.material.name, dispatched: entry.dispatched, returned: entry.returned, meters: entry.meters, cost: entry.material.unitPrice * entry.meters })),
+    materialCost, additionalCosts: s_selectedAdditionalCosts.filter(c => c.amount > 0).map(c => ({ category: c.category, amount: c.amount })),
+    additionalCost, laborCost,
+    days: s_days.map(day => ({ date: day.date || '미지정', workers: Array.from(day.selectedWorkers) })),
+    totalEstimate: parseInt(document.getElementById('s_totalEstimate').value) || 0
+  };
+  const idx = parseInt(document.getElementById('s_projectIndex').value);
+  if (idx >= 0) s_projects[idx] = project; else s_projects.push(project);
+  const btn = document.getElementById('s_submitButton');
+  btn.disabled = true; btn.textContent = '저장 중...';
+  await s_saveProjects();
+  btn.disabled = false; btn.textContent = s_editingIndex >= 0 ? '프로젝트 수정' : '프로젝트 추가';
+  s_resetForm(); s_updateSalesTable(); s_populateCalendarMonthSelector();
+}
+
+function s_downloadJSON(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function s_importProjects(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!Array.isArray(data)) { alert('JSON 파일은 배열이어야 합니다.'); return; }
+      let added = 0;
+      data.forEach(p => {
+        const dup = s_projects.some(ep => ep.siteName === p.siteName && ep.constructionDate === p.constructionDate);
+        if (!dup) { s_projects.push(p); added++; }
+      });
+      s_saveProjects(); s_updateSalesTable();
+      alert(`${added}개의 프로젝트를 불러왔습니다.`);
+    } catch(err) { alert('JSON 파일 파싱 오류: ' + err.message); }
+  };
+  reader.readAsText(file);
+}
+
+function s_populateMonthSelector() {
+  const sel = document.getElementById('s_monthSelector');
+  const months = new Set();
+  s_projects.forEach(p => { if (p.constructionDate && p.constructionDate !== '미지정') {
+    const d = new Date(p.constructionDate);
+    months.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }});
+  sel.innerHTML = '<option value="">월 선택</option>';
+  Array.from(months).sort().forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o); });
+  const btn = document.getElementById('s_exportMonth');
+  btn.disabled = months.size === 0;
+  btn.className = `bg-indigo-600 text-white py-2 px-4 rounded-md text-sm ${months.size === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'}`;
+}
+
+function s_populateCalendarMonthSelector() {
+  const sel = document.getElementById('s_calendarMonthSelector');
+  const months = new Set();
+  s_projects.forEach(p => { (p.days||[]).forEach(d => { if (d.date && d.date !== '미지정') {
+    const dt = new Date(d.date);
+    months.add(`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`);
+  }}); });
+  sel.innerHTML = '<option value="">월 선택</option>';
+  Array.from(months).sort().forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o); });
+}
+
+function s_generateCalendar(monthKey) {
+  if (!monthKey) return;
+  const [year, month] = monthKey.split('-').map(Number);
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+  const assignments = {};
+  s_projects.forEach(p => { (p.days||[]).forEach(d => {
+    if (d.date && d.date !== '미지정') {
+      const dt = new Date(d.date);
+      if (dt.getFullYear() === year && dt.getMonth() + 1 === month) {
+        if (!assignments[d.date]) assignments[d.date] = [];
+        assignments[d.date].push({ project: p.siteName || '미지정', workers: (d.workers||[]).join(', ') || '없음' });
+      }
+    }
+  });});
+  const display = document.getElementById('s_calendarDisplay');
+  const table = document.createElement('table'); table.className = 'w-full border-collapse text-sm';
+  table.innerHTML = `<thead><tr class="bg-gray-200"><th class="border p-2">일</th><th class="border p-2">월</th><th class="border p-2">화</th><th class="border p-2">수</th><th class="border p-2">목</th><th class="border p-2">금</th><th class="border p-2">토</th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  let row = document.createElement('tr'); let dc = 1;
+  for (let i = 0; i < firstDay.getDay(); i++) { const td = document.createElement('td'); td.className = 'border p-2'; row.appendChild(td); }
+  while (dc <= lastDay.getDate()) {
+    if (row.children.length === 7) { tbody.appendChild(row); row = document.createElement('tr'); }
+    const td = document.createElement('td'); td.className = 'border p-2 align-top';
+    const dk = `${year}-${String(month).padStart(2,'0')}-${String(dc).padStart(2,'0')}`;
+    let content = `<div class="font-bold">${dc}</div>`;
+    (assignments[dk]||[]).forEach(a => { content += `<div class="text-xs mt-1"><span class="font-semibold">${a.project}:</span> ${a.workers}</div>`; });
+    td.innerHTML = content; row.appendChild(td); dc++;
+  }
+  while (row.children.length < 7) { const td = document.createElement('td'); td.className = 'border p-2'; row.appendChild(td); }
+  tbody.appendChild(row); table.appendChild(tbody);
+  display.innerHTML = ''; display.appendChild(table);
+}
+
+function s_calculateTotalCost(mc, lc, ac) { return (mc||0)+(lc||0)+(ac||0); }
+function s_calculateProfit(est, cost) { return (est||0)-(cost||0); }
+function s_calculateProfitMargin(profit, est) { return est > 0 ? (profit/est)*100 : 0; }
+function s_calculateLaborCost() {
+  return s_days.reduce((t, d) => t + Array.from(d.selectedWorkers).reduce((s, n) => {
+    const w = s_workers_sales.find(w => w.name === n); return s + (w ? w.cost : 0);
+  }, 0), 0);
+}
+function s_calculateMaterialCost() {
+  return s_selectedMaterials.reduce((t, e) => { if (!e.material || e.meters <= 0) return t; return t + e.material.unitPrice * e.meters; }, 0);
+}
+function s_calculateAdditionalCost() { return s_selectedAdditionalCosts.reduce((t, e) => t + (e.amount||0), 0); }
+function s_updateMaterialCostDisplay() { document.getElementById('s_materialCostDisplay').textContent = s_calculateMaterialCost().toLocaleString() + ' 원'; }
+function s_updateLaborCostDisplay() { document.getElementById('s_totalLaborCost').textContent = s_calculateLaborCost().toLocaleString() + ' 원'; }
+function s_updateAdditionalCostDisplay() { document.getElementById('s_additionalCostDisplay').textContent = s_calculateAdditionalCost().toLocaleString() + ' 원'; }
+function s_updateDeleteDayButton() {
+  const btn = document.getElementById('s_deleteDay');
+  btn.disabled = s_days.length <= 1;
+  btn.className = `bg-red-500 text-white py-1 px-3 rounded-md ${s_days.length <= 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-600'}`;
+}
+
+function s_populateMaterialButtons(idx) {
+  const div = document.getElementById(`s_materialButtons-${idx}`); div.innerHTML = '';
+  s_materials_sales.forEach(mat => {
+    const btn = document.createElement('button'); btn.type = 'button';
+    btn.className = 'py-2 px-3 border rounded-md text-sm ' + (s_selectedMaterials[idx].material && s_selectedMaterials[idx].material.name === mat.name ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300');
+    btn.textContent = `${mat.name} (${mat.unitPrice.toLocaleString()}원/m)`;
+    btn.addEventListener('click', () => {
+      s_selectedMaterials[idx].material = mat;
+      document.querySelectorAll(`#s_materialButtons-${idx} button`).forEach(b => b.className = 'py-2 px-3 border rounded-md text-sm bg-gray-200 text-gray-700 hover:bg-gray-300');
+      btn.className = 'py-2 px-3 border rounded-md text-sm bg-indigo-600 text-white';
+      s_updateMaterialCostDisplay();
+    });
+    div.appendChild(btn);
+  });
+}
+
+function s_populateMaterials() {
+  const container = document.getElementById('s_materialsContainer'); container.innerHTML = '';
+  s_selectedMaterials.forEach((entry, idx) => {
+    const div = document.createElement('div'); div.className = 'border p-4 rounded-md bg-gray-50';
+    div.innerHTML = `
+      <label class="text-sm font-medium text-gray-700">자재 ${idx+1}</label>
+      <div id="s_materialButtons-${idx}" class="grid grid-cols-2 gap-2 mb-2 mt-1"></div>
+      <div><label class="text-xs text-gray-600">출고 (m)</label><input type="number" id="s_dispatched-${idx}" step="0.1" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm" value="${entry.dispatched||0}"></div>
+      <div><label class="text-xs text-gray-600">반납 (m)</label><input type="number" id="s_returned-${idx}" step="0.1" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm" value="${entry.returned||0}"></div>
+      <div><label class="text-xs text-gray-600">총 사용량 (m)</label><input type="number" id="s_materialMeters-${idx}" step="0.1" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm" value="${entry.meters||0}" required></div>
+      <button type="button" id="s_removeMaterial-${idx}" class="mt-2 bg-red-500 text-white py-1 px-3 rounded-md text-sm ${s_selectedMaterials.length <= 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-600'}" ${s_selectedMaterials.length <= 1 ? 'disabled' : ''}>자재 삭제</button>
+    `;
+    container.appendChild(div);
+    s_populateMaterialButtons(idx);
+    document.getElementById(`s_dispatched-${idx}`).addEventListener('input', e => {
+      s_selectedMaterials[idx].dispatched = parseFloat(e.target.value)||0;
+      const ret = s_selectedMaterials[idx].returned;
+      if (s_selectedMaterials[idx].dispatched >= ret) { s_selectedMaterials[idx].meters = s_selectedMaterials[idx].dispatched - ret; document.getElementById(`s_materialMeters-${idx}`).value = s_selectedMaterials[idx].meters; }
+      s_updateMaterialCostDisplay();
+    });
+    document.getElementById(`s_returned-${idx}`).addEventListener('input', e => {
+      s_selectedMaterials[idx].returned = parseFloat(e.target.value)||0;
+      const dis = s_selectedMaterials[idx].dispatched;
+      if (dis >= s_selectedMaterials[idx].returned) { s_selectedMaterials[idx].meters = dis - s_selectedMaterials[idx].returned; document.getElementById(`s_materialMeters-${idx}`).value = s_selectedMaterials[idx].meters; }
+      s_updateMaterialCostDisplay();
+    });
+    document.getElementById(`s_materialMeters-${idx}`).addEventListener('input', e => { s_selectedMaterials[idx].meters = parseFloat(e.target.value)||0; s_updateMaterialCostDisplay(); });
+    document.getElementById(`s_removeMaterial-${idx}`).addEventListener('click', () => {
+      if (s_selectedMaterials.length > 1) { s_selectedMaterials.splice(idx, 1); s_populateMaterials(); s_updateMaterialCostDisplay(); }
+    });
+  });
+}
+
+function s_populateAdditionalCosts() {
+  const container = document.getElementById('s_additionalCostsContainer'); container.innerHTML = '';
+  s_selectedAdditionalCosts.forEach((entry, idx) => {
+    const div = document.createElement('div'); div.className = 'flex items-center space-x-2';
+    div.innerHTML = `<button type="button" id="s_additionalCostButton-${idx}" class="py-2 px-4 border rounded-md ${entry.amount > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">${entry.category}</button>
+      <input type="number" id="s_additionalCostAmount-${idx}" min="0" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" value="${entry.amount||0}">`;
+    container.appendChild(div);
+    document.getElementById(`s_additionalCostButton-${idx}`).addEventListener('click', () => {
+      const input = document.getElementById(`s_additionalCostAmount-${idx}`);
+      const cur = parseInt(input.value)||0;
+      s_selectedAdditionalCosts[idx].amount = cur > 0 ? 0 : 1; input.value = s_selectedAdditionalCosts[idx].amount;
+      document.getElementById(`s_additionalCostButton-${idx}`).className = `py-2 px-4 border rounded-md ${s_selectedAdditionalCosts[idx].amount > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+      s_updateAdditionalCostDisplay();
+    });
+    document.getElementById(`s_additionalCostAmount-${idx}`).addEventListener('input', e => {
+      s_selectedAdditionalCosts[idx].amount = parseInt(e.target.value)||0;
+      document.getElementById(`s_additionalCostButton-${idx}`).className = `py-2 px-4 border rounded-md ${s_selectedAdditionalCosts[idx].amount > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+      s_updateAdditionalCostDisplay();
+    });
+  });
+}
+
+function s_populateWorkerButtons(dayIdx) {
+  const div = document.getElementById(`s_workerButtons-${dayIdx}`); div.innerHTML = '';
+  s_workers_sales.forEach(worker => {
+    const btn = document.createElement('button'); btn.type = 'button';
+    btn.className = 'py-2 px-3 border rounded-md text-sm ' + (s_days[dayIdx].selectedWorkers.has(worker.name) ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300');
+    btn.textContent = `${worker.name} (${worker.cost.toLocaleString()}원)`;
+    btn.addEventListener('click', () => {
+      if (s_days[dayIdx].selectedWorkers.has(worker.name)) { s_days[dayIdx].selectedWorkers.delete(worker.name); btn.className = 'py-2 px-3 border rounded-md text-sm bg-gray-200 text-gray-700 hover:bg-gray-300'; }
+      else { s_days[dayIdx].selectedWorkers.add(worker.name); btn.className = 'py-2 px-3 border rounded-md text-sm bg-indigo-600 text-white'; }
+      s_updateLaborCostDisplay();
+    });
+    div.appendChild(btn);
+  });
+}
+
+function s_populateDays() {
+  const container = document.getElementById('s_daysContainer'); container.innerHTML = '';
+  s_days.forEach((day, idx) => {
+    const div = document.createElement('div'); div.className = 'border p-4 rounded-md bg-gray-50';
+    div.innerHTML = `
+      <div class="flex justify-between items-center mb-2">
+        <label class="text-sm font-medium text-gray-700">일자 ${idx+1}</label>
+        <input type="date" id="s_dayDate-${idx}" class="border-gray-300 rounded-md shadow-sm" value="${day.date||''}" >
+      </div>
+      <div id="s_workerButtons-${idx}" class="grid grid-cols-2 gap-2"></div>
+      <button type="button" id="s_clearWorkers-${idx}" class="mt-2 bg-gray-500 text-white py-1 px-3 rounded-md hover:bg-gray-600 text-sm">이 일자 인력 초기화</button>
+    `;
+    container.appendChild(div);
+    s_populateWorkerButtons(idx);
+    document.getElementById(`s_dayDate-${idx}`).addEventListener('change', e => { s_days[idx].date = e.target.value; });
+    document.getElementById(`s_clearWorkers-${idx}`).addEventListener('click', () => { s_days[idx].selectedWorkers.clear(); s_populateWorkerButtons(idx); s_updateLaborCostDisplay(); });
+  });
+  s_updateDeleteDayButton();
+}
+
+function s_populateWorkerTable() {
+  const body = document.getElementById('s_workerTableBody'); body.innerHTML = '';
+  s_workers_sales.forEach((w, idx) => {
+    const card = document.createElement('div');
+    card.className = 'bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center gap-3';
+    card.innerHTML = `
+      <span style="width:32px;height:32px;border-radius:50%;background:#4f46e5;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${w.name[0]}</span>
+      <div style="flex:1;min-width:0"><div class="font-bold text-sm">${w.name}</div><div class="text-xs text-gray-500">${w.cost.toLocaleString()} 원/일</div></div>
+      <button class="s_del_worker bg-red-500 text-white py-1 px-2 rounded text-xs hover:bg-red-600" data-idx="${idx}">삭제</button>
+    `;
+    body.appendChild(card);
+  });
+  body.querySelectorAll('.s_del_worker').forEach(btn => btn.addEventListener('click', () => s_deleteWorker(parseInt(btn.dataset.idx))));
+}
+
+function s_populateMaterialTable() {
+  const body = document.getElementById('s_materialTableBody'); body.innerHTML = '';
+  s_materials_sales.forEach((m, idx) => {
+    const card = document.createElement('div');
+    card.className = 'bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center gap-3';
+    card.innerHTML = `
+      <span style="width:32px;height:32px;border-radius:8px;background:#0d9488;color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🎞️</span>
+      <div style="flex:1;min-width:0"><div class="font-bold text-sm">${m.name}</div><div class="text-xs text-gray-500">${m.unitPrice.toLocaleString()} 원/m</div></div>
+      <button class="s_del_material bg-red-500 text-white py-1 px-2 rounded text-xs hover:bg-red-600" data-idx="${idx}">삭제</button>
+    `;
+    body.appendChild(card);
+  });
+  body.querySelectorAll('.s_del_material').forEach(btn => btn.addEventListener('click', () => s_deleteMaterial(parseInt(btn.dataset.idx))));
+}
+
+function s_addWorker(name, cost) {
+  if (!name?.trim()) { alert('이름을 입력해주세요.'); return; }
+  if (isNaN(cost) || cost <= 0) { alert('인건비를 입력해주세요.'); return; }
+  if (s_workers_sales.some(w => w.name === name.trim())) { alert('이미 존재하는 이름입니다.'); return; }
+  s_workers_sales.push({ name: name.trim(), cost });
+  s_saveWorkers(); s_populateWorkerTable(); s_populateDays();
+  document.getElementById('s_workerForm').reset();
+}
+
+function s_deleteWorker(idx) {
+  const name = s_workers_sales[idx].name;
+  if (s_projects.some(p => (p.days||[]).some(d => (d.workers||[]).includes(name)))) { alert('이 인력은 프로젝트에 배정되어 삭제할 수 없습니다.'); return; }
+  if (confirm(`"${name}" 인력을 삭제할까요?`)) { s_workers_sales.splice(idx, 1); s_saveWorkers(); s_populateWorkerTable(); s_populateDays(); }
+}
+
+function s_addMaterial(name, unitPrice) {
+  if (!name?.trim()) { alert('자재 이름을 입력해주세요.'); return; }
+  if (isNaN(unitPrice) || unitPrice <= 0) { alert('단가를 입력해주세요.'); return; }
+  if (s_materials_sales.some(m => m.name === name.trim())) { alert('이미 존재하는 자재입니다.'); return; }
+  s_materials_sales.push({ name: name.trim(), unitPrice });
+  s_saveMaterials(); s_populateMaterialTable(); s_populateMaterials();
+  document.getElementById('s_materialForm').reset();
+}
+
+function s_deleteMaterial(idx) {
+  const name = s_materials_sales[idx].name;
+  if (s_projects.some(p => (p.materials||[]).some(m => m.name === name))) { alert('이 자재는 프로젝트에 사용되어 삭제할 수 없습니다.'); return; }
+  if (confirm(`"${name}" 자재를 삭제할까요?`)) { s_materials_sales.splice(idx, 1); s_saveMaterials(); s_populateMaterialTable(); s_populateMaterials(); }
+}
+
+function s_populateFormForEdit(idx) {
+  const p = s_projects[idx];
+  s_editingIndex = idx;
+  document.getElementById('s_projectIndex').value = idx;
+  document.getElementById('s_siteName').value = p.siteName||''
+  document.getElementById('s_constructionDate').value = p.constructionDate||'';
+  document.getElementById('s_totalEstimate').value = p.totalEstimate||0;
+  s_selectedMaterials = (p.materials||[]).map(m => ({ material: s_materials_sales.find(mat => mat.name === m.name)||null, dispatched: m.dispatched||m.meters||0, returned: m.returned||0, meters: m.meters||0 }));
+  s_days = (p.days||[]).map(d => ({ date: d.date||'', selectedWorkers: new Set(d.workers||[]) }));
+  s_selectedAdditionalCosts = s_additionalCostCategories.map(c => ({ category: c.name, amount: ((p.additionalCosts||[]).find(ac => ac.category === c.name)||{ amount: 0 }).amount }));
+  s_populateMaterials(); s_populateDays(); s_populateAdditionalCosts();
+  s_updateMaterialCostDisplay(); s_updateLaborCostDisplay(); s_updateAdditionalCostDisplay();
+  document.getElementById('s_submitButton').textContent = '프로젝트 수정';
+  document.getElementById('s_cancelEdit').classList.remove('hidden');
+  document.getElementById('s_projectContent').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function s_resetForm() {
+  s_editingIndex = -1;
+  document.getElementById('s_projectIndex').value = -1;
+  document.getElementById('s_projectForm').reset();
+  s_days = [{ selectedWorkers: new Set(), date: '' }];
+  s_selectedMaterials = [{ material: null, dispatched: 0, returned: 0, meters: 0 }];
+  s_selectedAdditionalCosts = s_additionalCostCategories.map(c => ({ category: c.name, amount: 0 }));
+  s_populateDays(); s_populateMaterials(); s_populateAdditionalCosts();
+  s_updateMaterialCostDisplay(); s_updateLaborCostDisplay(); s_updateAdditionalCostDisplay();
+  document.getElementById('s_submitButton').textContent = '프로젝트 추가';
+  document.getElementById('s_cancelEdit').classList.add('hidden');
+}
+
+function s_deleteProject(idx) {
+  if (confirm(`"${s_projects[idx].siteName||'미지정'}" 프로젝트를 삭제할까요?`)) {
+    s_projects.splice(idx, 1); s_saveProjects(); s_resetForm(); s_updateSalesTable(); s_populateCalendarMonthSelector();
+  }
+}
+
+function s_updateSalesTable() {
+  const body = document.getElementById('s_salesTableBody'); body.innerHTML = '';
+  let totRev = 0, totProfit = 0, totAdd = 0, totLab = 0, totMat = 0;
+  const sorted = [...s_projects].sort((a,b) => {
+    const da = a.constructionDate && a.constructionDate !== '미지정' ? new Date(a.constructionDate) : new Date(0);
+    const db = b.constructionDate && b.constructionDate !== '미지정' ? new Date(b.constructionDate) : new Date(0);
+    return db - da;
+  });
+  sorted.forEach((p, sortedIdx) => {
+    const origIdx = s_projects.findIndex(ep => ep.siteName === p.siteName && ep.constructionDate === p.constructionDate);
+    const mc = p.materialCost||0, lc = p.laborCost||0, ac = p.additionalCost||0;
+    const tc = s_calculateTotalCost(mc, lc, ac);
+    const profit = s_calculateProfit(p.totalEstimate, tc);
+    const margin = s_calculateProfitMargin(profit, p.totalEstimate);
+    totRev += p.totalEstimate||0; totProfit += profit; totAdd += ac; totLab += lc; totMat += mc;
+    const matDisplay = (p.materials||[]).length > 0 ? p.materials.map(m => `${m.name}(${m.meters?.toFixed(1)||0}m)`).join(', ') : '없음';
+    const totMeters = (p.materials||[]).reduce((s, m) => s + (m.meters||0), 0);
+    const workerDisplay = (p.days||[]).length > 0 ? p.days.map((d, di) => { const wn = (d.workers||[]).map(n => { const w = s_workers_sales.find(w => w.name === n); return w ? `${n}(${w.cost.toLocaleString()}원)` : n; }).join(', ')||'없음'; return `Day${di+1}(${d.date||'미지정'}):${wn}`; }).join('; ') : '없음';
+    const addDisplay = (p.additionalCosts||[]).filter(c => c.amount > 0).map(c => `${c.category}:${c.amount.toLocaleString()}원`).join(', ')||'없음';
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td class="border p-2"><button type="button" class="s_edit_btn bg-indigo-600 text-white py-1 px-2 rounded text-xs hover:bg-indigo-700" data-idx="${origIdx}">${p.siteName||'미지정'}</button></td>
+      <td class="border p-2 text-xs">${p.constructionDate||'미지정'}</td>
+      <td class="border p-2 text-xs">${matDisplay}</td>
+      <td class="border p-2 text-xs">${totMeters.toFixed(1)}</td>
+      <td class="border p-2 text-xs">${mc.toLocaleString()}</td>
+      <td class="border p-2 text-xs">${addDisplay}</td>
+      <td class="border p-2 text-xs">${workerDisplay}</td>
+      <td class="border p-2 text-xs">${tc.toLocaleString()}</td>
+      <td class="border p-2 text-xs">${(p.totalEstimate||0).toLocaleString()}</td>
+      <td class="border p-2 text-xs">${profit.toLocaleString()}</td>
+      <td class="border p-2 text-xs">${margin.toFixed(2)}% <button type="button" class="s_del_btn bg-red-500 text-white py-1 px-2 rounded text-xs hover:bg-red-600 ml-1" data-idx="${origIdx}">삭제</button></td>
+    `;
+    body.appendChild(row);
+  });
+  body.querySelectorAll('.s_edit_btn').forEach(btn => btn.addEventListener('click', () => { s_showTab('project'); s_populateFormForEdit(parseInt(btn.dataset.idx)); }));
+  body.querySelectorAll('.s_del_btn').forEach(btn => btn.addEventListener('click', () => s_deleteProject(parseInt(btn.dataset.idx))));
+  document.getElementById('s_totalRevenue').textContent = totRev.toLocaleString() + ' 원';
+  document.getElementById('s_totalProfit').textContent = totProfit.toLocaleString() + ' 원';
+  document.getElementById('s_totalAdditionalCost').textContent = totAdd.toLocaleString() + ' 원';
+  document.getElementById('s_totalLaborCostSummary').textContent = totLab.toLocaleString() + ' 원';
+  document.getElementById('s_totalMaterialCost').textContent = totMat.toLocaleString() + ' 원';
+  s_populateMonthSelector();
+}
+
+function s_calculateWeeklyLaborCost() {
+  const start = document.getElementById('s_startDate').value;
+  const end = document.getElementById('s_endDate').value;
+  const prepaid = parseInt(document.getElementById('s_prepaidExpenses').value)||0;
+  const paid = parseInt(document.getElementById('s_amountPaid').value)||0;
+  if (!start || !end) { alert('날짜를 입력해주세요.'); return; }
+  const sd = new Date(start), ed = new Date(end);
+  if (sd > ed) { alert('시작 날짜가 종료 날짜보다 늦습니다.'); return; }
+  const workerDetails = {}; let totalLabor = 0;
+  s_projects.forEach(p => { (p.days||[]).forEach(d => {
+    if (d.date && d.date !== '미지정') {
+      const dd = new Date(d.date);
+      if (dd >= sd && dd <= ed) {
+        (d.workers||[]).forEach(name => {
+          const w = s_workers_sales.find(w => w.name === name);
+          if (w) { if (!workerDetails[name]) workerDetails[name] = { cost: w.cost, schedule: [] }; workerDetails[name].schedule.push(`${d.date}(${p.siteName||'미지정'})`); totalLabor += w.cost; }
+        });
+      }
+    }
+  });});
+  document.getElementById('s_totalLaborCostResult').textContent = totalLabor.toLocaleString() + ' 원';
+  document.getElementById('s_finalAmount').textContent = (paid - totalLabor - prepaid).toLocaleString() + ' 원';
+  const table = document.getElementById('s_workerDetailsTable'); table.innerHTML = '';
+  Object.entries(workerDetails).forEach(([name, d]) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `<td class="border p-2 text-sm">${name}</td><td class="border p-2 text-sm">${(d.schedule.length * d.cost).toLocaleString()}</td><td class="border p-2 text-sm">${d.schedule.join(', ')}</td>`;
+    table.appendChild(row);
+  });
+}
+
+function s_resetLaborInputs() {
+  document.getElementById('s_startDate').value = ''; document.getElementById('s_endDate').value = '';
+  document.getElementById('s_prepaidExpenses').value = '0'; document.getElementById('s_amountPaid').value = '0';
+  document.getElementById('s_totalLaborCostResult').textContent = '0 원'; document.getElementById('s_finalAmount').textContent = '0 원';
+  document.getElementById('s_workerDetailsTable').innerHTML = ''; s_updateCalcBtnState();
+}
+
+function s_updateCalcBtnState() {
+  const s = document.getElementById('s_startDate').value, e = document.getElementById('s_endDate').value;
+  const btn = document.getElementById('s_calculateLabor'); btn.disabled = !s || !e;
+  btn.className = `bg-indigo-600 text-white py-2 px-4 rounded-md ${!s||!e ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'}`;
+}
+
 
 // ─── Password Change ───
 function openPwModal() {
