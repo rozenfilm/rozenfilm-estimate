@@ -691,40 +691,47 @@
         };
 
         for (const item of packable) {
-          // 위쪽(작은 y), 왼쪽(작은 x)에 있는 빈 공간부터 우선 배치 — 재단 순서를 예측 가능하게 유지
-          let bestIdx = -1, bestRotated = false, bestY = null, bestX = null;
+          // 위쪽(작은 y), 왼쪽(작은 x)에 있는 빈 공간부터 우선 배치하되, 같은 위치에 정방향/회전
+          // 둘 다 들어간다면 그 공간에 더 딱 맞아서 로스가 적게 남는 쪽을 선택한다.
+          let best = null; // { idx, rotated, y, x, w, h, waste }
 
           for (let i = 0; i < freeRects.length; i++) {
             const r = freeRects[i];
-            const fitsNormal = item.width <= r.w && item.height <= r.h;
-            const fitsRotated = rotationAllowed && item.height <= r.w && item.width <= r.h;
-
-            if (fitsNormal && (bestY === null || r.y < bestY || (r.y === bestY && r.x < bestX))) {
-              bestY = r.y; bestX = r.x; bestIdx = i; bestRotated = false;
+            const candidates = [];
+            if (item.width <= r.w && item.height <= r.h) {
+              candidates.push({ rotated: false, w: item.width, h: item.height });
             }
-            if (fitsRotated && (bestY === null || r.y < bestY || (r.y === bestY && r.x < bestX))) {
-              bestY = r.y; bestX = r.x; bestIdx = i; bestRotated = true;
+            if (rotationAllowed && item.height <= r.w && item.width <= r.h) {
+              candidates.push({ rotated: true, w: item.height, h: item.width });
             }
+            candidates.forEach((c) => {
+              const waste = r.w * r.h - c.w * c.h; // 이 공간에 넣었을 때 남는 면적 (작을수록 딱 맞음)
+              const better = !best
+                || r.y < best.y
+                || (r.y === best.y && r.x < best.x)
+                || (r.y === best.y && r.x === best.x && waste < best.waste);
+              if (better) {
+                best = { idx: i, rotated: c.rotated, y: r.y, x: r.x, w: c.w, h: c.h, waste };
+              }
+            });
           }
 
-          if (bestIdx === -1) {
+          if (!best) {
             unplaced.push(item);
             continue;
           }
 
-          const rect = freeRects[bestIdx];
-          const w = bestRotated ? item.height : item.width;
-          const h = bestRotated ? item.width : item.height;
+          const rect = freeRects[best.idx];
 
           layout.push({
-            x: rect.x, y: rect.y,
-            width: w, height: h,
-            rotated: bestRotated, label: item.label,
+            x: best.x, y: best.y,
+            width: best.w, height: best.h,
+            rotated: best.rotated, label: item.label,
             id: layout.length + 1,
           });
 
-          const newRects = splitFreeRect(rect, w, h);
-          freeRects.splice(bestIdx, 1, ...newRects);
+          const newRects = splitFreeRect(rect, best.w, best.h);
+          freeRects.splice(best.idx, 1, ...newRects);
         }
 
         const usedFilm = layout.reduce((sum, it) => sum + it.width * it.height, 0);
