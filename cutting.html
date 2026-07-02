@@ -123,6 +123,49 @@
         setCollapsedCats(prev => ({ ...prev, [cat]: !prev[cat] }));
       }, []);
 
+      // 부위 그룹 전체 복제: 그 부위의 모든 항목을 "(사본)"이 붙은 새 부위로 통째로 복제한다.
+      const duplicateCategory = useCallback((cat) => {
+        const targetCat = cat === UNCATEGORIZED ? '' : cat;
+        const itemsInCat = surfaces.filter(s => ((s.category || '').trim() || UNCATEGORIZED) === cat);
+        if (itemsInCat.length === 0) return;
+
+        let newCatName = `${cat === UNCATEGORIZED ? '' : cat} 사본`.trim() || '사본';
+        // 이미 같은 이름의 부위가 있으면 뒤에 숫자를 붙여 구분
+        const existingCats = new Set(surfaces.map(s => (s.category || '').trim() || UNCATEGORIZED));
+        let suffix = 2;
+        let finalName = newCatName;
+        while (existingCats.has(finalName)) {
+          finalName = `${newCatName} ${suffix}`;
+          suffix++;
+        }
+
+        const duplicated = itemsInCat.map(s => ({ ...s, category: finalName }));
+        setSurfaces(prev => [...prev, ...duplicated]);
+        setCollapsedCats(prev => ({ ...prev, [finalName]: false }));
+        setScrollTarget(finalName);
+      }, [surfaces]);
+
+      // 부위 그룹 통째로 삭제
+      const deleteCategoryGroup = useCallback((cat) => {
+        const itemsInCat = surfaces.filter(s => ((s.category || '').trim() || UNCATEGORIZED) === cat);
+        if (!window.confirm(`'${cat}' 부위의 항목 ${itemsInCat.length}개를 전부 삭제할까요?`)) return;
+        setSurfaces(prev => prev.filter(s => ((s.category || '').trim() || UNCATEGORIZED) !== cat));
+      }, [surfaces]);
+
+      // 부위 이름 변경: 해당 부위의 모든 항목의 category 값을 새 이름으로 일괄 변경
+      const renameCategoryGroup = useCallback((cat) => {
+        const currentName = cat === UNCATEGORIZED ? '' : cat;
+        const newName = window.prompt('새 부위 이름을 입력하세요.', currentName);
+        if (newName === null) return; // 취소
+        const trimmed = newName.trim();
+        setSurfaces(prev => prev.map(s => {
+          const sCat = (s.category || '').trim() || UNCATEGORIZED;
+          return sCat === cat ? { ...s, category: trimmed } : s;
+        }));
+        const finalCat = trimmed || UNCATEGORIZED;
+        setCollapsedCats(prev => ({ ...prev, [finalCat]: false }));
+      }, []);
+
       useEffect(() => {
         if (scrollTarget && categoryRefs.current[scrollTarget]) {
           categoryRefs.current[scrollTarget].scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -351,17 +394,20 @@
           alert('이 현장 데이터가 손상되었거나 형식이 올바르지 않아 불러올 수 없습니다.');
           return;
         }
-        if (!window.confirm(`'${job.name}' 데이터를 불러오면 현재 입력값이 대체됩니다. 계속할까요?`)) return;
+        if (!window.confirm(`'${job.name}' 데이터를 현재 시공 면적 목록에 추가할까요? (기존 목록은 유지되고 뒤에 추가됩니다)`)) return;
         setFilmSize(job.filmSize);
         if (job.rotationAllowed !== undefined) setRotationAllowed(job.rotationAllowed);
-        setSurfaces(job.surfaces.map(s => ({
+        const incomingSurfaces = job.surfaces.map(s => ({
           width: Number(s.width) || 0,
           height: Number(s.height) || 0,
           count: Math.max(1, Number(s.count) || 1),
           label: s.label || '',
           category: s.category || '',
-        })));
-        setJobName(job.name || '');
+        }));
+        setSurfaces(prev => {
+          const isEmptyOnly = prev.length === 1 && !prev[0].width && !prev[0].height && !prev[0].label && !prev[0].category;
+          return isEmptyOnly ? incomingSurfaces : [...prev, ...incomingSurfaces];
+        });
         setResult(null);
       }, []);
 
@@ -1199,13 +1245,38 @@ service cloud.firestore {
                   ref={(el) => { categoryRefs.current[cat] = el; }}
                   className="border rounded mb-3 overflow-hidden"
                 >
-                  <button
-                    onClick={() => toggleCategoryCollapsed(cat)}
-                    className="w-full flex items-center justify-between bg-gray-100 px-3 py-2 text-left font-medium"
-                  >
-                    <span>{cat} <span className="text-gray-500 text-sm font-normal">({rows.length}개)</span></span>
-                    <span className="text-gray-500">{collapsed ? '▶' : '▼'}</span>
-                  </button>
+                  <div className="w-full flex items-center justify-between bg-gray-100 px-3 py-2">
+                    <button
+                      onClick={() => toggleCategoryCollapsed(cat)}
+                      className="flex items-center gap-2 text-left font-medium flex-1"
+                    >
+                      <span>{cat} <span className="text-gray-500 text-sm font-normal">({rows.length}개)</span></span>
+                      <span className="text-gray-500">{collapsed ? '▶' : '▼'}</span>
+                    </button>
+                    <div className="flex gap-1 ml-2">
+                      <button
+                        onClick={() => renameCategoryGroup(cat)}
+                        className="text-xs bg-white border px-2 py-1 rounded hover:bg-gray-50"
+                        title="부위 이름 변경"
+                      >
+                        이름변경
+                      </button>
+                      <button
+                        onClick={() => duplicateCategory(cat)}
+                        className="text-xs bg-white border px-2 py-1 rounded hover:bg-gray-50"
+                        title="이 부위 전체를 복제"
+                      >
+                        복제
+                      </button>
+                      <button
+                        onClick={() => deleteCategoryGroup(cat)}
+                        className="text-xs bg-red-50 text-red-600 border border-red-300 px-2 py-1 rounded hover:bg-red-100"
+                        title="이 부위 전체 삭제"
+                      >
+                        통째삭제
+                      </button>
+                    </div>
+                  </div>
                   {!collapsed && (
                     <div className="p-3">
                       {rows.map(({ s: surface, i: index }) => (
