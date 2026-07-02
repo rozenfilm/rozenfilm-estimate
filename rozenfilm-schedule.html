@@ -173,7 +173,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-    import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, updateDoc, query, orderBy }
+    import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, orderBy }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -192,7 +192,7 @@
     window._auth = auth;
     window._db = db;
     window._fbFns = { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential,
-      collection, doc, setDoc, getDocs, deleteDoc, updateDoc, query, orderBy };
+      collection, doc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, orderBy };
 
     onAuthStateChanged(auth, async (user) => {
       if (user) {
