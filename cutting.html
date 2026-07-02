@@ -57,13 +57,27 @@
 
     const CLOUD_SETTINGS_KEY = 'rosenfilm_cloud_settings_v1';
 
+    // 이 파일 전용 기본 클라우드 설정. 매번 직접 입력하지 않아도 어떤 기기에서 열어도
+    // 자동으로 같은 작업장에 연결되도록, 실제 사용 중인 값을 미리 넣어둔다.
+    // 다른 Firebase 프로젝트/작업장 코드로 바꾸고 싶으면 "설정 열기"에서 언제든 변경 가능하다.
+    const DEFAULT_FIREBASE_CONFIG_TEXT = JSON.stringify({
+      apiKey: "AIzaSyD1Nqi0J2ust7UTo6XQOLofZobOHS2O7dU",
+      authDomain: "rozenfilm-estimate.firebaseapp.com",
+      projectId: "rozenfilm-estimate",
+      storageBucket: "rozenfilm-estimate.firebasestorage.app",
+      messagingSenderId: "205994221853",
+      appId: "1:205994221853:web:66cf3b8f7e90f9672581f4",
+    }, null, 2);
+    const DEFAULT_WORKSPACE_CODE = 'rozenk';
+
     const loadCloudSettings = () => {
       try {
         const raw = localStorage.getItem(CLOUD_SETTINGS_KEY);
-        return raw ? JSON.parse(raw) : { configText: '', workspaceCode: '' };
+        if (raw) return JSON.parse(raw);
       } catch (e) {
-        return { configText: '', workspaceCode: '' };
+        // 저장된 값이 손상된 경우 기본값으로 대체
       }
+      return { configText: DEFAULT_FIREBASE_CONFIG_TEXT, workspaceCode: DEFAULT_WORKSPACE_CODE };
     };
 
     const CuttingOptimizer = () => {
@@ -128,11 +142,21 @@
       }, [jobName, savedJobs, filmSize, rotationAllowed, surfaces]);
 
       const loadJob = useCallback((job) => {
+        if (!job || !job.filmSize || typeof job.filmSize.width !== 'number' || typeof job.filmSize.length !== 'number' || !Array.isArray(job.surfaces)) {
+          alert('이 현장 데이터가 손상되었거나 형식이 올바르지 않아 불러올 수 없습니다.');
+          return;
+        }
         if (!window.confirm(`'${job.name}' 데이터를 불러오면 현재 입력값이 대체됩니다. 계속할까요?`)) return;
         setFilmSize(job.filmSize);
         if (job.rotationAllowed !== undefined) setRotationAllowed(job.rotationAllowed);
-        setSurfaces(job.surfaces);
-        setJobName(job.name);
+        setSurfaces(job.surfaces.map(s => ({
+          width: Number(s.width) || 0,
+          height: Number(s.height) || 0,
+          count: Math.max(1, Number(s.count) || 1),
+          label: s.label || '',
+          category: s.category || '',
+        })));
+        setJobName(job.name || '');
         setResult(null);
       }, []);
 
@@ -173,14 +197,22 @@
               return;
             }
             const cleaned = incoming
-              .filter(j => j && j.name && j.filmSize && Array.isArray(j.surfaces))
+              .filter(j => j && j.name && j.filmSize
+                && typeof j.filmSize.width === 'number' && typeof j.filmSize.length === 'number'
+                && Array.isArray(j.surfaces))
               .map(j => ({
                 id: j.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
                 name: String(j.name),
                 savedAt: j.savedAt || new Date().toISOString(),
                 filmSize: j.filmSize,
                 rotationAllowed: j.rotationAllowed !== undefined ? j.rotationAllowed : true,
-                surfaces: j.surfaces,
+                surfaces: j.surfaces.map(s => ({
+                  width: Number(s.width) || 0,
+                  height: Number(s.height) || 0,
+                  count: Math.max(1, Number(s.count) || 1),
+                  label: s.label || '',
+                  category: s.category || '',
+                })),
               }));
 
             if (cleaned.length === 0) {
@@ -681,12 +713,17 @@
               const data = JSON.parse(e.target.result);
               setFilmSize(data.filmSize);
               if (data.rotationAllowed !== undefined) setRotationAllowed(data.rotationAllowed);
-              setSurfaces(data.surfaces.map(s => ({
-                ...s,
-                ...adjustToCuttingUnit(s.width, s.height),
-                label: s.label || '',
-              })));
-              setResult(data.result);
+              setSurfaces((Array.isArray(data.surfaces) ? data.surfaces : []).map(s => {
+                const adjusted = adjustToCuttingUnit(Number(s.width) || 0, Number(s.height) || 0);
+                return {
+                  width: adjusted.width,
+                  height: adjusted.height,
+                  count: Math.max(1, Number(s.count) || 1),
+                  label: s.label || '',
+                  category: s.category || '',
+                };
+              }));
+              setResult(data.result || null);
             } catch (error) {
               console.error('JSON load error:', error);
               alert('JSON 파일을 불러오는 중 오류가 발생했습니다.');
@@ -865,7 +902,7 @@ service cloud.firestore {
                       <div>
                         <span className="font-medium">{job.name}</span>
                         <span className="text-gray-400 text-xs ml-2">
-                          {new Date(job.savedAt).toLocaleString('ko-KR')} · 면적 {job.surfaces.length}종
+                          {new Date(job.savedAt).toLocaleString('ko-KR')} · 면적 {(job.surfaces || []).length}종
                         </span>
                       </div>
                       <div className="flex gap-2">
@@ -1178,7 +1215,43 @@ service cloud.firestore {
       );
     };
 
-    ReactDOM.render(<CuttingOptimizer />, document.getElementById('root'));
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, errorMessage: '' };
+      }
+      static getDerivedStateFromError(error) {
+        return { hasError: true, errorMessage: (error && error.message) ? error.message : String(error) };
+      }
+      componentDidCatch(error, info) {
+        console.error('앱 오류:', error, info);
+      }
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div className="p-6 max-w-lg mx-auto text-center">
+              <h2 className="text-xl font-bold mb-2">문제가 발생했습니다</h2>
+              <p className="text-sm text-gray-600 mb-1">
+                데이터 형식 문제 등으로 화면 표시 중 오류가 발생했습니다.
+              </p>
+              <p className="text-xs text-gray-400 mb-4 break-words">오류 내용: {this.state.errorMessage}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-blue-600 text-white px-4 py-2 rounded"
+              >
+                새로고침
+              </button>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    ReactDOM.render(
+      <ErrorBoundary><CuttingOptimizer /></ErrorBoundary>,
+      document.getElementById('root')
+    );
   </script>
 </body>
 </html>
