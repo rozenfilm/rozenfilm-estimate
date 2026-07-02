@@ -691,8 +691,10 @@
         };
 
         for (const item of packable) {
-          // 위쪽(작은 y), 왼쪽(작은 x)에 있는 빈 공간부터 우선 배치하되, 같은 위치에 정방향/회전
-          // 둘 다 들어간다면 그 공간에 더 딱 맞아서 로스가 적게 남는 쪽을 선택한다.
+          // 그 조각이 들어갔을 때 가장 로스(남는 면적)가 적은 빈 공간을 우선 선택한다.
+          // 위치(위쪽/왼쪽)는 로스가 완전히 같을 때만 참고용 동점 처리 기준으로 쓴다.
+          // (예전엔 위치를 최우선으로 삼아서, 정확히 딱 맞는 빈 공간이 있어도 지나치고
+          //  다른 헐렁한 자리에 먼저 배치해버리는 문제가 있었다.)
           let best = null; // { idx, rotated, y, x, w, h, waste }
 
           for (let i = 0; i < freeRects.length; i++) {
@@ -707,9 +709,8 @@
             candidates.forEach((c) => {
               const waste = r.w * r.h - c.w * c.h; // 이 공간에 넣었을 때 남는 면적 (작을수록 딱 맞음)
               const better = !best
-                || r.y < best.y
-                || (r.y === best.y && r.x < best.x)
-                || (r.y === best.y && r.x === best.x && waste < best.waste);
+                || waste < best.waste
+                || (waste === best.waste && (r.y < best.y || (r.y === best.y && r.x < best.x)));
               if (better) {
                 best = { idx: i, rotated: c.rotated, y: r.y, x: r.x, w: c.w, h: c.h, waste };
               }
