@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>로젠필름 재단 최적화</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.5/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <style>
+    @media print {
+      body * { visibility: hidden; }
+      #print-area, #print-area * { visibility: visible; }
+      #print-area {
+        display: block !important;
+        position: absolute; left: 0; top: 0; width: 100%; padding: 12mm;
+      }
+      #print-area table { width: 100%; border-collapse: collapse; font-size: 11px; }
+      #print-area th, #print-area td { border: 1px solid #999; padding: 4px 6px; text-align: left; }
+      #print-area img { max-width: 100%; margin-top: 12px; }
+      .no-print { display: none !important; }
+    }
+    #print-area { display: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    const PRESET_STORAGE_KEY = 'rosenfilm_size_presets_v1';
+    const JOB_STORAGE_KEY = 'rosenfilm_jobs_v1';
+
+    const loadPresets = () => {
+      try {
+        const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        console.error('프리셋 불러오기 오류:', e);
+        return [];
+      }
+    };
+
+    const loadJobs = () => {
+      try {
+        const raw = localStorage.getItem(JOB_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        console.error('현장 데이터 불러오기 오류:', e);
+        return [];
+      }
+    };
+
+    const CLOUD_SETTINGS_KEY = 'rosenfilm_cloud_settings_v1';
+
+    const loadCloudSettings = () => {
+      try {
+        const raw = localStorage.getItem(CLOUD_SETTINGS_KEY);
+        return raw ? JSON.parse(raw) : { configText: '', workspaceCode: '' };
+      } catch (e) {
+        return { configText: '', workspaceCode: '' };
+      }
+    };
+
+    const CuttingOptimizer = () => {
+      const [filmSize, setFilmSize] = useState({ width: 1220, length: 50000 });
+      const [rotationAllowed, setRotationAllowed] = useState(true); // 회전 허용 (필름 규격 옆 전역 설정)
+      const [surfaces, setSurfaces] = useState([
+        { width: 0, height: 0, count: 1, label: '', category: '' }
+      ]);
+      const [result, setResult] = useState(null);
+      const [fontSize, setFontSize] = useState(20);
+      const canvasRef = useRef(null);
+      const [printImageUrl, setPrintImageUrl] = useState(null);
+
+      // ---- 부위별 그룹 보기 ----
+      const UNCATEGORIZED = '미분류';
+      const [collapsedCats, setCollapsedCats] = useState({});
+      const [scrollTarget, setScrollTarget] = useState(null);
+      const categoryRefs = useRef({});
+
+      const jumpToCategory = useCallback((cat) => {
+        setCollapsedCats(prev => ({ ...prev, [cat]: false }));
+        setScrollTarget(cat);
+      }, []);
+
+      const toggleCategoryCollapsed = useCallback((cat) => {
+        setCollapsedCats(prev => ({ ...prev, [cat]: !prev[cat] }));
+      }, []);
+
+      useEffect(() => {
+        if (scrollTarget && categoryRefs.current[scrollTarget]) {
+          categoryRefs.current[scrollTarget].scrollIntoView({ behavior: 'smooth', block: 'start' });
+          setScrollTarget(null);
+        }
+      }, [scrollTarget, surfaces, collapsedCats]);
+
+      // ---- 현장명으로 작업 데이터 저장/불러오기 ----
+      const [jobName, setJobName] = useState('');
+      const [savedJobs, setSavedJobs] = useState(loadJobs);
+
+      useEffect(() => {
+        localStorage.setItem(JOB_STORAGE_KEY, JSON.stringify(savedJobs));
+      }, [savedJobs]);
+
+      const saveCurrentJob = useCallback(() => {
+        const name = jobName.trim();
+        if (!name) {
+          alert('현장명을 입력해주세요.');
+          return;
+        }
+        const existing = savedJobs.find(j => j.name === name);
+        if (existing && !window.confirm(`'${name}' 현장 데이터가 이미 있습니다. 덮어쓸까요?`)) {
+          return;
+        }
+        const jobData = {
+          id: existing ? existing.id : Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          name,
+          savedAt: new Date().toISOString(),
+          filmSize, rotationAllowed, surfaces,
+        };
+        setSavedJobs(prev => existing ? prev.map(j => (j.id === existing.id ? jobData : j)) : [...prev, jobData]);
+        alert(`'${name}' 저장되었습니다.`);
+      }, [jobName, savedJobs, filmSize, rotationAllowed, surfaces]);
+
+      const loadJob = useCallback((job) => {
+        if (!window.confirm(`'${job.name}' 데이터를 불러오면 현재 입력값이 대체됩니다. 계속할까요?`)) return;
+        setFilmSize(job.filmSize);
+        if (job.rotationAllowed !== undefined) setRotationAllowed(job.rotationAllowed);
+        setSurfaces(job.surfaces);
+        setJobName(job.name);
+        setResult(null);
+      }, []);
+
+      const deleteJob = useCallback((id, name) => {
+        if (!window.confirm(`'${name}' 현장 데이터를 삭제할까요?`)) return;
+        setSavedJobs(prev => prev.filter(j => j.id !== id));
+      }, []);
+
+      // ---- 현장 데이터 JSON 내보내기 / 불러오기 (구글드라이브 등 클라우드 공유용) ----
+      const jobFileInputRef = useRef(null);
+
+      const exportJobs = useCallback(() => {
+        if (savedJobs.length === 0) {
+          alert('내보낼 현장 데이터가 없습니다.');
+          return;
+        }
+        const payload = {
+          type: 'rosenfilm_jobs',
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          jobs: savedJobs,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const dateStr = new Date().toISOString().slice(0, 10);
+        saveAs(blob, `현장데이터_${dateStr}.json`);
+      }, [savedJobs]);
+
+      const importJobs = useCallback((event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            const incoming = Array.isArray(data.jobs) ? data.jobs : (Array.isArray(data) ? data : null);
+            if (!incoming) {
+              alert('올바른 현장 데이터 파일이 아닙니다.');
+              return;
+            }
+            const cleaned = incoming
+              .filter(j => j && j.name && j.filmSize && Array.isArray(j.surfaces))
+              .map(j => ({
+                id: j.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+                name: String(j.name),
+                savedAt: j.savedAt || new Date().toISOString(),
+                filmSize: j.filmSize,
+                rotationAllowed: j.rotationAllowed !== undefined ? j.rotationAllowed : true,
+                surfaces: j.surfaces,
+              }));
+
+            if (cleaned.length === 0) {
+              alert('불러올 수 있는 현장 데이터가 없습니다.');
+              return;
+            }
+
+            setSavedJobs(prev => {
+              const existingNames = new Map(prev.map(j => [j.name, j]));
+              let addedCount = 0, overwrittenCount = 0;
+              const merged = [...prev];
+              cleaned.forEach(j => {
+                const existing = existingNames.get(j.name);
+                if (existing) {
+                  const idx = merged.findIndex(m => m.id === existing.id);
+                  merged[idx] = { ...j, id: existing.id };
+                  overwrittenCount++;
+                } else {
+                  merged.push(j);
+                  existingNames.set(j.name, j);
+                  addedCount++;
+                }
+              });
+              alert(`${addedCount}개 추가됨${overwrittenCount > 0 ? `, ${overwrittenCount}개는 같은 이름으로 덮어씀` : ''}`);
+              return merged;
+            });
+          } catch (error) {
+            console.error('현장 데이터 불러오기 오류:', error);
+            alert('JSON 파일을 읽는 중 오류가 발생했습니다.');
+          } finally {
+            event.target.value = '';
+          }
+        };
+        reader.readAsText(file);
+      }, []);
+
+      // ---- 자주 쓰는 사이즈 프리셋 ----
+      const [presets, setPresets] = useState(loadPresets);
+      const [presetEditingId, setPresetEditingId] = useState(null); // 수정 중인 프리셋 id (null이면 새로 등록 모드)
+      const [presetForm, setPresetForm] = useState({ name: '', width: '', height: '' });
+
+      useEffect(() => {
+        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
+      }, [presets]);
+
+      // ---- 클라우드 동기화 (Firebase Firestore) ----
+      // 프리셋 + 현장 데이터를 "작업장 코드" 하나로 묶어서 여러 기기가 실시간으로 공유하도록 한다.
+      const initialCloudSettings = loadCloudSettings();
+      const [cloudConfigText, setCloudConfigText] = useState(initialCloudSettings.configText);
+      const [workspaceCode, setWorkspaceCode] = useState(initialCloudSettings.workspaceCode);
+      const [cloudStatus, setCloudStatus] = useState('disconnected'); // disconnected | connecting | connected | error
+      const [cloudError, setCloudError] = useState('');
+      const [showCloudSettings, setShowCloudSettings] = useState(!(initialCloudSettings.configText && initialCloudSettings.workspaceCode));
+      const firebaseAppRef = useRef(null);
+      const firestoreRef = useRef(null);
+      const unsubscribeCloudRef = useRef(null);
+      const isRemoteUpdateRef = useRef(false); // 원격(다른 기기) 변경으로 로컬 state가 바뀐 경우, 다시 클라우드로 되쏘지 않기 위한 플래그
+      const cloudMountedRef = useRef(false);
+
+      const disconnectCloud = useCallback(() => {
+        if (unsubscribeCloudRef.current) {
+          unsubscribeCloudRef.current();
+          unsubscribeCloudRef.current = null;
+        }
+        if (firebaseAppRef.current) {
+          firebaseAppRef.current.delete().catch(() => {});
+          firebaseAppRef.current = null;
+        }
+        firestoreRef.current = null;
+        setCloudStatus('disconnected');
+      }, []);
+
+      const connectCloud = useCallback(() => {
+        setCloudError('');
+
+        if (typeof firebase === 'undefined') {
+          setCloudStatus('error');
+          setCloudError('Firebase 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.');
+          return;
+        }
+
+        let config;
+        try {
+          config = JSON.parse(cloudConfigText);
+        } catch (e) {
+          setCloudStatus('error');
+          setCloudError('Firebase 설정 JSON 형식이 올바르지 않습니다. Firebase 콘솔에서 복사한 config 전체를 붙여넣어주세요.');
+          return;
+        }
+
+        const code = workspaceCode.trim();
+        if (!code) {
+          setCloudStatus('error');
+          setCloudError('작업장 코드를 입력해주세요. 같은 코드를 입력한 기기끼리 데이터가 공유됩니다.');
+          return;
+        }
+
+        setCloudStatus('connecting');
+        disconnectCloud();
+
+        try {
+          const appName = 'rosenfilm-' + Date.now();
+          const app = firebase.initializeApp(config, appName);
+          const db = app.firestore();
+          firebaseAppRef.current = app;
+          firestoreRef.current = db;
+
+          const docRef = db.collection('workspaces').doc(code);
+
+          const unsubscribe = docRef.onSnapshot(
+            (docSnap) => {
+              setCloudStatus('connected');
+              setCloudError('');
+              if (docSnap.exists) {
+                const data = docSnap.data();
+                isRemoteUpdateRef.current = true;
+                if (Array.isArray(data.presets)) setPresets(data.presets);
+                if (Array.isArray(data.jobs)) setSavedJobs(data.jobs);
+              } else {
+                // 클라우드에 해당 작업장 코드 데이터가 아직 없으면, 지금 이 기기의 데이터로 새로 만든다.
+                docRef.set({
+                  presets, jobs: savedJobs,
+                  updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                });
+              }
+            },
+            (err) => {
+              console.error('Firestore 동기화 오류:', err);
+              setCloudStatus('error');
+              setCloudError('동기화 오류: ' + err.message + ' (Firestore 보안 규칙에서 읽기/쓰기가 허용되어 있는지 확인해주세요.)');
+            }
+          );
+          unsubscribeCloudRef.current = unsubscribe;
+
+          localStorage.setItem(CLOUD_SETTINGS_KEY, JSON.stringify({ configText: cloudConfigText, workspaceCode: code }));
+          setShowCloudSettings(false);
+        } catch (e) {
+          console.error('Firebase 연결 오류:', e);
+          setCloudStatus('error');
+          setCloudError('연결 실패: ' + e.message);
+        }
+      }, [cloudConfigText, workspaceCode, presets, savedJobs, disconnectCloud]);
+
+      // 최초 진입 시, 저장된 클라우드 설정이 있으면 자동 재연결
+      useEffect(() => {
+        if (initialCloudSettings.configText && initialCloudSettings.workspaceCode) {
+          connectCloud();
+        }
+        return () => disconnectCloud();
+        // eslint-disable-next-line
+      }, []);
+
+      // 프리셋/현장 데이터가 로컬에서 바뀌면(직접 편집) 클라우드로 반영.
+      // 단, 방금 클라우드에서 받아온 변경(원격)이라면 다시 올리지 않는다.
+      useEffect(() => {
+        if (!cloudMountedRef.current) { cloudMountedRef.current = true; return; }
+        if (isRemoteUpdateRef.current) { isRemoteUpdateRef.current = false; return; }
+        if (cloudStatus !== 'connected' || !firestoreRef.current || !workspaceCode.trim()) return;
+
+        firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).set({
+          presets, jobs: savedJobs,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true }).catch((err) => {
+          console.error('클라우드 저장 오류:', err);
+          setCloudError('클라우드 저장 실패: ' + err.message);
+        });
+      }, [presets, savedJobs]);
+
+      const resetPresetForm = useCallback(() => {
+        setPresetEditingId(null);
+        setPresetForm({ name: '', width: '', height: '' });
+      }, []);
+
+      const savePreset = useCallback(() => {
+        const name = presetForm.name.trim();
+        const width = Number(presetForm.width) || 0;
+        const height = Number(presetForm.height) || 0;
+        if (!name || width <= 0 || height <= 0) {
+          alert('이름, 가로, 세로 값을 모두 입력해주세요.');
+          return;
+        }
+        if (presetEditingId) {
+          setPresets(prev => prev.map(p =>
+            p.id === presetEditingId ? { ...p, name, width, height } : p
+          ));
+        } else {
+          setPresets(prev => [...prev, {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            name, width, height,
+          }]);
+        }
+        resetPresetForm();
+      }, [presetForm, presetEditingId, resetPresetForm]);
+
+      const editPreset = useCallback((preset) => {
+        setPresetEditingId(preset.id);
+        setPresetForm({
+          name: preset.name,
+          width: preset.width,
+          height: preset.height,
+        });
+      }, []);
+
+      const deletePreset = useCallback((id) => {
+        if (!window.confirm('이 프리셋을 삭제할까요?')) return;
+        setPresets(prev => prev.filter(p => p.id !== id));
+        if (presetEditingId === id) resetPresetForm();
+      }, [presetEditingId, resetPresetForm]);
+
+      // 프리셋을 시공 면적 입력행으로 바로 추가
+      const applyPresetToSurfaces = useCallback((preset) => {
+        setSurfaces(prev => {
+          const isEmptyOnly = prev.length === 1 && !prev[0].width && !prev[0].height && !prev[0].label;
+          const newRow = {
+            width: preset.width,
+            height: preset.height,
+            count: 1,
+            label: preset.name,
+            category: prev.length && !isEmptyOnly ? (prev[prev.length - 1].category || '') : '',
+          };
+          return isEmptyOnly ? [newRow] : [...prev, newRow];
+        });
+      }, []);
+
+      // ---- 프리셋 JSON 내보내기 / 불러오기 (구글드라이브 등 클라우드 공유용) ----
+      const presetFileInputRef = useRef(null);
+
+      const exportPresets = useCallback(() => {
+        if (presets.length === 0) {
+          alert('내보낼 프리셋이 없습니다.');
+          return;
+        }
+        const payload = {
+          type: 'rosenfilm_size_presets',
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          presets,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const dateStr = new Date().toISOString().slice(0, 10);
+        saveAs(blob, `사이즈프리셋_${dateStr}.json`);
+      }, [presets]);
+
+      const importPresets = useCallback((event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            const incoming = Array.isArray(data.presets) ? data.presets : (Array.isArray(data) ? data : null);
+            if (!incoming) {
+              alert('올바른 프리셋 파일이 아닙니다.');
+              return;
+            }
+            const cleaned = incoming
+              .filter(p => p && p.name && Number(p.width) > 0 && Number(p.height) > 0)
+              .map(p => ({
+                id: p.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+                name: String(p.name),
+                width: Number(p.width),
+                height: Number(p.height),
+              }));
+
+            if (cleaned.length === 0) {
+              alert('불러올 수 있는 프리셋이 없습니다.');
+              return;
+            }
+
+            setPresets(prev => {
+              const existingNames = new Set(prev.map(p => `${p.name}__${p.width}x${p.height}`));
+              const merged = [...prev];
+              let addedCount = 0, skippedCount = 0;
+              cleaned.forEach(p => {
+                const key = `${p.name}__${p.width}x${p.height}`;
+                if (existingNames.has(key)) {
+                  skippedCount++;
+                } else {
+                  merged.push(p);
+                  existingNames.add(key);
+                  addedCount++;
+                }
+              });
+              alert(`${addedCount}개 추가됨${skippedCount > 0 ? `, ${skippedCount}개는 이미 존재하여 건너뜀` : ''}`);
+              return merged;
+            });
+          } catch (error) {
+            console.error('프리셋 불러오기 오류:', error);
+            alert('JSON 파일을 읽는 중 오류가 발생했습니다.');
+          } finally {
+            event.target.value = '';
+          }
+        };
+        reader.readAsText(file);
+      }, []);
+
+      const adjustToCuttingUnit = useCallback((width, height) => ({
+        width: Math.ceil(width / 10) * 10,
+        height: Math.ceil(height / 50) * 50,
+      }), []);
+
+      const addSurface = useCallback((presetCategory) => {
+        const last = surfaces[surfaces.length - 1] || { width: 0, height: 0, count: 1, label: '', category: '' };
+        const adjusted = adjustToCuttingUnit(last.width, last.height);
+        setSurfaces(prev => [...prev, {
+          width: adjusted.width,
+          height: adjusted.height,
+          count: last.count,
+          label: last.label,
+          category: presetCategory !== undefined ? presetCategory : (last.category || ''),
+        }]);
+        if (presetCategory) {
+          setCollapsedCats(prev => ({ ...prev, [presetCategory]: false }));
+          setScrollTarget(presetCategory);
+        }
+      }, [surfaces, adjustToCuttingUnit]);
+
+      const handleInputBlur = useCallback((index, field, value) => {
+        const newSurfaces = [...surfaces];
+        if (field === 'count') {
+          newSurfaces[index].count = Math.max(1, Number(value) || 1);
+        } else if (field === 'label' || field === 'category') {
+          newSurfaces[index][field] = value;
+        } else {
+          newSurfaces[index][field] = Number(value) || 0;
+          const adjusted = adjustToCuttingUnit(newSurfaces[index].width, newSurfaces[index].height);
+          newSurfaces[index].width = adjusted.width;
+          newSurfaces[index].height = adjusted.height;
+        }
+        setSurfaces(newSurfaces);
+      }, [surfaces, adjustToCuttingUnit]);
+
+      // ---- 재귀적 기요틴(guillotine) 배치 알고리즘 ----
+      // 조각을 배치하고 남는 자투리 공간도 다시 하나의 "빈 공간"으로 등록해서, 다음 조각이
+      // 그 자투리 안에서 또 가로/세로 컷으로 나뉘어 들어갈 수 있게 한다. 항상 직선(가로 또는
+      // 세로) 컷만으로 재단 가능한 형태를 유지하면서, 자투리 공간 낭비를 최대한 줄인다.
+      // 재단 순서 원칙: 세로(길이)가 가장 긴 조각부터, 같은 길이면 가로(폭)가 넓은 것부터 자른다.
+      const optimizeCutting = useCallback(() => {
+        const items = surfaces.flatMap(s =>
+          Array(s.count).fill(0).map(() => ({
+            width: s.width,
+            height: s.height,
+            label: s.label,
+          }))
+        );
+
+        // 필름 폭보다 큰(회전해도 안 들어가는) 조각은 사전에 걸러서 사용자에게 알림
+        const oversized = items.filter(it => {
+          const fitsNormal = it.width <= filmSize.width;
+          const fitsRotated = rotationAllowed && it.height <= filmSize.width;
+          return !fitsNormal && !fitsRotated;
+        });
+        const packable = items.filter(it => !oversized.includes(it));
+
+        // 재단 순서 원칙: 세로(길이)가 가장 긴 조각부터, 같은 길이면 가로(폭)가 넓은 것부터 자른다.
+        // 이 순서대로 배치되므로 결과의 번호(#1, #2...)도 이 순서를 따른다.
+        packable.sort((a, b) => (b.height - a.height) || (b.width - a.width));
+
+        const layout = [];
+        const unplaced = [];
+
+        // 재귀적 기요틴(guillotine) 분할: 남는 공간(자투리)도 하나의 "빈 사각형"으로 등록해서
+        // 이후 더 작은 조각이 그 안에서 또 가로/세로 컷으로 나뉘어 들어갈 수 있게 한다.
+        // 처음엔 필름 전체가 하나의 빈 공간이다.
+        const freeRects = [{ x: 0, y: 0, w: filmSize.width, h: filmSize.length }];
+
+        // 빈 사각형(rect)에서 (usedW x usedH) 크기만큼 잘라내고 남는 두 조각으로 분할한다.
+        // 남는 폭이 남는 높이보다 좁으면 가로 컷(아래쪽 조각이 전체 폭을 가짐),
+        // 아니면 세로 컷(오른쪽 조각이 전체 높이를 가짐) — 최대한 큰 자투리가 통째로 남도록 한다.
+        const splitFreeRect = (rect, usedW, usedH) => {
+          const remW = rect.w - usedW;
+          const remH = rect.h - usedH;
+          const result = [];
+          if (remW < remH) {
+            if (remH > 0) result.push({ x: rect.x, y: rect.y + usedH, w: rect.w, h: remH });
+            if (remW > 0) result.push({ x: rect.x + usedW, y: rect.y, w: remW, h: usedH });
+          } else {
+            if (remW > 0) result.push({ x: rect.x + usedW, y: rect.y, w: remW, h: rect.h });
+            if (remH > 0) result.push({ x: rect.x, y: rect.y + usedH, w: usedW, h: remH });
+          }
+          return result;
+        };
+
+        for (const item of packable) {
+          // 위쪽(작은 y), 왼쪽(작은 x)에 있는 빈 공간부터 우선 배치 — 재단 순서를 예측 가능하게 유지
+          let bestIdx = -1, bestRotated = false, bestY = null, bestX = null;
+
+          for (let i = 0; i < freeRects.length; i++) {
+            const r = freeRects[i];
+            const fitsNormal = item.width <= r.w && item.height <= r.h;
+            const fitsRotated = rotationAllowed && item.height <= r.w && item.width <= r.h;
+
+            if (fitsNormal && (bestY === null || r.y < bestY || (r.y === bestY && r.x < bestX))) {
+              bestY = r.y; bestX = r.x; bestIdx = i; bestRotated = false;
+            }
+            if (fitsRotated && (bestY === null || r.y < bestY || (r.y === bestY && r.x < bestX))) {
+              bestY = r.y; bestX = r.x; bestIdx = i; bestRotated = true;
+            }
+          }
+
+          if (bestIdx === -1) {
+            unplaced.push(item);
+            continue;
+          }
+
+          const rect = freeRects[bestIdx];
+          const w = bestRotated ? item.height : item.width;
+          const h = bestRotated ? item.width : item.height;
+
+          layout.push({
+            x: rect.x, y: rect.y,
+            width: w, height: h,
+            rotated: bestRotated, label: item.label,
+            id: layout.length + 1,
+          });
+
+          const newRects = splitFreeRect(rect, w, h);
+          freeRects.splice(bestIdx, 1, ...newRects);
+        }
+
+        const usedFilm = layout.reduce((sum, it) => sum + it.width * it.height, 0);
+        const totalFilmArea = filmSize.width * filmSize.length;
+        const waste = totalFilmArea > 0 ? ((totalFilmArea - usedFilm) / totalFilmArea * 100).toFixed(2) : '0.00';
+        const usedLength = layout.length ? Math.max(...layout.map(it => it.y + it.height)) : 0;
+
+        setResult({
+          usedFilm: usedFilm / 1000000,
+          waste,
+          layout,
+          usedLength,
+          unplacedCount: oversized.length + unplaced.length,
+          unplacedItems: [...oversized, ...unplaced],
+        });
+      }, [surfaces, filmSize, rotationAllowed]);
+
+      useEffect(() => {
+        if (result && canvasRef.current) {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d');
+          const scale = 0.2;
+
+          canvas.width = filmSize.width * scale;
+          canvas.height = Math.max(filmSize.length * scale, 100);
+
+          ctx.fillStyle = '#f0f0f0';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          result.layout.forEach(item => {
+            ctx.fillStyle = `hsl(${item.id * 30}, 70%, 50%)`;
+            ctx.fillRect(item.x * scale, item.y * scale, item.width * scale, item.height * scale);
+            ctx.strokeStyle = '#000';
+            ctx.strokeRect(item.x * scale, item.y * scale, item.width * scale, item.height * scale);
+
+            ctx.font = `${fontSize}px Arial`;
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = '#000';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+
+            ctx.save();
+            ctx.translate(item.x * scale + 20, item.y * scale + item.height * scale / 2);
+            ctx.rotate(-Math.PI / 2);
+            const rotMark = item.rotated ? ' [회전]' : '';
+            const idText = `#${item.id} (${item.width}x${item.height})${rotMark}`;
+            ctx.strokeText(idText, 0, 0);
+            ctx.fillText(idText, 0, 0);
+            if (item.label) {
+              const labelText = item.label.slice(0, 20);
+              ctx.strokeText(labelText, 0, fontSize * 4);
+              ctx.fillText(labelText, 0, fontSize * 4);
+            }
+            ctx.restore();
+          });
+
+          setPrintImageUrl(canvas.toDataURL('image/png'));
+        }
+      }, [result, filmSize, fontSize]);
+
+      const printPdf = useCallback(() => {
+        if (!result) {
+          alert('먼저 재단 최적화를 실행해주세요.');
+          return;
+        }
+        window.print();
+      }, [result]);
+
+      const saveResult = useCallback(() => {
+        const blob = new Blob([JSON.stringify({ filmSize, rotationAllowed, surfaces, result })], { type: 'application/json' });
+        saveAs(blob, 'cutting_result.json');
+      }, [filmSize, rotationAllowed, surfaces, result]);
+
+      const loadResult = useCallback((event) => {
+        const file = event.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const data = JSON.parse(e.target.result);
+              setFilmSize(data.filmSize);
+              if (data.rotationAllowed !== undefined) setRotationAllowed(data.rotationAllowed);
+              setSurfaces(data.surfaces.map(s => ({
+                ...s,
+                ...adjustToCuttingUnit(s.width, s.height),
+                label: s.label || '',
+              })));
+              setResult(data.result);
+            } catch (error) {
+              console.error('JSON load error:', error);
+              alert('JSON 파일을 불러오는 중 오류가 발생했습니다.');
+            }
+          };
+          reader.readAsText(file);
+        }
+      }, [adjustToCuttingUnit]);
+
+      // 부위(카테고리) 순서 계산: 처음 등장한 순서대로, 미분류는 항상 마지막
+      const categoryOrder = [];
+      surfaces.forEach(s => {
+        const cat = (s.category || '').trim() || UNCATEGORIZED;
+        if (!categoryOrder.includes(cat)) categoryOrder.push(cat);
+      });
+      if (categoryOrder.includes(UNCATEGORIZED)) {
+        categoryOrder.splice(categoryOrder.indexOf(UNCATEGORIZED), 1);
+        categoryOrder.push(UNCATEGORIZED);
+      }
+
+      return (
+        <div className="p-4 max-w-4xl mx-auto">
+          <h1 className="text-2xl font-bold mb-4">로젠필름 재단 최적화</h1>
+
+          <div className="mb-6 border rounded p-3 bg-cyan-50">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                클라우드 동기화 (여러 기기 공유)
+                {cloudStatus === 'connected' && (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">● 연결됨</span>
+                )}
+                {cloudStatus === 'connecting' && (
+                  <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">연결 중...</span>
+                )}
+                {cloudStatus === 'disconnected' && (
+                  <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">연결 안 됨</span>
+                )}
+                {cloudStatus === 'error' && (
+                  <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">⚠ 오류</span>
+                )}
+              </h2>
+              <button
+                onClick={() => setShowCloudSettings(prev => !prev)}
+                className="text-sm text-cyan-700 hover:underline"
+              >
+                {showCloudSettings ? '설정 접기' : '설정 열기'}
+              </button>
+            </div>
+
+            {showCloudSettings && (
+              <div className="mt-3">
+                <p className="text-xs text-gray-600 mb-2 leading-relaxed">
+                  1. 구글 Firebase 콘솔(firebase.google.com)에서 무료 프로젝트를 만들고 Firestore Database를 활성화합니다.<br />
+                  2. 프로젝트 설정 → 일반 → "웹 앱 추가"에서 나오는 firebaseConfig 객체 전체를 아래에 붙여넣으세요.<br />
+                  3. Firestore 규칙에서 읽기/쓰기를 허용해야 합니다(테스트 모드 또는 아래와 같은 간단한 규칙).<br />
+                  4. 아래 "작업장 코드"를 같은 값으로 입력한 기기끼리 프리셋·현장 데이터가 실시간으로 공유됩니다.
+                </p>
+                <details className="mb-2 text-xs text-gray-600">
+                  <summary className="cursor-pointer text-cyan-700">Firestore 보안 규칙 예시 (로그인 없이 코드만으로 공유)</summary>
+                  <pre className="bg-gray-800 text-gray-100 p-2 rounded mt-1 overflow-auto">{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /workspaces/{code} {
+      allow read, write: if true;
+    }
+  }
+}`}</pre>
+                  <p className="mt-1">⚠️ 이 규칙은 작업장 코드만 알면 누구나 읽고 쓸 수 있습니다. 코드를 외부에 공유하지 마세요.</p>
+                </details>
+                <textarea
+                  value={cloudConfigText}
+                  onChange={(e) => setCloudConfigText(e.target.value)}
+                  placeholder={'{\n  "apiKey": "...",\n  "authDomain": "...",\n  "projectId": "...",\n  "storageBucket": "...",\n  "messagingSenderId": "...",\n  "appId": "..."\n}'}
+                  className="border p-2 w-full h-28 font-mono text-xs mb-2"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="작업장 코드 (예: rozen-shop-01)"
+                    value={workspaceCode}
+                    onChange={(e) => setWorkspaceCode(e.target.value)}
+                    className="border p-2 w-56"
+                  />
+                  <button onClick={connectCloud} className="bg-cyan-600 text-white p-2 rounded">
+                    연결 / 재연결
+                  </button>
+                  {cloudStatus === 'connected' && (
+                    <button onClick={disconnectCloud} className="bg-gray-400 text-white p-2 rounded">
+                      연결 해제
+                    </button>
+                  )}
+                </div>
+                {cloudError && (
+                  <p className="text-sm text-red-600 mt-2">{cloudError}</p>
+                )}
+              </div>
+            )}
+
+            {!showCloudSettings && cloudStatus === 'connected' && (
+              <p className="text-xs text-gray-600 mt-1">
+                작업장 코드 "{workspaceCode}"로 연결되어 프리셋·현장 데이터가 실시간으로 동기화됩니다.
+              </p>
+            )}
+          </div>
+
+          <div className="mb-4 flex flex-wrap gap-6 items-start">
+            <div>
+              <h2 className="text-lg font-semibold">필름 규격 (폭 1220mm)</h2>
+              <select
+                value={filmSize.length}
+                onChange={(e) => setFilmSize({ ...filmSize, length: +e.target.value })}
+                className="border p-2"
+              >
+                <option value={50000}>50m (50,000mm)</option>
+                <option value={25000}>25m (25,000mm)</option>
+              </select>
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">회전 배치</h2>
+              <label className="flex items-center gap-2 border p-2 rounded w-fit">
+                <input
+                  type="checkbox"
+                  checked={rotationAllowed}
+                  onChange={(e) => setRotationAllowed(e.target.checked)}
+                />
+                90도 회전 배치 허용
+              </label>
+              <p className="text-xs text-gray-500 mt-1">모든 조각에 공통 적용됩니다. 인쇄 방향이 고정된 필름이면 해제하세요.</p>
+            </div>
+          </div>
+
+          <div className="mb-6 border rounded p-3 bg-orange-50">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <h2 className="text-lg font-semibold">현장명으로 저장 / 불러오기</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={exportJobs}
+                  className="bg-orange-700 text-white text-sm px-3 py-1.5 rounded"
+                  title="저장된 현장 데이터를 JSON 파일로 저장 (구글드라이브 등에 업로드해 공유 가능)"
+                >
+                  현장 데이터 내보내기
+                </button>
+                <button
+                  onClick={() => jobFileInputRef.current && jobFileInputRef.current.click()}
+                  className="bg-orange-100 text-orange-800 text-sm px-3 py-1.5 rounded border border-orange-700"
+                  title="JSON 파일에서 현장 데이터 불러오기"
+                >
+                  현장 데이터 불러오기
+                </button>
+                <input
+                  type="file" accept=".json" ref={jobFileInputRef}
+                  onChange={importJobs} className="hidden"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <input
+                type="text"
+                placeholder="현장명 (예: 강남 OO아파트 101동)"
+                value={jobName}
+                onChange={(e) => setJobName(e.target.value)}
+                className="border p-2 w-64"
+              />
+              <button onClick={saveCurrentJob} className="bg-orange-600 text-white p-2 rounded">
+                현재 작업 저장
+              </button>
+            </div>
+
+            {savedJobs.length > 0 ? (
+              <div className="flex flex-col gap-1">
+                {savedJobs
+                  .slice()
+                  .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
+                  .map(job => (
+                    <div key={job.id} className="flex items-center justify-between bg-white border rounded px-3 py-1.5">
+                      <div>
+                        <span className="font-medium">{job.name}</span>
+                        <span className="text-gray-400 text-xs ml-2">
+                          {new Date(job.savedAt).toLocaleString('ko-KR')} · 면적 {job.surfaces.length}종
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => loadJob(job)} className="text-blue-600 text-sm hover:underline">
+                          불러오기
+                        </button>
+                        <button onClick={() => deleteJob(job.id, job.name)} className="text-red-600 text-sm hover:underline">
+                          삭제
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">저장된 현장 데이터가 없습니다.</p>
+            )}
+            <p className="text-xs text-gray-500 mt-2">
+              필름 규격, 여유분, 시공 면적 목록 전체가 현장명으로 저장됩니다. 이 브라우저에만 저장됩니다.
+              "현장 데이터 내보내기"로 JSON 파일을 저장해 구글드라이브 등에 올리면, 다른 PC에서 "현장 데이터 불러오기"로 같은 현장 목록을 가져올 수 있습니다. (같은 이름의 현장은 불러온 데이터로 덮어씁니다.)
+            </p>
+          </div>
+
+          <div className="mb-6 border rounded p-3 bg-slate-50">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <h2 className="text-lg font-semibold">자주 쓰는 사이즈 (프리셋)</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={exportPresets}
+                  className="bg-teal-600 text-white text-sm px-3 py-1.5 rounded"
+                  title="프리셋 목록을 JSON 파일로 저장 (구글드라이브 등에 업로드해 공유 가능)"
+                >
+                  프리셋 내보내기
+                </button>
+                <button
+                  onClick={() => presetFileInputRef.current && presetFileInputRef.current.click()}
+                  className="bg-teal-100 text-teal-800 text-sm px-3 py-1.5 rounded border border-teal-600"
+                  title="JSON 파일에서 프리셋 불러오기"
+                >
+                  프리셋 불러오기
+                </button>
+                <input
+                  type="file" accept=".json" ref={presetFileInputRef}
+                  onChange={importPresets} className="hidden"
+                />
+              </div>
+            </div>
+
+            {presets.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {presets.map(preset => (
+                  <div key={preset.id} className="flex items-center bg-white border rounded overflow-hidden">
+                    <button
+                      onClick={() => applyPresetToSurfaces(preset)}
+                      className="px-3 py-2 text-sm hover:bg-blue-50"
+                      title="클릭하면 시공 면적에 자동 입력됩니다"
+                    >
+                      <span className="font-medium">{preset.name}</span>
+                      <span className="text-gray-500 ml-1">{preset.width}×{preset.height}</span>
+                    </button>
+                    <button
+                      onClick={() => editPreset(preset)}
+                      className="px-2 py-2 text-sm text-blue-600 border-l hover:bg-blue-50"
+                    >
+                      수정
+                    </button>
+                    <button
+                      onClick={() => deletePreset(preset.id)}
+                      className="px-2 py-2 text-sm text-red-600 border-l hover:bg-red-50"
+                    >
+                      삭제
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                placeholder="이름 (예: 문, 샷시대창, 4쪽붙박이장)"
+                value={presetForm.name}
+                onChange={(e) => setPresetForm({ ...presetForm, name: e.target.value })}
+                className="border p-2 w-48"
+              />
+              <input
+                type="text" inputMode="numeric" pattern="[0-9]*"
+                placeholder="가로 (mm)"
+                value={presetForm.width}
+                onChange={(e) => setPresetForm({ ...presetForm, width: e.target.value.replace(/[^0-9]/g, '') })}
+                className="border p-2 w-24"
+              />
+              <input
+                type="text" inputMode="numeric" pattern="[0-9]*"
+                placeholder="세로 (mm)"
+                value={presetForm.height}
+                onChange={(e) => setPresetForm({ ...presetForm, height: e.target.value.replace(/[^0-9]/g, '') })}
+                className="border p-2 w-24"
+              />
+              <button onClick={savePreset} className="bg-indigo-600 text-white p-2 rounded">
+                {presetEditingId ? '수정 저장' : '프리셋 등록'}
+              </button>
+              {presetEditingId && (
+                <button onClick={resetPresetForm} className="bg-gray-300 p-2 rounded">
+                  취소
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              프리셋 이름/사이즈를 클릭하면 아래 시공 면적 목록에 바로 한 줄 추가됩니다. 브라우저에 저장되어 다음에 열 때도 유지됩니다.
+              "프리셋 내보내기"로 JSON 파일을 저장해 구글드라이브 등에 올리면, 다른 PC에서 이 파일을 열고 "프리셋 불러오기"로 같은 목록을 가져올 수 있습니다.
+            </p>
+          </div>
+
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold mb-2">시공 면적</h2>
+
+            <datalist id="category-options">
+              {categoryOrder.filter(c => c !== UNCATEGORIZED).map(c => <option key={c} value={c} />)}
+            </datalist>
+
+            {categoryOrder.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                {categoryOrder.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => jumpToCategory(cat)}
+                    className="bg-white border border-blue-400 text-blue-700 text-sm px-3 py-1 rounded-full hover:bg-blue-50"
+                  >
+                    {cat} ({surfaces.filter(s => ((s.category || '').trim() || UNCATEGORIZED) === cat).length})
+                  </button>
+                ))}
+                <button
+                  onClick={() => {
+                    const name = window.prompt('새 부위 이름을 입력하세요 (예: 문, 샷시대창, 4쪽붙박이장)');
+                    if (name && name.trim()) addSurface(name.trim());
+                  }}
+                  className="bg-blue-600 text-white text-sm px-3 py-1 rounded-full"
+                >
+                  + 새 부위
+                </button>
+              </div>
+            )}
+
+            {categoryOrder.map(cat => {
+              const rows = surfaces
+                .map((s, i) => ({ s, i }))
+                .filter(({ s }) => ((s.category || '').trim() || UNCATEGORIZED) === cat);
+              const collapsed = !!collapsedCats[cat];
+              return (
+                <div
+                  key={cat}
+                  ref={(el) => { categoryRefs.current[cat] = el; }}
+                  className="border rounded mb-3 overflow-hidden"
+                >
+                  <button
+                    onClick={() => toggleCategoryCollapsed(cat)}
+                    className="w-full flex items-center justify-between bg-gray-100 px-3 py-2 text-left font-medium"
+                  >
+                    <span>{cat} <span className="text-gray-500 text-sm font-normal">({rows.length}개)</span></span>
+                    <span className="text-gray-500">{collapsed ? '▶' : '▼'}</span>
+                  </button>
+                  {!collapsed && (
+                    <div className="p-3">
+                      {rows.map(({ s: surface, i: index }) => (
+                        <div key={index} className="flex flex-wrap items-center mb-2 gap-2">
+                          <input
+                            type="text" list="category-options"
+                            placeholder="부위 (예: 문)" defaultValue={surface.category}
+                            onBlur={(e) => handleInputBlur(index, 'category', e.target.value)}
+                            className="border p-2 w-28"
+                          />
+                          <input
+                            type="text" inputMode="numeric" pattern="[0-9]*"
+                            placeholder="가로 (mm)" defaultValue={surface.width}
+                            onBlur={(e) => handleInputBlur(index, 'width', e.target.value)}
+                            className="border p-2 w-24"
+                          />
+                          <input
+                            type="text" inputMode="numeric" pattern="[0-9]*"
+                            placeholder="세로 (mm)" defaultValue={surface.height}
+                            onBlur={(e) => handleInputBlur(index, 'height', e.target.value)}
+                            className="border p-2 w-24"
+                          />
+                          <input
+                            type="text" inputMode="numeric" pattern="[0-9]*"
+                            placeholder="수량" defaultValue={surface.count}
+                            onBlur={(e) => handleInputBlur(index, 'count', e.target.value)}
+                            className="border p-2 w-20"
+                          />
+                          <input
+                            type="text" placeholder="시공 위치 (예: 문1)" defaultValue={surface.label}
+                            onBlur={(e) => handleInputBlur(index, 'label', e.target.value)}
+                            className="border p-2 w-32"
+                          />
+                          <button
+                            onClick={() => setSurfaces(surfaces.filter((_, i) => i !== index))}
+                            className="bg-red-500 text-white p-2 rounded"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => addSurface(cat === UNCATEGORIZED ? '' : cat)}
+                        className="bg-blue-400 text-white text-sm px-3 py-1.5 rounded"
+                      >
+                        + {cat}에 항목 추가
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <button onClick={() => addSurface()} className="bg-blue-500 text-white p-2 rounded mt-2">
+              면적 추가 (새 행)
+            </button>
+          </div>
+
+          <button onClick={optimizeCutting} className="bg-green-500 text-white p-2 rounded mb-4">
+            재단 최적화
+          </button>
+          <input type="file" accept=".json" onChange={loadResult} className="mb-4" />
+
+          {result && (
+            <div className="border p-4 mb-4">
+              <h2 className="text-lg font-semibold">재단 결과</h2>
+              <p>사용된 필름: {result.usedFilm.toFixed(3)} m²</p>
+              <p>낭비율: {result.waste}%</p>
+              <p>재단 조각: {result.layout.length}개</p>
+              <p>사용 길이: {(result.usedLength / 1000).toFixed(2)} m / {(filmSize.length / 1000)} m</p>
+
+              {result.unplacedCount > 0 && (
+                <div className="mt-2 bg-yellow-100 border border-yellow-400 text-yellow-800 p-2 rounded">
+                  ⚠️ 배치되지 못한 조각이 {result.unplacedCount}개 있습니다. 필름 길이를 늘리거나
+                  (예: 50m 롤 선택), 조각 크기/수량을 확인해주세요. 필름 폭(1220mm)보다 큰 조각은
+                  회전해도 배치할 수 없습니다.
+                </div>
+              )}
+
+              <button onClick={saveResult} className="bg-gray-500 text-white p-2 rounded mt-2">
+                결과 저장
+              </button>
+              <button onClick={printPdf} className="bg-purple-600 text-white p-2 rounded mt-2 ml-2">
+                PDF 인쇄
+              </button>
+            </div>
+          )}
+
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold">재단 패턴 시각화</h2>
+            <div className="mb-2">
+              <button
+                onClick={() => setFontSize(prev => Math.min(100, prev + 2))}
+                className="bg-gray-500 text-white p-2 rounded mr-2"
+              >
+                폰트 크기 증가
+              </button>
+              <button
+                onClick={() => setFontSize(prev => Math.max(10, prev - 2))}
+                className="bg-gray-500 text-white p-2 rounded"
+              >
+                폰트 크기 감소
+              </button>
+            </div>
+            <div className="overflow-auto max-h-[600px] border">
+              <canvas ref={canvasRef} className="w-full" />
+            </div>
+          </div>
+
+          {result && (
+            <div id="print-area">
+              <h1 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '4px' }}>재단 작업 지시서</h1>
+              <p>현장명: {jobName || '미지정'}</p>
+              <p>필름 규격: 폭 {filmSize.width}mm × 길이 {(filmSize.length / 1000)}m ({rotationAllowed ? '회전 배치 허용' : '회전 배치 미허용'})</p>
+              <p>사용된 필름: {result.usedFilm.toFixed(3)} m² · 낭비율: {result.waste}% · 사용 길이: {(result.usedLength / 1000).toFixed(2)}m · 조각 수: {result.layout.length}개</p>
+              {result.unplacedCount > 0 && (
+                <p style={{ color: '#b45309' }}>⚠️ 배치되지 못한 조각 {result.unplacedCount}개 있음 (아래 목록에서 제외됨)</p>
+              )}
+              <table>
+                <thead>
+                  <tr>
+                    <th>번호</th>
+                    <th>위치(라벨)</th>
+                    <th>가로(mm)</th>
+                    <th>세로(mm)</th>
+                    <th>회전</th>
+                    <th>시작 X</th>
+                    <th>시작 Y</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.layout.map(item => (
+                    <tr key={item.id}>
+                      <td>{item.id}</td>
+                      <td>{item.label || '-'}</td>
+                      <td>{item.width}</td>
+                      <td>{item.height}</td>
+                      <td>{item.rotated ? 'O' : ''}</td>
+                      <td>{item.x}</td>
+                      <td>{item.y}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {printImageUrl && <img src={printImageUrl} alt="재단 패턴" />}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    ReactDOM.render(<CuttingOptimizer />, document.getElementById('root'));
+  </script>
+</body>
+</html>
