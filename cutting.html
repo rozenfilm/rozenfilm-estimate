@@ -171,21 +171,59 @@
         setCloudStatus('disconnected');
       }, []);
 
-      // 저장/삭제 등 "사용자가 직접 한 조작"이 있을 때만 명시적으로 클라우드에 반영한다.
-      // (로컬 상태 변화를 감시해서 자동으로 쏘는 방식은 클라우드에서 받은 변경까지 다시 쏘는
-      //  되먹임 루프가 생기기 쉬워서, 저장 시점에만 1회 명시적으로 호출하는 방식으로 바꿨다.)
-      const pushCloudData = useCallback((nextPresets, nextJobs) => {
-        if (cloudStatus !== 'connected' || !firestoreRef.current || !workspaceCode.trim()) return;
-        firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).set({
-          presets: sanitizeForFirestore(nextPresets),
-          jobs: sanitizeForFirestore(nextJobs),
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        }, { merge: true }).catch((err) => {
-          console.error('클라우드 저장 오류:', err);
+      // 현장/프리셋을 "문서 하나에 배열 통째로" 저장하면, 여러 기기가 동시에 열려있을 때
+      // 한 기기가 삭제해도 다른 기기가 예전 배열을 그대로 다시 덮어써서 삭제가 되살아나는
+      // 문제가 생긴다. 그래서 현장 하나·프리셋 하나를 각각 별도의 문서로 저장해서,
+      // 저장/삭제가 항상 "그 문서 하나만" 건드리도록 한다 (다른 기기의 상태와 무관하게 안전).
+      const getJobsCollRef = useCallback(() => {
+        if (!firestoreRef.current || !workspaceCode.trim()) return null;
+        return firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).collection('jobs');
+      }, [workspaceCode]);
+
+      const getPresetsCollRef = useCallback(() => {
+        if (!firestoreRef.current || !workspaceCode.trim()) return null;
+        return firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).collection('presets');
+      }, [workspaceCode]);
+
+      const cloudSaveJob = useCallback((jobData) => {
+        const ref = getJobsCollRef();
+        if (!ref || cloudStatus !== 'connected') return;
+        ref.doc(jobData.id).set(sanitizeForFirestore(jobData)).catch((err) => {
+          console.error('클라우드 저장 오류(현장):', err);
           setCloudError('클라우드 저장 실패: ' + err.message);
-          alert('클라우드 저장에 실패했습니다: ' + err.message + '\n\n방금 한 변경은 이 기기에만 반영되었고, 클라우드(다른 기기)에는 아직 반영되지 않았습니다.');
+          alert('클라우드 저장에 실패했습니다: ' + err.message);
         });
-      }, [cloudStatus, workspaceCode]);
+      }, [getJobsCollRef, cloudStatus]);
+
+      const cloudDeleteJob = useCallback((id) => {
+        const ref = getJobsCollRef();
+        if (!ref || cloudStatus !== 'connected') return;
+        ref.doc(id).delete().catch((err) => {
+          console.error('클라우드 삭제 오류(현장):', err);
+          setCloudError('클라우드 삭제 실패: ' + err.message);
+          alert('클라우드에서 삭제하는 데 실패했습니다: ' + err.message);
+        });
+      }, [getJobsCollRef, cloudStatus]);
+
+      const cloudSavePreset = useCallback((presetData) => {
+        const ref = getPresetsCollRef();
+        if (!ref || cloudStatus !== 'connected') return;
+        ref.doc(presetData.id).set(sanitizeForFirestore(presetData)).catch((err) => {
+          console.error('클라우드 저장 오류(프리셋):', err);
+          setCloudError('클라우드 저장 실패: ' + err.message);
+          alert('클라우드 저장에 실패했습니다: ' + err.message);
+        });
+      }, [getPresetsCollRef, cloudStatus]);
+
+      const cloudDeletePreset = useCallback((id) => {
+        const ref = getPresetsCollRef();
+        if (!ref || cloudStatus !== 'connected') return;
+        ref.doc(id).delete().catch((err) => {
+          console.error('클라우드 삭제 오류(프리셋):', err);
+          setCloudError('클라우드 삭제 실패: ' + err.message);
+          alert('클라우드에서 삭제하는 데 실패했습니다: ' + err.message);
+        });
+      }, [getPresetsCollRef, cloudStatus]);
 
       const connectCloud = useCallback(() => {
         setCloudError('');
@@ -222,44 +260,44 @@
           firebaseAppRef.current = app;
           firestoreRef.current = db;
 
-          const docRef = db.collection('workspaces').doc(code);
+          const jobsCollRef = db.collection('workspaces').doc(code).collection('jobs');
+          const presetsCollRef = db.collection('workspaces').doc(code).collection('presets');
 
-          // 리스너는 오직 "읽기"만 한다 (쓰기가 섞이면 리스너가 자기 자신의 쓰기에 다시
-          // 반응하는 식으로 얽힐 수 있어서, 문서 생성은 아래에서 별도로 1회만 처리한다).
-          const unsubscribe = docRef.onSnapshot(
-            (docSnap) => {
+          let jobsReady = false, presetsReady = false;
+          const markConnectedIfReady = () => {
+            if (jobsReady && presetsReady) {
               setCloudStatus('connected');
               setCloudError('');
-              if (docSnap.exists) {
-                const data = docSnap.data();
-                if (Array.isArray(data.presets)) setPresets(data.presets);
-                if (Array.isArray(data.jobs)) setSavedJobs(data.jobs);
-              }
-              // 문서가 아직 없으면(exists === false) 아무것도 하지 않는다.
-              // 로컬에 있는 데이터는 그대로 유지되고, 사용자가 저장 버튼을 누르는 순간
-              // pushCloudData가 문서를 자동으로 생성한다.
+            }
+          };
+
+          const unsubJobs = jobsCollRef.onSnapshot(
+            (snap) => {
+              jobsReady = true;
+              setSavedJobs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+              markConnectedIfReady();
             },
             (err) => {
-              console.error('Firestore 동기화 오류:', err);
+              console.error('Firestore(현장) 동기화 오류:', err);
               setCloudStatus('error');
-              setCloudError('동기화 오류: ' + err.message + ' (Firestore 보안 규칙에서 읽기/쓰기가 허용되어 있는지 확인해주세요.)');
+              setCloudError('동기화 오류(현장): ' + err.message + ' (Firestore 보안 규칙을 확인해주세요.)');
             }
           );
-          unsubscribeCloudRef.current = unsubscribe;
 
-          // 문서가 아예 존재하지 않는 완전히 새 작업장 코드라면, 지금 이 기기의 데이터로 딱 한 번만 생성한다.
-          // (onSnapshot 리스너와는 별개의 단발성 조회라서, 리스너가 자신의 쓰기에 반응할 일이 없다.)
-          docRef.get().then((docSnap) => {
-            if (!docSnap.exists) {
-              docRef.set({
-                presets: sanitizeForFirestore(presets),
-                jobs: sanitizeForFirestore(savedJobs),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-              });
+          const unsubPresets = presetsCollRef.onSnapshot(
+            (snap) => {
+              presetsReady = true;
+              setPresets(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+              markConnectedIfReady();
+            },
+            (err) => {
+              console.error('Firestore(프리셋) 동기화 오류:', err);
+              setCloudStatus('error');
+              setCloudError('동기화 오류(프리셋): ' + err.message + ' (Firestore 보안 규칙을 확인해주세요.)');
             }
-          }).catch((err) => {
-            console.error('Firestore 초기 조회 오류:', err);
-          });
+          );
+
+          unsubscribeCloudRef.current = () => { unsubJobs(); unsubPresets(); };
 
           localStorage.setItem(CLOUD_SETTINGS_KEY, JSON.stringify({ configText: cloudConfigText, workspaceCode: code }));
           setShowCloudSettings(false);
@@ -268,7 +306,7 @@
           setCloudStatus('error');
           setCloudError('연결 실패: ' + e.message);
         }
-      }, [cloudConfigText, workspaceCode, presets, savedJobs, disconnectCloud]);
+      }, [cloudConfigText, workspaceCode, disconnectCloud]);
 
       // 최초 진입 시, 저장된 클라우드 설정이 있으면 자동 재연결
       useEffect(() => {
@@ -296,13 +334,17 @@
           savedAt: new Date().toISOString(),
           filmSize, rotationAllowed, surfaces,
         };
-        const updatedJobs = existing
-          ? savedJobs.map(j => (j.id === existing.id ? jobData : j))
-          : [...savedJobs, jobData];
-        setSavedJobs(updatedJobs);
-        pushCloudData(presets, updatedJobs);
+        if (cloudStatus === 'connected') {
+          // 연결된 상태에서는 이 문서 하나만 클라우드에 쓰고, 화면 목록은 실시간 리스너가 갱신한다.
+          cloudSaveJob(jobData);
+        } else {
+          const updatedJobs = existing
+            ? savedJobs.map(j => (j.id === existing.id ? jobData : j))
+            : [...savedJobs, jobData];
+          setSavedJobs(updatedJobs);
+        }
         alert(`'${name}' 저장되었습니다.`);
-      }, [jobName, savedJobs, filmSize, rotationAllowed, surfaces, presets, pushCloudData]);
+      }, [jobName, savedJobs, filmSize, rotationAllowed, surfaces, cloudStatus, cloudSaveJob]);
 
       const loadJob = useCallback((job) => {
         if (!job || !job.filmSize || typeof job.filmSize.width !== 'number' || typeof job.filmSize.length !== 'number' || !Array.isArray(job.surfaces)) {
@@ -325,10 +367,12 @@
 
       const deleteJob = useCallback((id, name) => {
         if (!window.confirm(`'${name}' 현장 데이터를 삭제할까요?`)) return;
-        const updatedJobs = savedJobs.filter(j => j.id !== id);
-        setSavedJobs(updatedJobs);
-        pushCloudData(presets, updatedJobs);
-      }, [savedJobs, presets, pushCloudData]);
+        if (cloudStatus === 'connected') {
+          cloudDeleteJob(id);
+        } else {
+          setSavedJobs(prev => prev.filter(j => j.id !== id));
+        }
+      }, [cloudStatus, cloudDeleteJob]);
 
       // ---- 현장 데이터 JSON 내보내기 / 불러오기 (구글드라이브 등 클라우드 공유용) ----
       const jobFileInputRef = useRef(null);
@@ -388,20 +432,27 @@
             const existingNames = new Map(savedJobs.map(j => [j.name, j]));
             let addedCount = 0, overwrittenCount = 0;
             const merged = [...savedJobs];
+            const toSave = [];
             cleaned.forEach(j => {
               const existing = existingNames.get(j.name);
               if (existing) {
+                const finalJob = { ...j, id: existing.id };
                 const idx = merged.findIndex(m => m.id === existing.id);
-                merged[idx] = { ...j, id: existing.id };
+                merged[idx] = finalJob;
+                toSave.push(finalJob);
                 overwrittenCount++;
               } else {
                 merged.push(j);
                 existingNames.set(j.name, j);
+                toSave.push(j);
                 addedCount++;
               }
             });
-            setSavedJobs(merged);
-            pushCloudData(presets, merged);
+            if (cloudStatus === 'connected') {
+              toSave.forEach(j => cloudSaveJob(j));
+            } else {
+              setSavedJobs(merged);
+            }
             alert(`${addedCount}개 추가됨${overwrittenCount > 0 ? `, ${overwrittenCount}개는 같은 이름으로 덮어씀` : ''}`);
           } catch (error) {
             console.error('현장 데이터 불러오기 오류:', error);
@@ -411,7 +462,7 @@
           }
         };
         reader.readAsText(file);
-      }, [savedJobs, presets, pushCloudData]);
+      }, [savedJobs, cloudStatus, cloudSaveJob]);
 
       // ---- 자주 쓰는 사이즈 프리셋 ----
       const resetPresetForm = useCallback(() => {
@@ -427,16 +478,19 @@
           alert('이름, 가로, 세로 값을 모두 입력해주세요.');
           return;
         }
-        const updatedPresets = presetEditingId
-          ? presets.map(p => (p.id === presetEditingId ? { ...p, name, width, height } : p))
-          : [...presets, {
-              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-              name, width, height,
-            }];
-        setPresets(updatedPresets);
-        pushCloudData(updatedPresets, savedJobs);
+        const presetData = presetEditingId
+          ? { ...presets.find(p => p.id === presetEditingId), name, width, height }
+          : { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, width, height };
+
+        if (cloudStatus === 'connected') {
+          cloudSavePreset(presetData);
+        } else {
+          setPresets(presetEditingId
+            ? presets.map(p => (p.id === presetEditingId ? presetData : p))
+            : [...presets, presetData]);
+        }
         resetPresetForm();
-      }, [presetForm, presetEditingId, presets, savedJobs, pushCloudData, resetPresetForm]);
+      }, [presetForm, presetEditingId, presets, cloudStatus, cloudSavePreset, resetPresetForm]);
 
       const editPreset = useCallback((preset) => {
         setPresetEditingId(preset.id);
@@ -449,11 +503,13 @@
 
       const deletePreset = useCallback((id) => {
         if (!window.confirm('이 프리셋을 삭제할까요?')) return;
-        const updatedPresets = presets.filter(p => p.id !== id);
-        setPresets(updatedPresets);
-        pushCloudData(updatedPresets, savedJobs);
+        if (cloudStatus === 'connected') {
+          cloudDeletePreset(id);
+        } else {
+          setPresets(prev => prev.filter(p => p.id !== id));
+        }
         if (presetEditingId === id) resetPresetForm();
-      }, [presets, savedJobs, presetEditingId, pushCloudData, resetPresetForm]);
+      }, [cloudStatus, cloudDeletePreset, presetEditingId, resetPresetForm]);
 
       // 프리셋을 시공 면적 입력행으로 바로 추가
       const applyPresetToSurfaces = useCallback((preset) => {
@@ -517,6 +573,7 @@
 
             const existingNames = new Set(presets.map(p => `${p.name}__${p.width}x${p.height}`));
             const merged = [...presets];
+            const toSave = [];
             let addedCount = 0, skippedCount = 0;
             cleaned.forEach(p => {
               const key = `${p.name}__${p.width}x${p.height}`;
@@ -525,11 +582,15 @@
               } else {
                 merged.push(p);
                 existingNames.add(key);
+                toSave.push(p);
                 addedCount++;
               }
             });
-            setPresets(merged);
-            pushCloudData(merged, savedJobs);
+            if (cloudStatus === 'connected') {
+              toSave.forEach(p => cloudSavePreset(p));
+            } else {
+              setPresets(merged);
+            }
             alert(`${addedCount}개 추가됨${skippedCount > 0 ? `, ${skippedCount}개는 이미 존재하여 건너뜀` : ''}`);
           } catch (error) {
             console.error('프리셋 불러오기 오류:', error);
@@ -539,7 +600,7 @@
           }
         };
         reader.readAsText(file);
-      }, [presets, savedJobs, pushCloudData]);
+      }, [presets, cloudStatus, cloudSavePreset]);
 
 
       const adjustToCuttingUnit = useCallback((width, height) => ({
@@ -819,7 +880,7 @@
                   <pre className="bg-gray-800 text-gray-100 p-2 rounded mt-1 overflow-auto">{`rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /workspaces/{code} {
+    match /workspaces/{code}/{document=**} {
       allow read, write: if true;
     }
   }
