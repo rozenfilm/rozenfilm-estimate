@@ -1,4 +1,3 @@
- 
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -1912,6 +1911,7 @@ async function s_saveProjects() {
   if (!window._user) return;
   const { doc, setDoc } = window._fbFns;
   const uid = window._user.uid;
+  // JSON.parse(JSON.stringify()) strips undefined/Set values safely
   const clean = JSON.parse(JSON.stringify(s_projects));
   await setDoc(doc(window._db, 'sales_projects', uid), { projects: clean, updatedAt: new Date().toISOString() });
 }
@@ -1919,17 +1919,19 @@ async function s_saveWorkers() {
   if (!window._user) return;
   const { doc, setDoc } = window._fbFns;
   const uid = window._user.uid;
-  await setDoc(doc(window._db, 'sales_workers_data', uid), { workers: s_workers_sales, updatedAt: new Date().toISOString() });
+  const clean = JSON.parse(JSON.stringify(s_workers_sales));
+  await setDoc(doc(window._db, 'sales_workers_data', uid), { workers: clean, updatedAt: new Date().toISOString() });
 }
 async function s_saveMaterials() {
   if (!window._user) return;
   const { doc, setDoc } = window._fbFns;
   const uid = window._user.uid;
-  await setDoc(doc(window._db, 'sales_materials_data', uid), { materials: s_materials_sales, updatedAt: new Date().toISOString() });
+  const clean = JSON.parse(JSON.stringify(s_materials_sales));
+  await setDoc(doc(window._db, 'sales_materials_data', uid), { materials: clean, updatedAt: new Date().toISOString() });
 }
 async function loadSalesProjects() {
   if (!window._user) return;
-  const { collection, getDocs, doc, getDoc } = window._fbFns;
+  const { doc, getDoc } = window._fbFns;
   const uid = window._user.uid;
   try {
     const ps = await getDoc(doc(window._db, 'sales_projects', uid));
@@ -1938,6 +1940,8 @@ async function loadSalesProjects() {
     if (ws.exists() && ws.data().workers) s_workers_sales = ws.data().workers;
     const ms = await getDoc(doc(window._db, 'sales_materials_data', uid));
     if (ms.exists() && ms.data().materials) s_materials_sales = ms.data().materials;
+    // Refresh UI if already initialized
+    if (s_initialized) s_updateSalesTable();
   } catch(e) { console.error('loadSalesProjects error:', e); }
 }
 
@@ -1955,12 +1959,16 @@ function s_showTab(tab) {
   if (tab === 'material') s_populateMaterialTable();
 }
 
+let s_editingWorkerIdx = -1;
+let s_editingMaterialIdx = -1;
+
 function renderSalesTab() {
   if (!s_initialized) {
     s_init();
     s_initialized = true;
   }
-  s_updateSalesTable();
+  // Always re-fetch from Firebase when switching to sales tab
+  loadSalesProjects();
 }
 
 function s_init() {
@@ -2262,11 +2270,41 @@ function s_populateWorkerTable() {
     card.innerHTML = `
       <span style="width:32px;height:32px;border-radius:50%;background:#4f46e5;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${w.name[0]}</span>
       <div style="flex:1;min-width:0"><div class="font-bold text-sm">${w.name}</div><div class="text-xs text-gray-500">${w.cost.toLocaleString()} 원/일</div></div>
+      <button class="s_edit_worker bg-indigo-500 text-white py-1 px-2 rounded text-xs hover:bg-indigo-600" data-idx="${idx}">수정</button>
       <button class="s_del_worker bg-red-500 text-white py-1 px-2 rounded text-xs hover:bg-red-600" data-idx="${idx}">삭제</button>
     `;
     body.appendChild(card);
   });
+  body.querySelectorAll('.s_edit_worker').forEach(btn => btn.addEventListener('click', () => s_startEditWorker(parseInt(btn.dataset.idx))));
   body.querySelectorAll('.s_del_worker').forEach(btn => btn.addEventListener('click', () => s_deleteWorker(parseInt(btn.dataset.idx))));
+}
+
+function s_startEditWorker(idx) {
+  s_editingWorkerIdx = idx;
+  const w = s_workers_sales[idx];
+  document.getElementById('s_workerName').value = w.name;
+  document.getElementById('s_workerCost').value = w.cost;
+  const submitBtn = document.querySelector('#s_workerForm button[type="submit"]');
+  if (submitBtn) submitBtn.textContent = '인력 수정';
+  let cancelBtn = document.getElementById('s_workerCancelEdit');
+  if (!cancelBtn) {
+    cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button'; cancelBtn.id = 's_workerCancelEdit';
+    cancelBtn.className = 'bg-gray-400 text-white py-2 px-4 rounded-md hover:bg-gray-500';
+    cancelBtn.textContent = '취소';
+    cancelBtn.onclick = s_cancelEditWorker;
+    document.querySelector('#s_workerForm').appendChild(cancelBtn);
+  }
+  document.getElementById('s_workerForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function s_cancelEditWorker() {
+  s_editingWorkerIdx = -1;
+  document.getElementById('s_workerForm').reset();
+  const submitBtn = document.querySelector('#s_workerForm button[type="submit"]');
+  if (submitBtn) submitBtn.textContent = '인력 추가';
+  const cancelBtn = document.getElementById('s_workerCancelEdit');
+  if (cancelBtn) cancelBtn.remove();
 }
 
 function s_populateMaterialTable() {
@@ -2277,16 +2315,68 @@ function s_populateMaterialTable() {
     card.innerHTML = `
       <span style="width:32px;height:32px;border-radius:8px;background:#0d9488;color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🎞️</span>
       <div style="flex:1;min-width:0"><div class="font-bold text-sm">${m.name}</div><div class="text-xs text-gray-500">${m.unitPrice.toLocaleString()} 원/m</div></div>
+      <button class="s_edit_material bg-indigo-500 text-white py-1 px-2 rounded text-xs hover:bg-indigo-600" data-idx="${idx}">수정</button>
       <button class="s_del_material bg-red-500 text-white py-1 px-2 rounded text-xs hover:bg-red-600" data-idx="${idx}">삭제</button>
     `;
     body.appendChild(card);
   });
+  body.querySelectorAll('.s_edit_material').forEach(btn => btn.addEventListener('click', () => s_startEditMaterial(parseInt(btn.dataset.idx))));
   body.querySelectorAll('.s_del_material').forEach(btn => btn.addEventListener('click', () => s_deleteMaterial(parseInt(btn.dataset.idx))));
+}
+
+function s_startEditMaterial(idx) {
+  s_editingMaterialIdx = idx;
+  const m = s_materials_sales[idx];
+  document.getElementById('s_materialName').value = m.name;
+  document.getElementById('s_materialUnitPrice').value = m.unitPrice;
+  const submitBtn = document.querySelector('#s_materialForm button[type="submit"]');
+  if (submitBtn) submitBtn.textContent = '자재 수정';
+  let cancelBtn = document.getElementById('s_materialCancelEdit');
+  if (!cancelBtn) {
+    cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button'; cancelBtn.id = 's_materialCancelEdit';
+    cancelBtn.className = 'bg-gray-400 text-white py-2 px-4 rounded-md hover:bg-gray-500';
+    cancelBtn.textContent = '취소';
+    cancelBtn.onclick = s_cancelEditMaterial;
+    document.querySelector('#s_materialForm').appendChild(cancelBtn);
+  }
+  document.getElementById('s_materialForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function s_cancelEditMaterial() {
+  s_editingMaterialIdx = -1;
+  document.getElementById('s_materialForm').reset();
+  const submitBtn = document.querySelector('#s_materialForm button[type="submit"]');
+  if (submitBtn) submitBtn.textContent = '자재 추가';
+  const cancelBtn = document.getElementById('s_materialCancelEdit');
+  if (cancelBtn) cancelBtn.remove();
 }
 
 function s_addWorker(name, cost) {
   if (!name?.trim()) { alert('이름을 입력해주세요.'); return; }
   if (isNaN(cost) || cost <= 0) { alert('인건비를 입력해주세요.'); return; }
+
+  if (s_editingWorkerIdx >= 0) {
+    // Edit mode
+    const oldName = s_workers_sales[s_editingWorkerIdx].name;
+    if (name.trim() !== oldName && s_workers_sales.some((w, i) => i !== s_editingWorkerIdx && w.name === name.trim())) {
+      alert('이미 존재하는 이름입니다.'); return;
+    }
+    const newName = name.trim();
+    if (newName !== oldName) {
+      s_projects.forEach(p => (p.days||[]).forEach(d => {
+        if (Array.isArray(d.workers)) d.workers = d.workers.map(n => n === oldName ? newName : n);
+      }));
+      s_saveProjects();
+    }
+    s_workers_sales[s_editingWorkerIdx] = { name: newName, cost };
+    s_saveWorkers();
+    s_cancelEditWorker();
+    s_populateWorkerTable();
+    s_populateDays();
+    return;
+  }
+
   if (s_workers_sales.some(w => w.name === name.trim())) { alert('이미 존재하는 이름입니다.'); return; }
   s_workers_sales.push({ name: name.trim(), cost });
   s_saveWorkers(); s_populateWorkerTable(); s_populateDays();
@@ -2302,6 +2392,22 @@ function s_deleteWorker(idx) {
 function s_addMaterial(name, unitPrice) {
   if (!name?.trim()) { alert('자재 이름을 입력해주세요.'); return; }
   if (isNaN(unitPrice) || unitPrice <= 0) { alert('단가를 입력해주세요.'); return; }
+
+  if (s_editingMaterialIdx >= 0) {
+    const oldName = s_materials_sales[s_editingMaterialIdx].name;
+    if (name.trim() !== oldName && s_materials_sales.some((m, i) => i !== s_editingMaterialIdx && m.name === name.trim())) {
+      alert('이미 존재하는 자재입니다.'); return;
+    }
+    const newName = name.trim();
+    if (newName !== oldName) {
+      s_projects.forEach(p => (p.materials||[]).forEach(m => { if (m.name === oldName) m.name = newName; }));
+      s_saveProjects();
+    }
+    s_materials_sales[s_editingMaterialIdx] = { name: newName, unitPrice };
+    s_saveMaterials(); s_cancelEditMaterial(); s_populateMaterialTable(); s_populateMaterials();
+    return;
+  }
+
   if (s_materials_sales.some(m => m.name === name.trim())) { alert('이미 존재하는 자재입니다.'); return; }
   s_materials_sales.push({ name: name.trim(), unitPrice });
   s_saveMaterials(); s_populateMaterialTable(); s_populateMaterials();
