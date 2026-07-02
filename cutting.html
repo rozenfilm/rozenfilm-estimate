@@ -671,7 +671,7 @@
         // 재귀적 기요틴(guillotine) 분할: 남는 공간(자투리)도 하나의 "빈 사각형"으로 등록해서
         // 이후 더 작은 조각이 그 안에서 또 가로/세로 컷으로 나뉘어 들어갈 수 있게 한다.
         // 처음엔 필름 전체가 하나의 빈 공간이다.
-        const freeRects = [{ x: 0, y: 0, w: filmSize.width, h: filmSize.length }];
+        let freeRects = [{ x: 0, y: 0, w: filmSize.width, h: filmSize.length }];
 
         // 빈 사각형(rect)에서 (usedW x usedH) 크기만큼 잘라내고 남는 두 조각으로 분할한다.
         // 남는 폭이 남는 높이보다 좁으면 가로 컷(아래쪽 조각이 전체 폭을 가짐),
@@ -688,6 +688,45 @@
             if (remH > 0) result.push({ x: rect.x, y: rect.y + usedH, w: usedW, h: remH });
           }
           return result;
+        };
+
+        // 분할을 반복하다 보면, 화면상으로는 하나로 이어진 빈 공간인데도 데이터상으로는
+        // 여러 개의 작은 사각형으로 쪼개진 채 남아있을 수 있다(옆에서 다른 조각이 배치되며
+        // 각각 따로 분할되었기 때문). 이대로 두면 실제로는 들어갈 수 있는 조각도 "이 조각
+        // 하나엔 안 맞는다"고 판단해서 빈 공간을 못 채우게 된다. 그래서 배치할 때마다,
+        // 같은 줄(y, 높이 동일)에서 가로로 붙어있거나 같은 칸(x, 폭 동일)에서 세로로
+        // 붙어있는 빈 사각형들을 하나로 합쳐준다.
+        const mergeFreeRects = (rects) => {
+          let list = rects.slice();
+          let merged = true;
+          while (merged) {
+            merged = false;
+            outer:
+            for (let i = 0; i < list.length; i++) {
+              for (let j = i + 1; j < list.length; j++) {
+                const a = list[i], b = list[j];
+                if (a.y === b.y && a.h === b.h) {
+                  if (a.x + a.w === b.x || b.x + b.w === a.x) {
+                    const nx = Math.min(a.x, b.x);
+                    const rest = list.filter((_, k) => k !== i && k !== j);
+                    list = [...rest, { x: nx, y: a.y, w: a.w + b.w, h: a.h }];
+                    merged = true;
+                    break outer;
+                  }
+                }
+                if (a.x === b.x && a.w === b.w) {
+                  if (a.y + a.h === b.y || b.y + b.h === a.y) {
+                    const ny = Math.min(a.y, b.y);
+                    const rest = list.filter((_, k) => k !== i && k !== j);
+                    list = [...rest, { x: a.x, y: ny, w: a.w, h: a.h + b.h }];
+                    merged = true;
+                    break outer;
+                  }
+                }
+              }
+            }
+          }
+          return list;
         };
 
         for (const item of packable) {
@@ -732,7 +771,8 @@
           });
 
           const newRects = splitFreeRect(rect, best.w, best.h);
-          freeRects.splice(best.idx, 1, ...newRects);
+          const remaining = freeRects.filter((_, idx) => idx !== best.idx);
+          freeRects = mergeFreeRects([...remaining, ...newRects]);
         }
 
         const usedFilm = layout.reduce((sum, it) => sum + it.width * it.height, 0);
