@@ -412,9 +412,14 @@
   </div>
 
   <!-- Add Item Button -->
-  <button id="addItemBtn" onclick="addItem()" class="primary-btn w-full" style="background:var(--accent);padding:14px">
-    + 시공 항목 추가
-  </button>
+  <div class="flex gap-2">
+    <button id="addItemBtn" onclick="addItem()" class="primary-btn flex-1" style="background:var(--accent);padding:14px">
+      + 시공 항목 추가
+    </button>
+    <button onclick="sortItems()" class="primary-btn" style="background:#6B46C1;padding:14px;white-space:nowrap">
+      🔀 항목 정렬
+    </button>
+  </div>
 
   <!-- Total Summary -->
   <div id="totalSummary" class="hidden">
@@ -497,8 +502,6 @@
   <button onclick="calculateTotal()" class="primary-btn w-full" style="padding:14px">
     견적 계산하기
   </button>
-
-</div>
 
 </div><!-- /max-w-3xl -->
 </div><!-- /appContainer -->
@@ -603,6 +606,36 @@ let priceAdjustment = 0; // steps of 5%, range -50% to +50%
 let catAdjustments = {}; // per-category adjustment steps
 
 // ───────── Item CRUD ─────────
+
+// 카테고리 정렬 순서
+const CATEGORY_SORT_ORDER = ['문짝류', '샷시류', '몰딩류', '붙박이 가구', '주방 가구', '기타 작업'];
+
+function sortItems() {
+  if (items.length === 0) return;
+
+  // 카테고리 없는 항목은 맨 뒤로
+  items.sort((a, b) => {
+    const catA = a.categoryKey ? (categories[a.categoryKey]?.name || '') : '';
+    const catB = b.categoryKey ? (categories[b.categoryKey]?.name || '') : '';
+    const idxA = CATEGORY_SORT_ORDER.indexOf(catA);
+    const idxB = CATEGORY_SORT_ORDER.indexOf(catB);
+    const orderA = idxA === -1 ? 999 : idxA;
+    const orderB = idxB === -1 ? 999 : idxB;
+    return orderA - orderB;
+  });
+
+  renderItems();
+  recalc();
+
+  // 정렬 완료 시각적 피드백
+  const btn = event?.target;
+  if (btn) {
+    const orig = btn.textContent;
+    btn.textContent = '✅ 정렬 완료';
+    btn.style.background = '#276749';
+    setTimeout(() => { btn.textContent = orig; btn.style.background = '#6B46C1'; }, 1200);
+  }
+}
 
 function addItem() {
   const id = nextId++;
