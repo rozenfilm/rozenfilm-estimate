@@ -386,10 +386,9 @@
   <div class="card p-4">
     <p class="section-label">저장된 견적</p>
     <div class="flex flex-wrap gap-2 items-center">
-      <select id="savedEstimatesDropdown" onchange="loadEstimate()" class="input-field flex-1" style="min-width:160px">
-        <option value="">저장된 견적 선택...</option>
-      </select>
-      <button onclick="deleteEstimate()" class="danger-btn">삭제</button>
+      <button onclick="openEstimateArchive()" class="secondary-btn flex-1" style="padding:8px 14px;font-size:13px">
+        📁 견적 보관함 열기
+      </button>
       <label class="secondary-btn" style="padding:8px 14px;font-size:13px;cursor:pointer">
         📂 파일 열기
         <input type="file" id="importFile" accept=".json" onchange="importFromFile()" class="hidden">
@@ -1197,6 +1196,165 @@ function doLogout() {
 }
 
 // ───────── Cloud Save / Load ─────────
+// ─── 견적 보관함 ───
+let _archiveDocs = [];      // 전체 견적 목록 캐시
+let _archiveMonth = 'all';  // 선택된 월 필터
+let _archiveSearch = '';    // 검색어
+
+async function openEstimateArchive() {
+  document.getElementById('estimateArchiveModal').style.display = 'flex';
+  document.getElementById('archiveSearchInput').value = '';
+  _archiveSearch = '';
+  _archiveMonth = 'all';
+  await refreshArchiveDocs();
+}
+
+function closeEstimateArchive() {
+  document.getElementById('estimateArchiveModal').style.display = 'none';
+}
+
+async function refreshArchiveDocs() {
+  if (!window._fbUser) return;
+  const { collection, getDocs } = window._fbFns;
+  const db = window._fbDb;
+  const uid = window._fbUser.uid;
+  try {
+    const snap = await getDocs(collection(db, 'estimates', uid, 'list'));
+    _archiveDocs = [];
+    snap.forEach(d => _archiveDocs.push({ id: d.id, ...d.data() }));
+    _archiveDocs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    renderArchiveMonthTabs();
+    renderArchiveList();
+  } catch(e) {
+    console.error('archive load error', e);
+    document.getElementById('archiveList').innerHTML =
+      '<p style="color:#ef4444;font-size:13px;padding:12px 0">불러오기 오류가 발생했습니다.</p>';
+  }
+}
+
+function renderArchiveMonthTabs() {
+  const months = new Set();
+  _archiveDocs.forEach(d => {
+    if (d.createdAt) months.add(d.createdAt.slice(0, 7));
+  });
+  const sorted = Array.from(months).sort().reverse();
+
+  const tabs = document.getElementById('archiveMonthTabs');
+  tabs.innerHTML = '';
+
+  const makeTab = (value, label) => {
+    const btn = document.createElement('button');
+    const isActive = _archiveMonth === value;
+    btn.textContent = label;
+    btn.style.cssText = `padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${isActive ? '#4f46e5' : '#e2e8f0'};background:${isActive ? '#4f46e5' : '#fff'};color:${isActive ? '#fff' : '#64748b'}`;
+    btn.onclick = () => { _archiveMonth = value; renderArchiveMonthTabs(); renderArchiveList(); };
+    tabs.appendChild(btn);
+  };
+
+  makeTab('all', '전체');
+  sorted.forEach(m => {
+    const [y, mo] = m.split('-');
+    makeTab(m, `${y}년 ${parseInt(mo)}월`);
+  });
+}
+
+function filterArchive() {
+  _archiveSearch = document.getElementById('archiveSearchInput').value.trim().toLowerCase();
+  renderArchiveList();
+}
+
+function renderArchiveList() {
+  const container = document.getElementById('archiveList');
+
+  const filtered = _archiveDocs.filter(d => {
+    const monthMatch = _archiveMonth === 'all' || (d.createdAt || '').startsWith(_archiveMonth);
+    const searchMatch = !_archiveSearch || (d.siteName || '').toLowerCase().includes(_archiveSearch);
+    return monthMatch && searchMatch;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:32px 0;color:#94a3b8;font-size:13px">검색 결과가 없습니다.</div>';
+    return;
+  }
+
+  // 월별로 그룹핑
+  const grouped = {};
+  filtered.forEach(d => {
+    const monthKey = d.createdAt ? d.createdAt.slice(0, 7) : '날짜 없음';
+    if (!grouped[monthKey]) grouped[monthKey] = [];
+    grouped[monthKey].push(d);
+  });
+
+  container.innerHTML = Object.keys(grouped).sort().reverse().map(monthKey => {
+    const [y, mo] = monthKey.split('-');
+    const label = mo ? `${y}년 ${parseInt(mo)}월` : monthKey;
+    const items = grouped[monthKey].map(d => {
+      const date = d.createdAt ? d.createdAt.slice(0, 10) : '';
+      const total = calcEstimateTotal(d);
+      return `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;background:#f8fafc;border:1px solid #e2e8f0;margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.siteName || '이름 없음'}</div>
+          <div style="font-size:12px;color:#64748b">${date} · ${total.toLocaleString()}원</div>
+        </div>
+        <button onclick="loadEstimateById('${d.id}')"
+          style="background:#4f46e5;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">불러오기</button>
+        <button onclick="deleteEstimateById('${d.id}')"
+          style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer">삭제</button>
+      </div>`;
+    }).join('');
+    return `
+    <div style="margin-bottom:16px">
+      <p style="font-size:12px;font-weight:700;color:#94a3b8;margin-bottom:6px">${label} (${grouped[monthKey].length}건)</p>
+      ${items}
+    </div>`;
+  }).join('');
+}
+
+function calcEstimateTotal(data) {
+  if (!data.items) return 0;
+  return data.items.reduce((sum, item) => {
+    if (!item.categoryKey || !item.itemKey) return sum;
+    const cat = categories[item.categoryKey];
+    if (!cat) return sum;
+    const it = cat.items[item.itemKey];
+    if (!it) return sum;
+    return sum + it.basePrice * (item.quantity || 1) * (item.difficulty || 1);
+  }, 0);
+}
+
+async function loadEstimateById(id) {
+  if (!window._fbUser) return;
+  const { collection, getDocs } = window._fbFns;
+  const db = window._fbDb;
+  const uid = window._fbUser.uid;
+  try {
+    const snap = await getDocs(collection(db, 'estimates', uid, 'list'));
+    let data = null;
+    snap.forEach(d => { if (d.id === id) data = d.data(); });
+    if (data) {
+      applyEstimateData(data);
+      closeEstimateArchive();
+      showCloudStatus('📂 견적을 불러왔습니다.');
+    }
+  } catch(e) { alert('불러오기 오류: ' + e.message); }
+}
+
+async function deleteEstimateById(id) {
+  const doc = _archiveDocs.find(d => d.id === id);
+  if (!confirm(`"${doc?.siteName || '이 견적'}"을 삭제할까요?`)) return;
+  if (!window._fbUser) return;
+  const { doc: fbDoc, deleteDoc } = window._fbFns;
+  const db = window._fbDb;
+  const uid = window._fbUser.uid;
+  try {
+    await deleteDoc(fbDoc(db, 'estimates', uid, 'list', id));
+    _archiveDocs = _archiveDocs.filter(d => d.id !== id);
+    renderArchiveMonthTabs();
+    renderArchiveList();
+  } catch(e) { alert('삭제 오류: ' + e.message); }
+}
+
 async function saveEstimate() {
   const siteName = document.getElementById('siteName').value.trim();
   if (!siteName) { alert('현장명을 입력해주세요.'); return; }
@@ -1556,5 +1714,31 @@ window.onload = () => {
   // Cloud estimates loaded after login via onAuthStateChanged
 };
 </script>
+<!-- ─── 견적 보관함 모달 ─── -->
+<div id="estimateArchiveModal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:560px;margin:0 auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+
+    <!-- Header -->
+    <div style="padding:18px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:17px;font-weight:800">📁 견적 보관함</h3>
+      <button onclick="closeEstimateArchive()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8">✕</button>
+    </div>
+
+    <!-- Search bar -->
+    <div style="padding:14px 20px;border-bottom:1px solid #e2e8f0">
+      <input type="text" id="archiveSearchInput" placeholder="🔍 현장명으로 검색..."
+        oninput="filterArchive()"
+        style="width:100%;border:1.5px solid #e2e8f0;border-radius:8px;padding:9px 12px;font-size:14px;outline:none">
+    </div>
+
+    <!-- Month tabs -->
+    <div id="archiveMonthTabs" style="display:flex;flex-wrap:wrap;gap:6px;padding:12px 20px;border-bottom:1px solid #e2e8f0"></div>
+
+    <!-- List -->
+    <div id="archiveList" style="padding:12px 20px;max-height:420px;overflow-y:auto"></div>
+
+  </div>
+</div>
+
 </body>
 </html>
