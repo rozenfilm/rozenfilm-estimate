@@ -32,15 +32,15 @@
   <script type="text/babel">
     const { useState, useRef, useEffect, useCallback } = React;
 
-    const PRESET_STORAGE_KEY = 'rosenfilm_size_presets_v1';
+    const GROUP_PRESET_STORAGE_KEY = 'rosenfilm_group_presets_v1';
     const JOB_STORAGE_KEY = 'rosenfilm_jobs_v1';
 
-    const loadPresets = () => {
+    const loadGroupPresets = () => {
       try {
-        const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+        const raw = localStorage.getItem(GROUP_PRESET_STORAGE_KEY);
         return raw ? JSON.parse(raw) : [];
       } catch (e) {
-        console.error('프리셋 불러오기 오류:', e);
+        console.error('부위 프리셋 불러오기 오류:', e);
         return [];
       }
     };
@@ -191,16 +191,14 @@
         localStorage.setItem(JOB_STORAGE_KEY, JSON.stringify(savedJobs));
       }, [savedJobs]);
 
-      const [presets, setPresets] = useState(loadPresets);
-      const [presetEditingId, setPresetEditingId] = useState(null); // 수정 중인 프리셋 id (null이면 새로 등록 모드)
-      const [presetForm, setPresetForm] = useState({ name: '', width: '', height: '' });
+      const [groupPresets, setGroupPresets] = useState(loadGroupPresets);
 
       useEffect(() => {
-        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
-      }, [presets]);
+        localStorage.setItem(GROUP_PRESET_STORAGE_KEY, JSON.stringify(groupPresets));
+      }, [groupPresets]);
 
       // ---- 클라우드 동기화 (Firebase Firestore) ----
-      // 프리셋 + 현장 데이터를 "작업장 코드" 하나로 묶어서 여러 기기가 실시간으로 공유하도록 한다.
+      // 부위 프리셋 + 현장 데이터를 "작업장 코드" 하나로 묶어서 여러 기기가 실시간으로 공유하도록 한다.
       const initialCloudSettings = loadCloudSettings();
       const [cloudConfigText, setCloudConfigText] = useState(initialCloudSettings.configText);
       const [workspaceCode, setWorkspaceCode] = useState(initialCloudSettings.workspaceCode);
@@ -233,9 +231,9 @@
         return firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).collection('jobs');
       }, [workspaceCode]);
 
-      const getPresetsCollRef = useCallback(() => {
+      const getGroupPresetsCollRef = useCallback(() => {
         if (!firestoreRef.current || !workspaceCode.trim()) return null;
-        return firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).collection('presets');
+        return firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).collection('groupPresets');
       }, [workspaceCode]);
 
       const cloudSaveJob = useCallback((jobData) => {
@@ -258,25 +256,25 @@
         });
       }, [getJobsCollRef, cloudStatus]);
 
-      const cloudSavePreset = useCallback((presetData) => {
-        const ref = getPresetsCollRef();
+      const cloudSaveGroupPreset = useCallback((presetData) => {
+        const ref = getGroupPresetsCollRef();
         if (!ref || cloudStatus !== 'connected') return;
         ref.doc(presetData.id).set(sanitizeForFirestore(presetData)).catch((err) => {
-          console.error('클라우드 저장 오류(프리셋):', err);
+          console.error('클라우드 저장 오류(부위 프리셋):', err);
           setCloudError('클라우드 저장 실패: ' + err.message);
           alert('클라우드 저장에 실패했습니다: ' + err.message);
         });
-      }, [getPresetsCollRef, cloudStatus]);
+      }, [getGroupPresetsCollRef, cloudStatus]);
 
-      const cloudDeletePreset = useCallback((id) => {
-        const ref = getPresetsCollRef();
+      const cloudDeleteGroupPreset = useCallback((id) => {
+        const ref = getGroupPresetsCollRef();
         if (!ref || cloudStatus !== 'connected') return;
         ref.doc(id).delete().catch((err) => {
-          console.error('클라우드 삭제 오류(프리셋):', err);
+          console.error('클라우드 삭제 오류(부위 프리셋):', err);
           setCloudError('클라우드 삭제 실패: ' + err.message);
           alert('클라우드에서 삭제하는 데 실패했습니다: ' + err.message);
         });
-      }, [getPresetsCollRef, cloudStatus]);
+      }, [getGroupPresetsCollRef, cloudStatus]);
 
       const connectCloud = useCallback(() => {
         setCloudError('');
@@ -314,11 +312,11 @@
           firestoreRef.current = db;
 
           const jobsCollRef = db.collection('workspaces').doc(code).collection('jobs');
-          const presetsCollRef = db.collection('workspaces').doc(code).collection('presets');
+          const groupPresetsCollRef = db.collection('workspaces').doc(code).collection('groupPresets');
 
-          let jobsReady = false, presetsReady = false;
+          let jobsReady = false, groupPresetsReady = false;
           const markConnectedIfReady = () => {
-            if (jobsReady && presetsReady) {
+            if (jobsReady && groupPresetsReady) {
               setCloudStatus('connected');
               setCloudError('');
             }
@@ -337,20 +335,20 @@
             }
           );
 
-          const unsubPresets = presetsCollRef.onSnapshot(
+          const unsubGroupPresets = groupPresetsCollRef.onSnapshot(
             (snap) => {
-              presetsReady = true;
-              setPresets(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+              groupPresetsReady = true;
+              setGroupPresets(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
               markConnectedIfReady();
             },
             (err) => {
-              console.error('Firestore(프리셋) 동기화 오류:', err);
+              console.error('Firestore(부위 프리셋) 동기화 오류:', err);
               setCloudStatus('error');
-              setCloudError('동기화 오류(프리셋): ' + err.message + ' (Firestore 보안 규칙을 확인해주세요.)');
+              setCloudError('동기화 오류(부위 프리셋): ' + err.message + ' (Firestore 보안 규칙을 확인해주세요.)');
             }
           );
 
-          unsubscribeCloudRef.current = () => { unsubJobs(); unsubPresets(); };
+          unsubscribeCloudRef.current = () => { unsubJobs(); unsubGroupPresets(); };
 
           localStorage.setItem(CLOUD_SETTINGS_KEY, JSON.stringify({ configText: cloudConfigText, workspaceCode: code }));
           setShowCloudSettings(false);
@@ -521,142 +519,160 @@
       }, [savedJobs, cloudStatus, cloudSaveJob]);
 
       // ---- 자주 쓰는 사이즈 프리셋 ----
-      const resetPresetForm = useCallback(() => {
-        setPresetEditingId(null);
-        setPresetForm({ name: '', width: '', height: '' });
-      }, []);
+      // ---- 부위 프리셋 (시공 부위 하나를 통째로 저장/재사용) ----
+      // 부위 그룹 전체(항목들의 가로/세로/수량/라벨)를 하나의 프리셋으로 저장해서,
+      // 다음에 클릭 한 번으로 그 부위 전체를 다시 불러올 수 있게 한다.
+      const saveGroupAsPreset = useCallback((cat) => {
+        const itemsInCat = surfaces.filter(s => ((s.category || '').trim() || UNCATEGORIZED) === cat);
+        if (itemsInCat.length === 0) return;
 
-      const savePreset = useCallback(() => {
-        const name = presetForm.name.trim();
-        const width = Number(presetForm.width) || 0;
-        const height = Number(presetForm.height) || 0;
-        if (!name || width <= 0 || height <= 0) {
-          alert('이름, 가로, 세로 값을 모두 입력해주세요.');
+        const defaultName = cat === UNCATEGORIZED ? '' : cat;
+        const name = window.prompt('이 부위를 저장할 프리셋 이름을 입력하세요.', defaultName);
+        if (name === null) return;
+        const trimmed = name.trim();
+        if (!trimmed) {
+          alert('이름을 입력해주세요.');
           return;
         }
-        const presetData = presetEditingId
-          ? { ...presets.find(p => p.id === presetEditingId), name, width, height }
-          : { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, width, height };
+
+        const existing = groupPresets.find(p => p.name === trimmed);
+        if (existing && !window.confirm(`'${trimmed}' 프리셋이 이미 있습니다. 덮어쓸까요?`)) return;
+
+        const presetData = {
+          id: existing ? existing.id : Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          name: trimmed,
+          items: itemsInCat.map(s => ({
+            width: s.width, height: s.height, count: s.count, label: s.label,
+          })),
+        };
 
         if (cloudStatus === 'connected') {
-          cloudSavePreset(presetData);
+          cloudSaveGroupPreset(presetData);
         } else {
-          setPresets(presetEditingId
-            ? presets.map(p => (p.id === presetEditingId ? presetData : p))
-            : [...presets, presetData]);
+          setGroupPresets(existing
+            ? groupPresets.map(p => (p.id === existing.id ? presetData : p))
+            : [...groupPresets, presetData]);
         }
-        resetPresetForm();
-      }, [presetForm, presetEditingId, presets, cloudStatus, cloudSavePreset, resetPresetForm]);
+        alert(`'${trimmed}' 프리셋으로 저장되었습니다.`);
+      }, [surfaces, groupPresets, cloudStatus, cloudSaveGroupPreset]);
 
-      const editPreset = useCallback((preset) => {
-        setPresetEditingId(preset.id);
-        setPresetForm({
-          name: preset.name,
-          width: preset.width,
-          height: preset.height,
-        });
-      }, []);
-
-      const deletePreset = useCallback((id) => {
-        if (!window.confirm('이 프리셋을 삭제할까요?')) return;
+      const deleteGroupPreset = useCallback((id, name) => {
+        if (!window.confirm(`'${name}' 프리셋을 삭제할까요?`)) return;
         if (cloudStatus === 'connected') {
-          cloudDeletePreset(id);
+          cloudDeleteGroupPreset(id);
         } else {
-          setPresets(prev => prev.filter(p => p.id !== id));
+          setGroupPresets(prev => prev.filter(p => p.id !== id));
         }
-        if (presetEditingId === id) resetPresetForm();
-      }, [cloudStatus, cloudDeletePreset, presetEditingId, resetPresetForm]);
+      }, [cloudStatus, cloudDeleteGroupPreset]);
 
-      // 프리셋을 시공 면적 입력행으로 바로 추가
-      const applyPresetToSurfaces = useCallback((preset) => {
+      // 프리셋을 새 부위로 시공 면적 목록에 통째로 추가
+      const applyGroupPreset = useCallback((preset) => {
+        const existingCats = new Set(surfaces.map(s => (s.category || '').trim() || UNCATEGORIZED));
+        let finalName = preset.name;
+        let suffix = 2;
+        while (existingCats.has(finalName)) {
+          finalName = `${preset.name} ${suffix}`;
+          suffix++;
+        }
+
+        const newItems = preset.items.map(it => ({
+          width: it.width, height: it.height, count: it.count, label: it.label || '', category: finalName,
+        }));
+
         setSurfaces(prev => {
-          const isEmptyOnly = prev.length === 1 && !prev[0].width && !prev[0].height && !prev[0].label;
-          const newRow = {
-            width: preset.width,
-            height: preset.height,
-            count: 1,
-            label: preset.name,
-            category: prev.length && !isEmptyOnly ? (prev[prev.length - 1].category || '') : '',
-          };
-          return isEmptyOnly ? [newRow] : [...prev, newRow];
+          const isEmptyOnly = prev.length === 1 && !prev[0].width && !prev[0].height && !prev[0].label && !prev[0].category;
+          return isEmptyOnly ? newItems : [...prev, ...newItems];
         });
-      }, []);
+        setCollapsedCats(prev => ({ ...prev, [finalName]: false }));
+        setScrollTarget(finalName);
+      }, [surfaces]);
 
-      // ---- 프리셋 JSON 내보내기 / 불러오기 (구글드라이브 등 클라우드 공유용) ----
-      const presetFileInputRef = useRef(null);
+      // ---- 부위 프리셋 JSON 내보내기 / 불러오기 (구글드라이브 등 클라우드 공유용) ----
+      const groupPresetFileInputRef = useRef(null);
 
-      const exportPresets = useCallback(() => {
-        if (presets.length === 0) {
+      const exportGroupPresets = useCallback(() => {
+        if (groupPresets.length === 0) {
           alert('내보낼 프리셋이 없습니다.');
           return;
         }
         const payload = {
-          type: 'rosenfilm_size_presets',
+          type: 'rosenfilm_group_presets',
           version: 1,
           exportedAt: new Date().toISOString(),
-          presets,
+          groupPresets,
         };
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
         const dateStr = new Date().toISOString().slice(0, 10);
-        saveAs(blob, `사이즈프리셋_${dateStr}.json`);
-      }, [presets]);
+        saveAs(blob, `부위프리셋_${dateStr}.json`);
+      }, [groupPresets]);
 
-      const importPresets = useCallback((event) => {
+      const importGroupPresets = useCallback((event) => {
         const file = event.target.files[0];
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (e) => {
           try {
             const data = JSON.parse(e.target.result);
-            const incoming = Array.isArray(data.presets) ? data.presets : (Array.isArray(data) ? data : null);
+            const incoming = Array.isArray(data.groupPresets) ? data.groupPresets : (Array.isArray(data) ? data : null);
             if (!incoming) {
-              alert('올바른 프리셋 파일이 아닙니다.');
+              alert('올바른 부위 프리셋 파일이 아닙니다.');
               return;
             }
             const cleaned = incoming
-              .filter(p => p && p.name && Number(p.width) > 0 && Number(p.height) > 0)
+              .filter(p => p && p.name && Array.isArray(p.items) && p.items.length > 0)
               .map(p => ({
                 id: p.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
                 name: String(p.name),
-                width: Number(p.width),
-                height: Number(p.height),
-              }));
+                items: p.items
+                  .filter(it => it && Number(it.width) > 0 && Number(it.height) > 0)
+                  .map(it => ({
+                    width: Number(it.width),
+                    height: Number(it.height),
+                    count: Math.max(1, Number(it.count) || 1),
+                    label: it.label || '',
+                  })),
+              }))
+              .filter(p => p.items.length > 0);
 
             if (cleaned.length === 0) {
               alert('불러올 수 있는 프리셋이 없습니다.');
               return;
             }
 
-            const existingNames = new Set(presets.map(p => `${p.name}__${p.width}x${p.height}`));
-            const merged = [...presets];
+            const existingNames = new Map(groupPresets.map(p => [p.name, p]));
+            const merged = [...groupPresets];
             const toSave = [];
-            let addedCount = 0, skippedCount = 0;
+            let addedCount = 0, overwrittenCount = 0;
             cleaned.forEach(p => {
-              const key = `${p.name}__${p.width}x${p.height}`;
-              if (existingNames.has(key)) {
-                skippedCount++;
+              const existing = existingNames.get(p.name);
+              if (existing) {
+                const finalPreset = { ...p, id: existing.id };
+                const idx = merged.findIndex(m => m.id === existing.id);
+                merged[idx] = finalPreset;
+                toSave.push(finalPreset);
+                overwrittenCount++;
               } else {
                 merged.push(p);
-                existingNames.add(key);
+                existingNames.set(p.name, p);
                 toSave.push(p);
                 addedCount++;
               }
             });
             if (cloudStatus === 'connected') {
-              toSave.forEach(p => cloudSavePreset(p));
+              toSave.forEach(p => cloudSaveGroupPreset(p));
             } else {
-              setPresets(merged);
+              setGroupPresets(merged);
             }
-            alert(`${addedCount}개 추가됨${skippedCount > 0 ? `, ${skippedCount}개는 이미 존재하여 건너뜀` : ''}`);
+            alert(`${addedCount}개 추가됨${overwrittenCount > 0 ? `, ${overwrittenCount}개는 같은 이름으로 덮어씀` : ''}`);
           } catch (error) {
-            console.error('프리셋 불러오기 오류:', error);
+            console.error('부위 프리셋 불러오기 오류:', error);
             alert('JSON 파일을 불러오는 중 오류가 발생했습니다.');
           } finally {
             event.target.value = '';
           }
         };
         reader.readAsText(file);
-      }, [presets, cloudStatus, cloudSavePreset]);
+      }, [groupPresets, cloudStatus, cloudSaveGroupPreset]);
 
 
       const adjustToCuttingUnit = useCallback((width, height) => ({
@@ -1137,49 +1153,43 @@ service cloud.firestore {
 
           <div className="mb-6 border rounded p-3 bg-slate-50">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <h2 className="text-lg font-semibold">자주 쓰는 사이즈 (프리셋)</h2>
+              <h2 className="text-lg font-semibold">부위 프리셋 (자주 쓰는 부위 통째로 저장)</h2>
               <div className="flex gap-2">
                 <button
-                  onClick={exportPresets}
+                  onClick={exportGroupPresets}
                   className="bg-teal-600 text-white text-sm px-3 py-1.5 rounded"
                   title="프리셋 목록을 JSON 파일로 저장 (구글드라이브 등에 업로드해 공유 가능)"
                 >
                   프리셋 내보내기
                 </button>
                 <button
-                  onClick={() => presetFileInputRef.current && presetFileInputRef.current.click()}
+                  onClick={() => groupPresetFileInputRef.current && groupPresetFileInputRef.current.click()}
                   className="bg-teal-100 text-teal-800 text-sm px-3 py-1.5 rounded border border-teal-600"
                   title="JSON 파일에서 프리셋 불러오기"
                 >
                   프리셋 불러오기
                 </button>
                 <input
-                  type="file" accept=".json" ref={presetFileInputRef}
-                  onChange={importPresets} className="hidden"
+                  type="file" accept=".json" ref={groupPresetFileInputRef}
+                  onChange={importGroupPresets} className="hidden"
                 />
               </div>
             </div>
 
-            {presets.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {presets.map(preset => (
+            {groupPresets.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {groupPresets.map(preset => (
                   <div key={preset.id} className="flex items-center bg-white border rounded overflow-hidden">
                     <button
-                      onClick={() => applyPresetToSurfaces(preset)}
+                      onClick={() => applyGroupPreset(preset)}
                       className="px-3 py-2 text-sm hover:bg-blue-50"
-                      title="클릭하면 시공 면적에 자동 입력됩니다"
+                      title="클릭하면 이 부위 전체가 시공 면적에 새로 추가됩니다"
                     >
                       <span className="font-medium">{preset.name}</span>
-                      <span className="text-gray-500 ml-1">{preset.width}×{preset.height}</span>
+                      <span className="text-gray-500 ml-1">({preset.items.length}개 항목)</span>
                     </button>
                     <button
-                      onClick={() => editPreset(preset)}
-                      className="px-2 py-2 text-sm text-blue-600 border-l hover:bg-blue-50"
-                    >
-                      수정
-                    </button>
-                    <button
-                      onClick={() => deletePreset(preset.id)}
+                      onClick={() => deleteGroupPreset(preset.id, preset.name)}
                       className="px-2 py-2 text-sm text-red-600 border-l hover:bg-red-50"
                     >
                       삭제
@@ -1187,41 +1197,11 @@ service cloud.firestore {
                   </div>
                 ))}
               </div>
+            ) : (
+              <p className="text-sm text-gray-500">저장된 부위 프리셋이 없습니다. 아래 시공 면적에서 부위를 만든 뒤, 그 부위 헤더의 "프리셋 저장" 버튼을 눌러 등록하세요.</p>
             )}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                placeholder="이름 (예: 문, 샷시대창, 4쪽붙박이장)"
-                value={presetForm.name}
-                onChange={(e) => setPresetForm({ ...presetForm, name: e.target.value })}
-                className="border p-2 w-48"
-              />
-              <input
-                type="text" inputMode="numeric" pattern="[0-9]*"
-                placeholder="가로 (mm)"
-                value={presetForm.width}
-                onChange={(e) => setPresetForm({ ...presetForm, width: e.target.value.replace(/[^0-9]/g, '') })}
-                className="border p-2 w-24"
-              />
-              <input
-                type="text" inputMode="numeric" pattern="[0-9]*"
-                placeholder="세로 (mm)"
-                value={presetForm.height}
-                onChange={(e) => setPresetForm({ ...presetForm, height: e.target.value.replace(/[^0-9]/g, '') })}
-                className="border p-2 w-24"
-              />
-              <button onClick={savePreset} className="bg-indigo-600 text-white p-2 rounded">
-                {presetEditingId ? '수정 저장' : '프리셋 등록'}
-              </button>
-              {presetEditingId && (
-                <button onClick={resetPresetForm} className="bg-gray-300 p-2 rounded">
-                  취소
-                </button>
-              )}
-            </div>
             <p className="text-xs text-gray-500 mt-2">
-              프리셋 이름/사이즈를 클릭하면 아래 시공 면적 목록에 바로 한 줄 추가됩니다. 브라우저에 저장되어 다음에 열 때도 유지됩니다.
+              프리셋을 클릭하면 그 부위의 모든 항목(가로/세로/수량/라벨)이 통째로 새 부위로 추가됩니다. 브라우저에 저장되어 다음에 열 때도 유지됩니다.
               "프리셋 내보내기"로 JSON 파일을 저장해 구글드라이브 등에 올리면, 다른 PC에서 이 파일을 열고 "프리셋 불러오기"로 같은 목록을 가져올 수 있습니다.
             </p>
           </div>
@@ -1290,6 +1270,13 @@ service cloud.firestore {
                           title="이 부위 전체를 복제"
                         >
                           복제
+                        </button>
+                        <button
+                          onClick={() => saveGroupAsPreset(cat)}
+                          className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-300 px-2 py-1 rounded hover:bg-indigo-100"
+                          title="이 부위 전체를 프리셋으로 저장"
+                        >
+                          프리셋 저장
                         </button>
                         <button
                           onClick={() => deleteCategoryGroup(cat)}
