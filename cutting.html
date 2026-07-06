@@ -105,8 +105,8 @@
       ]);
       const [result, setResult] = useState(null);
       const [fontSize, setFontSize] = useState(20);
-      const canvasRef = useRef(null);
-      const [printImageUrl, setPrintImageUrl] = useState(null);
+      const canvasRefs = useRef([]); // 롤별 캔버스 (result.rollCount개)
+      const [printImageUrls, setPrintImageUrls] = useState([]); // 롤별 인쇄용 이미지
 
       // ---- 부위별 그룹 보기 ----
       const UNCATEGORIZED = '미분류';
@@ -703,12 +703,9 @@
         )));
       }, []);
 
-      // ---- 행(가로 전체 컷) 기반 배치 알고리즘 ----
+      // ---- 행(가로 전체 컷) 기반 배치 알고리즘 (여러 롤 자동 추가 지원) ----
       // 실제 작업 편의를 위해, 가로 컷은 항상 필름 전체 폭을 한 번에 자르는 방식으로 고정한다.
-      // (구간별로 따로 자르는 재귀 분할 방식은 로스는 더 적지만, 한 번에 전체 폭을 자를 수 없어
-      //  실제 작업 순서가 복잡해지므로 사용하지 않는다.)
-      // 대신 자투리 폭 낭비를 줄이기 위해, 새 조각마다 이미 만든 행들 중 가장 딱 맞게(로스가
-      // 가장 적게) 들어가는 행을 우선 채우고, 어느 행에도 안 들어갈 때만 새 행을 연다.
+      // 한 롤(50m 또는 25m)에 다 안 들어가면, 같은 규격의 롤을 하나 더 꺼내서 이어서 배치한다.
       // 재단 순서 원칙: 세로(길이)가 가장 긴 조각부터, 같은 길이면 가로(폭)가 넓은 것부터 자른다.
       const optimizeCutting = useCallback(() => {
         const items = surfaces.flatMap(s =>
@@ -719,10 +716,13 @@
           }))
         );
 
-        // 필름 폭보다 큰(회전해도 안 들어가는) 조각은 사전에 걸러서 사용자에게 알림
+        // 필름 폭보다 커서 회전해도 못 들어가거나, 어느 방향으로도 롤 길이 자체를 넘어서는
+        // (롤을 몇 개를 더 꺼내도 절대 불가능한) 조각만 사전에 걸러서 사용자에게 알린다.
         const oversized = items.filter(it => {
-          const fitsNormal = it.width <= filmSize.width;
-          const fitsRotated = rotationAllowed && it.height <= filmSize.width;
+          const fitsWidthNormal = it.width <= filmSize.width;
+          const fitsWidthRotated = rotationAllowed && it.height <= filmSize.width;
+          const fitsNormal = fitsWidthNormal && it.height <= filmSize.length;
+          const fitsRotated = fitsWidthRotated && it.width <= filmSize.length;
           return !fitsNormal && !fitsRotated;
         });
         const packable = items.filter(it => !oversized.includes(it));
@@ -732,17 +732,12 @@
         packable.sort((a, b) => (b.height - a.height) || (b.width - a.width));
 
         const layout = [];
-        const unplaced = [];
-
-        // 이미 만든 행(가로 전체 컷으로 구분된 밴드) 목록. 각 행: { y, height, usedWidth }
-        const rows = [];
+        let rollIndex = 1;
+        let rows = []; // 현재 롤의 행 목록. 각 행: { y, height, usedWidth }
 
         for (const item of packable) {
           // 기존 행들 중, 그 조각을 넣었을 때 실제로 낭비되는 "면적"(폭 × 세로로 남는 여백)이
-          // 가장 적은 행을 최우선으로 선택한다. 순수 높이 차이만 보면, 키가 큰 유일한 행에
-          // 맞는 조각이 없을 때 그 행의 넓은 남는 폭 자체를 아무도 못 쓰게 되는 문제가 있었다.
-          // 면적 기준으로 바꾸면, 폭이 좁은 조각은 세로가 좀 안 맞아도(낭비 면적이 작으므로)
-          // 그 행의 남는 폭을 채우고, 폭이 넓은 조각만 세로가 잘 맞는 행을 고르게 된다.
+          // 가장 적은 행을 최우선으로 선택한다.
           let bestRowIdx = -1, bestRotated = false, bestWastedArea = null, bestWidthLeftover = null;
 
           rows.forEach((row, idx) => {
@@ -750,7 +745,7 @@
 
             const consider = (w, h, rotated) => {
               if (w > remainingWidth || h > row.height) return;
-              const wastedArea = w * (row.height - h); // 이 조각이 차지하는 폭만큼, 세로로 못 쓰는 면적
+              const wastedArea = w * (row.height - h);
               const widthLeftover = remainingWidth - w;
               const better = bestWastedArea === null
                 || wastedArea < bestWastedArea
@@ -776,94 +771,114 @@
               width: w, height: h,
               rotated: bestRotated, label: item.label,
               id: layout.length + 1,
+              roll: rollIndex,
             });
             row.usedWidth += w;
             continue;
           }
 
-          // 기존 행 어디에도 못 들어가면 새 행(가로 전체 컷)을 연다
-          const newY = rows.length ? rows[rows.length - 1].y + rows[rows.length - 1].height : 0;
+          // 현재 롤의 기존 행 어디에도 못 들어가면, 현재 롤에 새 행(가로 전체 컷)을 열어본다.
           let w = item.width, h = item.height, rotated = false;
           if (w > filmSize.width && rotationAllowed) {
             w = item.height; h = item.width; rotated = true;
           }
+          let newY = rows.length ? rows[rows.length - 1].y + rows[rows.length - 1].height : 0;
 
-          if (w <= filmSize.width && newY + h <= filmSize.length) {
-            rows.push({ y: newY, height: h, usedWidth: w });
-            layout.push({
-              x: 0, y: newY,
-              width: w, height: h,
-              rotated, label: item.label,
-              id: layout.length + 1,
-            });
-          } else {
-            unplaced.push(item);
+          if (!(w <= filmSize.width && newY + h <= filmSize.length)) {
+            // 현재 롤에 새 행조차 못 열면, 같은 규격의 롤을 하나 더 꺼내서 처음부터 다시 쌓는다.
+            // (오버사이즈 필터를 이미 통과했으므로, 새 롤에서는 반드시 첫 행으로 들어갈 수 있다.)
+            rollIndex += 1;
+            rows = [];
+            newY = 0;
           }
+
+          rows.push({ y: newY, height: h, usedWidth: w });
+          layout.push({
+            x: 0, y: newY,
+            width: w, height: h,
+            rotated, label: item.label,
+            id: layout.length + 1,
+            roll: rollIndex,
+          });
         }
 
+        const rollCount = layout.length ? Math.max(...layout.map(it => it.roll)) : 0;
+        const rollUsedLengths = Array.from({ length: rollCount }, (_, i) => {
+          const rollItems = layout.filter(it => it.roll === i + 1);
+          return rollItems.length ? Math.max(...rollItems.map(it => it.y + it.height)) : 0;
+        });
+
         const usedFilm = layout.reduce((sum, it) => sum + it.width * it.height, 0);
-        const totalFilmArea = filmSize.width * filmSize.length;
+        const totalFilmArea = rollCount * filmSize.width * filmSize.length;
         const waste = totalFilmArea > 0 ? ((totalFilmArea - usedFilm) / totalFilmArea * 100).toFixed(2) : '0.00';
-        const usedLength = layout.length ? Math.max(...layout.map(it => it.y + it.height)) : 0;
 
         setResult({
           usedFilm: usedFilm / 1000000,
           waste,
           layout,
-          usedLength,
-          unplacedCount: oversized.length + unplaced.length,
-          unplacedItems: [...oversized, ...unplaced],
+          rollCount,
+          rollUsedLengths,
+          unplacedCount: oversized.length,
+          unplacedItems: oversized,
         });
       }, [surfaces, filmSize, rotationAllowed]);
 
       useEffect(() => {
-        if (result && canvasRef.current) {
-          const canvas = canvasRef.current;
-          const ctx = canvas.getContext('2d');
+        if (result && result.rollCount > 0) {
           const scale = 0.2;
+          const urls = [];
 
-          canvas.width = filmSize.width * scale;
-          canvas.height = Math.max(filmSize.length * scale, 100);
+          for (let rollNum = 1; rollNum <= result.rollCount; rollNum++) {
+            const canvas = canvasRefs.current[rollNum - 1];
+            if (!canvas) continue;
+            const ctx = canvas.getContext('2d');
+            const rollLength = result.rollUsedLengths[rollNum - 1] || filmSize.length;
 
-          ctx.fillStyle = '#f0f0f0';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+            canvas.width = filmSize.width * scale;
+            canvas.height = Math.max(Math.min(rollLength, filmSize.length) * scale, 100);
 
-          result.layout.forEach(item => {
-            const x = item.x * scale, y = item.y * scale, w = item.width * scale, h = item.height * scale;
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            ctx.fillStyle = `hsl(${item.id * 30}, 70%, 50%)`;
-            ctx.fillRect(x, y, w, h);
-            ctx.strokeStyle = '#000';
-            ctx.strokeRect(x, y, w, h);
+            result.layout.filter(item => item.roll === rollNum).forEach(item => {
+              const x = item.x * scale, y = item.y * scale, w = item.width * scale, h = item.height * scale;
 
-            // 좁은 조각끼리 붙어있으면 텍스트가 옆 조각까지 삐져나와 겹쳐 보일 수 있어서,
-            // 이 조각 영역 안으로만 그려지도록 잘라낸다(clip).
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(x, y, w, h);
-            ctx.clip();
+              ctx.fillStyle = `hsl(${item.id * 30}, 70%, 50%)`;
+              ctx.fillRect(x, y, w, h);
+              ctx.strokeStyle = '#000';
+              ctx.strokeRect(x, y, w, h);
 
-            ctx.font = `${fontSize}px Arial`;
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = '#000';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
+              // 좁은 조각끼리 붙어있으면 텍스트가 옆 조각까지 삐져나와 겹쳐 보일 수 있어서,
+              // 이 조각 영역 안으로만 그려지도록 잘라낸다(clip).
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(x, y, w, h);
+              ctx.clip();
 
-            ctx.translate(x + Math.min(20, w / 2), y + h - 8);
-            ctx.rotate(-Math.PI / 2);
-            const rotMark = item.rotated ? ' [회전]' : '';
-            const idText = `#${item.id} (${item.width}x${item.height})${rotMark}`;
-            ctx.strokeText(idText, 0, 0);
-            ctx.fillText(idText, 0, 0);
-            if (item.label) {
-              const labelText = item.label.slice(0, 20);
-              ctx.strokeText(labelText, 0, fontSize * 4);
-              ctx.fillText(labelText, 0, fontSize * 4);
-            }
-            ctx.restore();
-          });
+              ctx.font = `${fontSize}px Arial`;
+              ctx.fillStyle = '#fff';
+              ctx.strokeStyle = '#000';
+              ctx.textAlign = 'left';
+              ctx.textBaseline = 'middle';
 
-          setPrintImageUrl(canvas.toDataURL('image/png'));
+              ctx.translate(x + Math.min(20, w / 2), y + h - 8);
+              ctx.rotate(-Math.PI / 2);
+              const rotMark = item.rotated ? ' [회전]' : '';
+              const idText = `#${item.id} (${item.width}x${item.height})${rotMark}`;
+              ctx.strokeText(idText, 0, 0);
+              ctx.fillText(idText, 0, 0);
+              if (item.label) {
+                const labelText = item.label.slice(0, 20);
+                ctx.strokeText(labelText, 0, fontSize * 4);
+                ctx.fillText(labelText, 0, fontSize * 4);
+              }
+              ctx.restore();
+            });
+
+            urls.push(canvas.toDataURL('image/png'));
+          }
+
+          setPrintImageUrls(urls);
         }
       }, [result, filmSize, fontSize]);
 
@@ -1419,16 +1434,23 @@ service cloud.firestore {
           {result && (
             <div className="border p-4 mb-4">
               <h2 className="text-lg font-semibold">재단 결과</h2>
+              <p>필요 롤 수: <strong>{result.rollCount}개</strong> ({(filmSize.length / 1000)}m 롤 기준)</p>
               <p>사용된 필름: {result.usedFilm.toFixed(3)} m²</p>
               <p>낭비율: {result.waste}%</p>
               <p>재단 조각: {result.layout.length}개</p>
-              <p>사용 길이: {(result.usedLength / 1000).toFixed(2)} m / {(filmSize.length / 1000)} m</p>
+              <div className="text-sm text-gray-600">
+                {result.rollUsedLengths.map((len, i) => (
+                  <span key={i} className="inline-block mr-3">
+                    {i + 1}번 롤: {(len / 1000).toFixed(2)}m / {(filmSize.length / 1000)}m
+                  </span>
+                ))}
+              </div>
 
               {result.unplacedCount > 0 && (
                 <div className="mt-2 bg-yellow-100 border border-yellow-400 text-yellow-800 p-2 rounded">
-                  ⚠️ 배치되지 못한 조각이 {result.unplacedCount}개 있습니다. 필름 길이를 늘리거나
-                  (예: 50m 롤 선택), 조각 크기/수량을 확인해주세요. 필름 폭(1220mm)보다 큰 조각은
-                  회전해도 배치할 수 없습니다.
+                  ⚠️ 배치할 수 없는 조각이 {result.unplacedCount}개 있습니다. 필름 폭({filmSize.width}mm)보다
+                  크거나, 필름 길이({(filmSize.length / 1000)}m)보다 긴 조각은 롤을 아무리 추가해도
+                  배치할 수 없습니다. 조각 크기를 확인해주세요.
                 </div>
               )}
 
@@ -1457,9 +1479,14 @@ service cloud.firestore {
                 폰트 크기 감소
               </button>
             </div>
-            <div className="overflow-auto max-h-[600px] border">
-              <canvas ref={canvasRef} className="w-full" />
-            </div>
+            {result && Array.from({ length: result.rollCount }, (_, i) => i + 1).map(rollNum => (
+              <div key={rollNum} className="mb-4">
+                <h3 className="font-medium mb-1">{rollNum}번 롤</h3>
+                <div className="overflow-auto max-h-[600px] border">
+                  <canvas ref={(el) => { canvasRefs.current[rollNum - 1] = el; }} className="w-full" />
+                </div>
+              </div>
+            ))}
           </div>
 
           {result && (
@@ -1467,9 +1494,12 @@ service cloud.firestore {
               <h1 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '4px' }}>재단 작업 지시서</h1>
               <p>현장명: {jobName || '미지정'}</p>
               <p>필름 규격: 폭 {filmSize.width}mm × 길이 {(filmSize.length / 1000)}m ({rotationAllowed ? '회전 배치 허용' : '회전 배치 미허용'})</p>
-              <p>사용된 필름: {result.usedFilm.toFixed(3)} m² · 낭비율: {result.waste}% · 사용 길이: {(result.usedLength / 1000).toFixed(2)}m · 조각 수: {result.layout.length}개</p>
+              <p>필요 롤 수: {result.rollCount}개 · 사용된 필름: {result.usedFilm.toFixed(3)} m² · 낭비율: {result.waste}% · 조각 수: {result.layout.length}개</p>
+              <p>
+                {result.rollUsedLengths.map((len, i) => `${i + 1}번 롤 ${(len / 1000).toFixed(2)}m`).join(' · ')}
+              </p>
               {result.unplacedCount > 0 && (
-                <p style={{ color: '#b45309' }}>⚠️ 배치되지 못한 조각 {result.unplacedCount}개 있음 (아래 목록에서 제외됨)</p>
+                <p style={{ color: '#b45309' }}>⚠️ 배치할 수 없는 조각 {result.unplacedCount}개 있음 (아래 목록에서 제외됨)</p>
               )}
 
               <h2 style={{ fontSize: '15px', fontWeight: 'bold', marginTop: '14px', marginBottom: '4px' }}>부위별 소요 내역</h2>
@@ -1522,6 +1552,7 @@ service cloud.firestore {
                 <thead>
                   <tr>
                     <th>번호</th>
+                    <th>롤</th>
                     <th>위치(라벨)</th>
                     <th>가로(mm)</th>
                     <th>세로(mm)</th>
@@ -1534,6 +1565,7 @@ service cloud.firestore {
                   {result.layout.map(item => (
                     <tr key={item.id}>
                       <td>{item.id}</td>
+                      <td>{item.roll}</td>
                       <td>{item.label || '-'}</td>
                       <td>{item.width}</td>
                       <td>{item.height}</td>
@@ -1544,7 +1576,12 @@ service cloud.firestore {
                   ))}
                 </tbody>
               </table>
-              {printImageUrl && <img src={printImageUrl} alt="재단 패턴" />}
+              {printImageUrls.map((url, i) => (
+                <div key={i}>
+                  <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '10px' }}>{i + 1}번 롤</h2>
+                  <img src={url} alt={`${i + 1}번 롤 재단 패턴`} />
+                </div>
+              ))}
             </div>
           )}
         </div>
