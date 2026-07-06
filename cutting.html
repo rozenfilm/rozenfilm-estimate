@@ -970,6 +970,39 @@
       const totalRequiredCount = printSummary.reduce((sum, g) => sum + g.subtotalCount, 0);
       const totalRequiredAreaM2 = printSummary.reduce((sum, g) => sum + g.subtotalAreaM2, 0);
 
+      // 부위별 요약 + 총 소요량을 사람이 읽기 쉬운 텍스트로 만들어 .txt 파일로 내보낸다.
+      const exportSummaryAsText = () => {
+        if (printSummary.length === 0) {
+          alert('내보낼 시공 면적 데이터가 없습니다.');
+          return;
+        }
+        const lines = [];
+        lines.push('로젠필름 재단 치수 내역');
+        lines.push(`현장명: ${jobName || '미지정'}`);
+        lines.push(`생성일: ${new Date().toLocaleString('ko-KR')}`);
+        lines.push(`필름 규격: 폭 ${filmSize.width}mm x 길이 ${filmSize.length / 1000}m`);
+        lines.push('');
+
+        printSummary.forEach(group => {
+          lines.push(`[${group.cat}]`);
+          group.rows.forEach(r => {
+            const labelPart = r.label ? ` (${r.label})` : '';
+            lines.push(`  ${r.width} x ${r.height}  x ${r.count}개${labelPart}   ${r.areaM2.toFixed(3)}㎡`);
+          });
+          lines.push(`  소계: ${group.subtotalCount}개, ${group.subtotalAreaM2.toFixed(3)}㎡`);
+          lines.push('');
+        });
+
+        lines.push('-----------------------------');
+        lines.push(`총 소요량: ${totalRequiredCount}개, ${totalRequiredAreaM2.toFixed(3)}㎡`);
+        lines.push('* 위 면적은 낭비율을 반영하지 않은 순수 필요 면적입니다.');
+
+        const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const safeName = (jobName || '재단치수').replace(/[\\/:*?"<>|]/g, '_');
+        saveAs(blob, `${safeName}_${dateStr}.txt`);
+      };
+
       return (
         <div className="p-4 max-w-4xl mx-auto">
           <h1 className="text-2xl font-bold mb-4">로젠필름 재단 최적화</h1>
@@ -1446,6 +1479,9 @@ service cloud.firestore {
               </button>
               <button onClick={printPdf} className="bg-purple-600 text-white p-2 rounded mt-2 ml-2">
                 PDF 인쇄
+              </button>
+              <button onClick={exportSummaryAsText} className="bg-emerald-600 text-white p-2 rounded mt-2 ml-2">
+                텍스트로 내보내기
               </button>
             </div>
           )}
