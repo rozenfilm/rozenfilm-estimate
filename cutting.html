@@ -33,7 +33,9 @@
     const { useState, useRef, useEffect, useCallback } = React;
 
     const GROUP_PRESET_STORAGE_KEY = 'rosenfilm_group_presets_v1';
+    const PRESET_CATEGORY_STORAGE_KEY = 'rosenfilm_preset_categories_v1';
     const JOB_STORAGE_KEY = 'rosenfilm_jobs_v1';
+    const UNCATEGORIZED_PRESET = '미분류';
 
     const loadGroupPresets = () => {
       try {
@@ -41,6 +43,16 @@
         return raw ? JSON.parse(raw) : [];
       } catch (e) {
         console.error('부위 프리셋 불러오기 오류:', e);
+        return [];
+      }
+    };
+
+    const loadPresetCategories = () => {
+      try {
+        const raw = localStorage.getItem(PRESET_CATEGORY_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        console.error('프리셋 카테고리 불러오기 오류:', e);
         return [];
       }
     };
@@ -197,6 +209,12 @@
         localStorage.setItem(GROUP_PRESET_STORAGE_KEY, JSON.stringify(groupPresets));
       }, [groupPresets]);
 
+      const [presetCategories, setPresetCategories] = useState(loadPresetCategories);
+
+      useEffect(() => {
+        localStorage.setItem(PRESET_CATEGORY_STORAGE_KEY, JSON.stringify(presetCategories));
+      }, [presetCategories]);
+
       // ---- 클라우드 동기화 (Firebase Firestore) ----
       // 부위 프리셋 + 현장 데이터를 "작업장 코드" 하나로 묶어서 여러 기기가 실시간으로 공유하도록 한다.
       const initialCloudSettings = loadCloudSettings();
@@ -234,6 +252,11 @@
       const getGroupPresetsCollRef = useCallback(() => {
         if (!firestoreRef.current || !workspaceCode.trim()) return null;
         return firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).collection('groupPresets');
+      }, [workspaceCode]);
+
+      const getPresetCategoriesCollRef = useCallback(() => {
+        if (!firestoreRef.current || !workspaceCode.trim()) return null;
+        return firestoreRef.current.collection('workspaces').doc(workspaceCode.trim()).collection('presetCategories');
       }, [workspaceCode]);
 
       const cloudSaveJob = useCallback((jobData) => {
@@ -276,6 +299,26 @@
         });
       }, [getGroupPresetsCollRef, cloudStatus]);
 
+      const cloudSavePresetCategory = useCallback((categoryData) => {
+        const ref = getPresetCategoriesCollRef();
+        if (!ref || cloudStatus !== 'connected') return;
+        ref.doc(categoryData.id).set(sanitizeForFirestore(categoryData)).catch((err) => {
+          console.error('클라우드 저장 오류(프리셋 카테고리):', err);
+          setCloudError('클라우드 저장 실패: ' + err.message);
+          alert('클라우드 저장에 실패했습니다: ' + err.message);
+        });
+      }, [getPresetCategoriesCollRef, cloudStatus]);
+
+      const cloudDeletePresetCategory = useCallback((id) => {
+        const ref = getPresetCategoriesCollRef();
+        if (!ref || cloudStatus !== 'connected') return;
+        ref.doc(id).delete().catch((err) => {
+          console.error('클라우드 삭제 오류(프리셋 카테고리):', err);
+          setCloudError('클라우드 삭제 실패: ' + err.message);
+          alert('클라우드에서 삭제하는 데 실패했습니다: ' + err.message);
+        });
+      }, [getPresetCategoriesCollRef, cloudStatus]);
+
       const connectCloud = useCallback(() => {
         setCloudError('');
 
@@ -313,10 +356,11 @@
 
           const jobsCollRef = db.collection('workspaces').doc(code).collection('jobs');
           const groupPresetsCollRef = db.collection('workspaces').doc(code).collection('groupPresets');
+          const presetCategoriesCollRef = db.collection('workspaces').doc(code).collection('presetCategories');
 
-          let jobsReady = false, groupPresetsReady = false;
+          let jobsReady = false, groupPresetsReady = false, presetCategoriesReady = false;
           const markConnectedIfReady = () => {
-            if (jobsReady && groupPresetsReady) {
+            if (jobsReady && groupPresetsReady && presetCategoriesReady) {
               setCloudStatus('connected');
               setCloudError('');
             }
@@ -348,7 +392,20 @@
             }
           );
 
-          unsubscribeCloudRef.current = () => { unsubJobs(); unsubGroupPresets(); };
+          const unsubPresetCategories = presetCategoriesCollRef.onSnapshot(
+            (snap) => {
+              presetCategoriesReady = true;
+              setPresetCategories(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+              markConnectedIfReady();
+            },
+            (err) => {
+              console.error('Firestore(프리셋 카테고리) 동기화 오류:', err);
+              setCloudStatus('error');
+              setCloudError('동기화 오류(프리셋 카테고리): ' + err.message + ' (Firestore 보안 규칙을 확인해주세요.)');
+            }
+          );
+
+          unsubscribeCloudRef.current = () => { unsubJobs(); unsubGroupPresets(); unsubPresetCategories(); };
 
           localStorage.setItem(CLOUD_SETTINGS_KEY, JSON.stringify({ configText: cloudConfigText, workspaceCode: code }));
           setShowCloudSettings(false);
@@ -522,6 +579,104 @@
       // ---- 부위 프리셋 (시공 부위 하나를 통째로 저장/재사용) ----
       // 부위 그룹 전체(항목들의 가로/세로/수량/라벨)를 하나의 프리셋으로 저장해서,
       // 다음에 클릭 한 번으로 그 부위 전체를 다시 불러올 수 있게 한다.
+      // ---- 프리셋 카테고리(대분류) 관리 ----
+      const addPresetCategory = useCallback(() => {
+        const name = window.prompt('새 카테고리 이름을 입력하세요 (예: 문, 창호, 붙박이장).');
+        if (name === null) return;
+        const trimmed = name.trim();
+        if (!trimmed) {
+          alert('이름을 입력해주세요.');
+          return;
+        }
+        if (presetCategories.some(c => c.name === trimmed)) {
+          alert('이미 같은 이름의 카테고리가 있습니다.');
+          return;
+        }
+        const categoryData = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: trimmed };
+        if (cloudStatus === 'connected') {
+          cloudSavePresetCategory(categoryData);
+        } else {
+          setPresetCategories(prev => [...prev, categoryData]);
+        }
+      }, [presetCategories, cloudStatus, cloudSavePresetCategory]);
+
+      const renamePresetCategory = useCallback((category) => {
+        const name = window.prompt('카테고리 이름을 변경합니다.', category.name);
+        if (name === null) return;
+        const trimmed = name.trim();
+        if (!trimmed) {
+          alert('이름을 입력해주세요.');
+          return;
+        }
+        const categoryData = { ...category, name: trimmed };
+        if (cloudStatus === 'connected') {
+          cloudSavePresetCategory(categoryData);
+        } else {
+          setPresetCategories(prev => prev.map(c => (c.id === category.id ? categoryData : c)));
+        }
+      }, [cloudStatus, cloudSavePresetCategory]);
+
+      const deletePresetCategoryFn = useCallback((category) => {
+        const count = groupPresets.filter(p => p.categoryId === category.id).length;
+        const msg = count > 0
+          ? `'${category.name}' 카테고리를 삭제할까요? 그 안에 있던 프리셋 ${count}개는 "${UNCATEGORIZED_PRESET}"으로 이동됩니다.`
+          : `'${category.name}' 카테고리를 삭제할까요?`;
+        if (!window.confirm(msg)) return;
+
+        if (cloudStatus === 'connected') {
+          cloudDeletePresetCategory(category.id);
+          groupPresets
+            .filter(p => p.categoryId === category.id)
+            .forEach(p => cloudSaveGroupPreset({ ...p, categoryId: null }));
+        } else {
+          setPresetCategories(prev => prev.filter(c => c.id !== category.id));
+          setGroupPresets(prev => prev.map(p => (p.categoryId === category.id ? { ...p, categoryId: null } : p)));
+        }
+      }, [groupPresets, cloudStatus, cloudDeletePresetCategory, cloudSaveGroupPreset]);
+
+      // 프리셋을 저장할 카테고리를 선택(또는 새로 생성)하도록 안내한다.
+      const pickPresetCategoryId = useCallback(() => {
+        if (presetCategories.length === 0) {
+          const create = window.confirm('아직 만들어진 카테고리가 없습니다. 새 카테고리를 만드시겠습니까?\n(취소하면 미분류로 저장됩니다)');
+          if (!create) return null;
+          const name = window.prompt('새 카테고리 이름을 입력하세요 (예: 문, 창호, 붙박이장).');
+          if (!name || !name.trim()) return null;
+          const trimmed = name.trim();
+          const categoryData = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: trimmed };
+          if (cloudStatus === 'connected') {
+            cloudSavePresetCategory(categoryData);
+          } else {
+            setPresetCategories(prev => [...prev, categoryData]);
+          }
+          return categoryData.id;
+        }
+
+        const listText = presetCategories.map((c, i) => `${i + 1}. ${c.name}`).join('\n');
+        const input = window.prompt(
+          `저장할 카테고리 번호를 입력하세요.\n${listText}\n\n(새 카테고리를 만들려면 이름을 직접 입력하세요. 비워두면 미분류)`
+        );
+        if (input === null) return undefined; // 취소
+        const trimmedInput = input.trim();
+        if (!trimmedInput) return null; // 미분류
+
+        const asNumber = Number(trimmedInput);
+        if (Number.isInteger(asNumber) && asNumber >= 1 && asNumber <= presetCategories.length) {
+          return presetCategories[asNumber - 1].id;
+        }
+
+        // 번호가 아니면 이름으로 처리 (기존 이름이면 그 카테고리, 아니면 새로 생성)
+        const existing = presetCategories.find(c => c.name === trimmedInput);
+        if (existing) return existing.id;
+
+        const categoryData = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: trimmedInput };
+        if (cloudStatus === 'connected') {
+          cloudSavePresetCategory(categoryData);
+        } else {
+          setPresetCategories(prev => [...prev, categoryData]);
+        }
+        return categoryData.id;
+      }, [presetCategories, cloudStatus, cloudSavePresetCategory]);
+
       const saveGroupAsPreset = useCallback((cat) => {
         const itemsInCat = surfaces.filter(s => ((s.category || '').trim() || UNCATEGORIZED) === cat);
         if (itemsInCat.length === 0) return;
@@ -535,12 +690,16 @@
           return;
         }
 
+        const categoryId = pickPresetCategoryId();
+        if (categoryId === undefined) return; // 카테고리 선택 중 취소
+
         const existing = groupPresets.find(p => p.name === trimmed);
         if (existing && !window.confirm(`'${trimmed}' 프리셋이 이미 있습니다. 덮어쓸까요?`)) return;
 
         const presetData = {
           id: existing ? existing.id : Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
           name: trimmed,
+          categoryId: categoryId || null,
           items: itemsInCat.map(s => ({
             width: s.width, height: s.height, count: s.count, label: s.label,
           })),
@@ -554,7 +713,7 @@
             : [...groupPresets, presetData]);
         }
         alert(`'${trimmed}' 프리셋으로 저장되었습니다.`);
-      }, [surfaces, groupPresets, cloudStatus, cloudSaveGroupPreset]);
+      }, [surfaces, groupPresets, cloudStatus, cloudSaveGroupPreset, pickPresetCategoryId]);
 
       const deleteGroupPreset = useCallback((id, name) => {
         if (!window.confirm(`'${name}' 프리셋을 삭제할까요?`)) return;
@@ -597,14 +756,15 @@
         }
         const payload = {
           type: 'rosenfilm_group_presets',
-          version: 1,
+          version: 2,
           exportedAt: new Date().toISOString(),
+          presetCategories,
           groupPresets,
         };
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
         const dateStr = new Date().toISOString().slice(0, 10);
         saveAs(blob, `부위프리셋_${dateStr}.json`);
-      }, [groupPresets]);
+      }, [groupPresets, presetCategories]);
 
       const importGroupPresets = useCallback((event) => {
         const file = event.target.files[0];
@@ -618,11 +778,31 @@
               alert('올바른 부위 프리셋 파일이 아닙니다.');
               return;
             }
+
+            // 카테고리 먼저 병합 (이름이 같으면 기존 카테고리를 재사용, id는 새로 매핑)
+            const incomingCategories = Array.isArray(data.presetCategories) ? data.presetCategories : [];
+            const categoryIdMap = {}; // 가져온 파일의 기존 categoryId -> 이 브라우저에서 쓸 categoryId
+            const categoriesByName = new Map(presetCategories.map(c => [c.name, c]));
+            const newCategories = [];
+            incomingCategories.forEach(c => {
+              if (!c || !c.name) return;
+              const existingCat = categoriesByName.get(c.name);
+              if (existingCat) {
+                categoryIdMap[c.id] = existingCat.id;
+              } else {
+                const newCat = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: c.name };
+                categoryIdMap[c.id] = newCat.id;
+                categoriesByName.set(c.name, newCat);
+                newCategories.push(newCat);
+              }
+            });
+
             const cleaned = incoming
               .filter(p => p && p.name && Array.isArray(p.items) && p.items.length > 0)
               .map(p => ({
                 id: p.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
                 name: String(p.name),
+                categoryId: p.categoryId ? (categoryIdMap[p.categoryId] || null) : null,
                 items: p.items
                   .filter(it => it && Number(it.width) > 0 && Number(it.height) > 0)
                   .map(it => ({
@@ -658,9 +838,12 @@
                 addedCount++;
               }
             });
+
             if (cloudStatus === 'connected') {
+              newCategories.forEach(c => cloudSavePresetCategory(c));
               toSave.forEach(p => cloudSaveGroupPreset(p));
             } else {
+              if (newCategories.length > 0) setPresetCategories(prev => [...prev, ...newCategories]);
               setGroupPresets(merged);
             }
             alert(`${addedCount}개 추가됨${overwrittenCount > 0 ? `, ${overwrittenCount}개는 같은 이름으로 덮어씀` : ''}`);
@@ -672,7 +855,7 @@
           }
         };
         reader.readAsText(file);
-      }, [groupPresets, cloudStatus, cloudSaveGroupPreset]);
+      }, [groupPresets, presetCategories, cloudStatus, cloudSaveGroupPreset, cloudSavePresetCategory]);
 
 
       const adjustToCuttingUnit = useCallback((width, height) => ({
@@ -1209,27 +1392,73 @@ service cloud.firestore {
               </div>
             </div>
 
-            {groupPresets.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {groupPresets.map(preset => (
-                  <div key={preset.id} className="flex items-center bg-white border rounded overflow-hidden">
-                    <button
-                      onClick={() => applyGroupPreset(preset)}
-                      className="px-3 py-2 text-sm hover:bg-blue-50"
-                      title="클릭하면 이 부위 전체가 시공 면적에 새로 추가됩니다"
-                    >
-                      <span className="font-medium">{preset.name}</span>
-                      <span className="text-gray-500 ml-1">({preset.items.length}개 항목)</span>
-                    </button>
-                    <button
-                      onClick={() => deleteGroupPreset(preset.id, preset.name)}
-                      className="px-2 py-2 text-sm text-red-600 border-l hover:bg-red-50"
-                    >
-                      삭제
-                    </button>
-                  </div>
-                ))}
+            <div className="bg-white border rounded p-2 mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-gray-700">카테고리 관리</span>
+                <button
+                  onClick={addPresetCategory}
+                  className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+                >
+                  + 카테고리 추가
+                </button>
               </div>
+              {presetCategories.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {presetCategories.map(category => (
+                    <div key={category.id} className="flex items-center bg-gray-50 border rounded overflow-hidden text-xs">
+                      <span className="px-2 py-1">{category.name}</span>
+                      <button
+                        onClick={() => renamePresetCategory(category)}
+                        className="px-2 py-1 text-blue-600 border-l hover:bg-blue-50"
+                      >
+                        편집
+                      </button>
+                      <button
+                        onClick={() => deletePresetCategoryFn(category)}
+                        className="px-2 py-1 text-red-600 border-l hover:bg-red-50"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">카테고리가 없습니다. "+ 카테고리 추가"로 만들어보세요 (예: 문, 창호, 붙박이장).</p>
+              )}
+            </div>
+
+            {groupPresets.length > 0 ? (
+              [...presetCategories, { id: null, name: UNCATEGORIZED_PRESET }]
+                .map(category => ({
+                  category,
+                  items: groupPresets.filter(p => (p.categoryId || null) === category.id),
+                }))
+                .filter(g => g.items.length > 0)
+                .map(({ category, items }) => (
+                  <div key={category.id || 'uncategorized'} className="mb-3">
+                    <p className="text-sm font-semibold text-gray-600 mb-1">{category.name}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {items.map(preset => (
+                        <div key={preset.id} className="flex items-center bg-white border rounded overflow-hidden">
+                          <button
+                            onClick={() => applyGroupPreset(preset)}
+                            className="px-3 py-2 text-sm hover:bg-blue-50"
+                            title="클릭하면 이 부위 전체가 시공 면적에 새로 추가됩니다"
+                          >
+                            <span className="font-medium">{preset.name}</span>
+                            <span className="text-gray-500 ml-1">({preset.items.length}개 항목)</span>
+                          </button>
+                          <button
+                            onClick={() => deleteGroupPreset(preset.id, preset.name)}
+                            className="px-2 py-2 text-sm text-red-600 border-l hover:bg-red-50"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
             ) : (
               <p className="text-sm text-gray-500">저장된 부위 프리셋이 없습니다. 아래 시공 면적에서 부위를 만든 뒤, 그 부위 헤더의 "프리셋 저장" 버튼을 눌러 등록하세요.</p>
             )}
@@ -1441,8 +1670,14 @@ service cloud.firestore {
               );
             })}
 
-            <button onClick={() => addSurface()} className="bg-blue-500 text-white p-2 rounded mt-2">
-              면적 추가 (새 행)
+            <button
+              onClick={() => {
+                const name = window.prompt('새 부위 이름을 입력하세요 (예: 문, 샷시대창, 4쪽붙박이장)');
+                if (name && name.trim()) addSurface(name.trim());
+              }}
+              className="bg-blue-600 text-white text-sm px-3 py-2 rounded"
+            >
+              + 새 부위
             </button>
           </div>
 
