@@ -166,6 +166,16 @@
         setCollapsedCats(prev => ({ ...prev, [finalCat]: false }));
       }, []);
 
+      // 부위 안의 모든 항목 폭/세로를 한 번에 늘리거나 줄인다 (폭 10mm 단위, 세로 50mm 단위).
+      const adjustCategoryDimension = useCallback((cat, field, delta) => {
+        const minValue = field === 'width' ? 10 : 50;
+        setSurfaces(prev => prev.map(s => {
+          const sCat = (s.category || '').trim() || UNCATEGORIZED;
+          if (sCat !== cat) return s;
+          return { ...s, [field]: Math.max(minValue, (Number(s[field]) || 0) + delta) };
+        }));
+      }, []);
+
       useEffect(() => {
         if (scrollTarget && categoryRefs.current[scrollTarget]) {
           categoryRefs.current[scrollTarget].scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -685,10 +695,20 @@
         setSurfaces(newSurfaces);
       }, [surfaces, adjustToCuttingUnit]);
 
-      // ---- 재귀적 기요틴(guillotine) 배치 알고리즘 ----
-      // 조각을 배치하고 남는 자투리 공간도 다시 하나의 "빈 공간"으로 등록해서, 다음 조각이
-      // 그 자투리 안에서 또 가로/세로 컷으로 나뉘어 들어갈 수 있게 한다. 항상 직선(가로 또는
-      // 세로) 컷만으로 재단 가능한 형태를 유지하면서, 자투리 공간 낭비를 최대한 줄인다.
+      // 개별 항목 하나의 폭(10mm 단위) 또는 세로(50mm 단위)를 늘리거나 줄인다.
+      const adjustSurfaceDimension = useCallback((index, field, delta) => {
+        const minValue = field === 'width' ? 10 : 50;
+        setSurfaces(prev => prev.map((s, i) => (
+          i === index ? { ...s, [field]: Math.max(minValue, (Number(s[field]) || 0) + delta) } : s
+        )));
+      }, []);
+
+      // ---- 행(가로 전체 컷) 기반 배치 알고리즘 ----
+      // 실제 작업 편의를 위해, 가로 컷은 항상 필름 전체 폭을 한 번에 자르는 방식으로 고정한다.
+      // (구간별로 따로 자르는 재귀 분할 방식은 로스는 더 적지만, 한 번에 전체 폭을 자를 수 없어
+      //  실제 작업 순서가 복잡해지므로 사용하지 않는다.)
+      // 대신 자투리 폭 낭비를 줄이기 위해, 새 조각마다 이미 만든 행들 중 가장 딱 맞게(로스가
+      // 가장 적게) 들어가는 행을 우선 채우고, 어느 행에도 안 들어갈 때만 새 행을 연다.
       // 재단 순서 원칙: 세로(길이)가 가장 긴 조각부터, 같은 길이면 가로(폭)가 넓은 것부터 자른다.
       const optimizeCutting = useCallback(() => {
         const items = surfaces.flatMap(s =>
@@ -714,111 +734,71 @@
         const layout = [];
         const unplaced = [];
 
-        // 재귀적 기요틴(guillotine) 분할: 남는 공간(자투리)도 하나의 "빈 사각형"으로 등록해서
-        // 이후 더 작은 조각이 그 안에서 또 가로/세로 컷으로 나뉘어 들어갈 수 있게 한다.
-        // 처음엔 필름 전체가 하나의 빈 공간이다.
-        let freeRects = [{ x: 0, y: 0, w: filmSize.width, h: filmSize.length }];
-
-        // 빈 사각형(rect)에서 (usedW x usedH) 크기만큼 잘라내고 남는 두 조각으로 분할한다.
-        // 남는 폭이 남는 높이보다 좁으면 가로 컷(아래쪽 조각이 전체 폭을 가짐),
-        // 아니면 세로 컷(오른쪽 조각이 전체 높이를 가짐) — 최대한 큰 자투리가 통째로 남도록 한다.
-        const splitFreeRect = (rect, usedW, usedH) => {
-          const remW = rect.w - usedW;
-          const remH = rect.h - usedH;
-          const result = [];
-          if (remW < remH) {
-            if (remH > 0) result.push({ x: rect.x, y: rect.y + usedH, w: rect.w, h: remH });
-            if (remW > 0) result.push({ x: rect.x + usedW, y: rect.y, w: remW, h: usedH });
-          } else {
-            if (remW > 0) result.push({ x: rect.x + usedW, y: rect.y, w: remW, h: rect.h });
-            if (remH > 0) result.push({ x: rect.x, y: rect.y + usedH, w: usedW, h: remH });
-          }
-          return result;
-        };
-
-        // 분할을 반복하다 보면, 화면상으로는 하나로 이어진 빈 공간인데도 데이터상으로는
-        // 여러 개의 작은 사각형으로 쪼개진 채 남아있을 수 있다(옆에서 다른 조각이 배치되며
-        // 각각 따로 분할되었기 때문). 이대로 두면 실제로는 들어갈 수 있는 조각도 "이 조각
-        // 하나엔 안 맞는다"고 판단해서 빈 공간을 못 채우게 된다. 그래서 배치할 때마다,
-        // 같은 줄(y, 높이 동일)에서 가로로 붙어있거나 같은 칸(x, 폭 동일)에서 세로로
-        // 붙어있는 빈 사각형들을 하나로 합쳐준다.
-        const mergeFreeRects = (rects) => {
-          let list = rects.slice();
-          let merged = true;
-          while (merged) {
-            merged = false;
-            outer:
-            for (let i = 0; i < list.length; i++) {
-              for (let j = i + 1; j < list.length; j++) {
-                const a = list[i], b = list[j];
-                if (a.y === b.y && a.h === b.h) {
-                  if (a.x + a.w === b.x || b.x + b.w === a.x) {
-                    const nx = Math.min(a.x, b.x);
-                    const rest = list.filter((_, k) => k !== i && k !== j);
-                    list = [...rest, { x: nx, y: a.y, w: a.w + b.w, h: a.h }];
-                    merged = true;
-                    break outer;
-                  }
-                }
-                if (a.x === b.x && a.w === b.w) {
-                  if (a.y + a.h === b.y || b.y + b.h === a.y) {
-                    const ny = Math.min(a.y, b.y);
-                    const rest = list.filter((_, k) => k !== i && k !== j);
-                    list = [...rest, { x: a.x, y: ny, w: a.w, h: a.h + b.h }];
-                    merged = true;
-                    break outer;
-                  }
-                }
-              }
-            }
-          }
-          return list;
-        };
+        // 이미 만든 행(가로 전체 컷으로 구분된 밴드) 목록. 각 행: { y, height, usedWidth }
+        const rows = [];
 
         for (const item of packable) {
-          // 그 조각이 들어갔을 때 가장 로스(남는 면적)가 적은 빈 공간을 우선 선택한다.
-          // 위치(위쪽/왼쪽)는 로스가 완전히 같을 때만 참고용 동점 처리 기준으로 쓴다.
-          // (예전엔 위치를 최우선으로 삼아서, 정확히 딱 맞는 빈 공간이 있어도 지나치고
-          //  다른 헐렁한 자리에 먼저 배치해버리는 문제가 있었다.)
-          let best = null; // { idx, rotated, y, x, w, h, waste }
+          // 기존 행들 중, 그 조각을 넣었을 때 실제로 낭비되는 "면적"(폭 × 세로로 남는 여백)이
+          // 가장 적은 행을 최우선으로 선택한다. 순수 높이 차이만 보면, 키가 큰 유일한 행에
+          // 맞는 조각이 없을 때 그 행의 넓은 남는 폭 자체를 아무도 못 쓰게 되는 문제가 있었다.
+          // 면적 기준으로 바꾸면, 폭이 좁은 조각은 세로가 좀 안 맞아도(낭비 면적이 작으므로)
+          // 그 행의 남는 폭을 채우고, 폭이 넓은 조각만 세로가 잘 맞는 행을 고르게 된다.
+          let bestRowIdx = -1, bestRotated = false, bestWastedArea = null, bestWidthLeftover = null;
 
-          for (let i = 0; i < freeRects.length; i++) {
-            const r = freeRects[i];
-            const candidates = [];
-            if (item.width <= r.w && item.height <= r.h) {
-              candidates.push({ rotated: false, w: item.width, h: item.height });
-            }
-            if (rotationAllowed && item.height <= r.w && item.width <= r.h) {
-              candidates.push({ rotated: true, w: item.height, h: item.width });
-            }
-            candidates.forEach((c) => {
-              const waste = r.w * r.h - c.w * c.h; // 이 공간에 넣었을 때 남는 면적 (작을수록 딱 맞음)
-              const better = !best
-                || waste < best.waste
-                || (waste === best.waste && (r.y < best.y || (r.y === best.y && r.x < best.x)));
+          rows.forEach((row, idx) => {
+            const remainingWidth = filmSize.width - row.usedWidth;
+
+            const consider = (w, h, rotated) => {
+              if (w > remainingWidth || h > row.height) return;
+              const wastedArea = w * (row.height - h); // 이 조각이 차지하는 폭만큼, 세로로 못 쓰는 면적
+              const widthLeftover = remainingWidth - w;
+              const better = bestWastedArea === null
+                || wastedArea < bestWastedArea
+                || (wastedArea === bestWastedArea && widthLeftover < bestWidthLeftover);
               if (better) {
-                best = { idx: i, rotated: c.rotated, y: r.y, x: r.x, w: c.w, h: c.h, waste };
+                bestWastedArea = wastedArea;
+                bestWidthLeftover = widthLeftover;
+                bestRowIdx = idx;
+                bestRotated = rotated;
               }
-            });
-          }
+            };
 
-          if (!best) {
-            unplaced.push(item);
+            consider(item.width, item.height, false);
+            if (rotationAllowed) consider(item.height, item.width, true);
+          });
+
+          if (bestRowIdx !== -1) {
+            const row = rows[bestRowIdx];
+            const w = bestRotated ? item.height : item.width;
+            const h = bestRotated ? item.width : item.height;
+            layout.push({
+              x: row.usedWidth, y: row.y,
+              width: w, height: h,
+              rotated: bestRotated, label: item.label,
+              id: layout.length + 1,
+            });
+            row.usedWidth += w;
             continue;
           }
 
-          const rect = freeRects[best.idx];
+          // 기존 행 어디에도 못 들어가면 새 행(가로 전체 컷)을 연다
+          const newY = rows.length ? rows[rows.length - 1].y + rows[rows.length - 1].height : 0;
+          let w = item.width, h = item.height, rotated = false;
+          if (w > filmSize.width && rotationAllowed) {
+            w = item.height; h = item.width; rotated = true;
+          }
 
-          layout.push({
-            x: best.x, y: best.y,
-            width: best.w, height: best.h,
-            rotated: best.rotated, label: item.label,
-            id: layout.length + 1,
-          });
-
-          const newRects = splitFreeRect(rect, best.w, best.h);
-          const remaining = freeRects.filter((_, idx) => idx !== best.idx);
-          freeRects = mergeFreeRects([...remaining, ...newRects]);
+          if (w <= filmSize.width && newY + h <= filmSize.length) {
+            rows.push({ y: newY, height: h, usedWidth: w });
+            layout.push({
+              x: 0, y: newY,
+              width: w, height: h,
+              rotated, label: item.label,
+              id: layout.length + 1,
+            });
+          } else {
+            unplaced.push(item);
+          }
         }
 
         const usedFilm = layout.reduce((sum, it) => sum + it.width * it.height, 0);
@@ -849,10 +829,19 @@
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           result.layout.forEach(item => {
+            const x = item.x * scale, y = item.y * scale, w = item.width * scale, h = item.height * scale;
+
             ctx.fillStyle = `hsl(${item.id * 30}, 70%, 50%)`;
-            ctx.fillRect(item.x * scale, item.y * scale, item.width * scale, item.height * scale);
+            ctx.fillRect(x, y, w, h);
             ctx.strokeStyle = '#000';
-            ctx.strokeRect(item.x * scale, item.y * scale, item.width * scale, item.height * scale);
+            ctx.strokeRect(x, y, w, h);
+
+            // 좁은 조각끼리 붙어있으면 텍스트가 옆 조각까지 삐져나와 겹쳐 보일 수 있어서,
+            // 이 조각 영역 안으로만 그려지도록 잘라낸다(clip).
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.clip();
 
             ctx.font = `${fontSize}px Arial`;
             ctx.fillStyle = '#fff';
@@ -860,8 +849,7 @@
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
 
-            ctx.save();
-            ctx.translate(item.x * scale + 20, item.y * scale + item.height * scale / 2);
+            ctx.translate(x + Math.min(20, w / 2), y + h - 8);
             ctx.rotate(-Math.PI / 2);
             const rotMark = item.rotated ? ' [회전]' : '';
             const idText = `#${item.id} (${item.width}x${item.height})${rotMark}`;
@@ -931,6 +919,25 @@
         categoryOrder.splice(categoryOrder.indexOf(UNCATEGORIZED), 1);
         categoryOrder.push(UNCATEGORIZED);
       }
+
+      // ---- 인쇄용 부위별 요약 + 총 소요량 계산 ----
+      // (실제 재단 배치 결과가 아니라, 입력한 시공 면적 원본 기준의 필요 수량/면적 집계)
+      const printSummary = categoryOrder.map(cat => {
+        const items = surfaces.filter(s => ((s.category || '').trim() || UNCATEGORIZED) === cat);
+        const rows = items.map(s => ({
+          width: s.width,
+          height: s.height,
+          count: s.count,
+          label: s.label,
+          areaM2: (s.width * s.height * s.count) / 1000000,
+        }));
+        const subtotalCount = rows.reduce((sum, r) => sum + r.count, 0);
+        const subtotalAreaM2 = rows.reduce((sum, r) => sum + r.areaM2, 0);
+        return { cat, rows, subtotalCount, subtotalAreaM2 };
+      }).filter(g => g.rows.length > 0);
+
+      const totalRequiredCount = printSummary.reduce((sum, g) => sum + g.subtotalCount, 0);
+      const totalRequiredAreaM2 = printSummary.reduce((sum, g) => sum + g.subtotalAreaM2, 0);
 
       return (
         <div className="p-4 max-w-4xl mx-auto">
@@ -1245,35 +1252,70 @@ service cloud.firestore {
                   ref={(el) => { categoryRefs.current[cat] = el; }}
                   className="border rounded mb-3 overflow-hidden"
                 >
-                  <div className="w-full flex items-center justify-between bg-gray-100 px-3 py-2">
-                    <button
-                      onClick={() => toggleCategoryCollapsed(cat)}
-                      className="flex items-center gap-2 text-left font-medium flex-1"
-                    >
-                      <span>{cat} <span className="text-gray-500 text-sm font-normal">({rows.length}개)</span></span>
-                      <span className="text-gray-500">{collapsed ? '▶' : '▼'}</span>
-                    </button>
-                    <div className="flex gap-1 ml-2">
+                  <div className="w-full bg-gray-100 px-3 py-2">
+                    <div className="flex items-center justify-between">
                       <button
-                        onClick={() => renameCategoryGroup(cat)}
-                        className="text-xs bg-white border px-2 py-1 rounded hover:bg-gray-50"
-                        title="부위 이름 변경"
+                        onClick={() => toggleCategoryCollapsed(cat)}
+                        className="flex items-center gap-2 text-left font-medium flex-1"
                       >
-                        이름변경
+                        <span>{cat} <span className="text-gray-500 text-sm font-normal">({rows.length}개)</span></span>
+                        <span className="text-gray-500">{collapsed ? '▶' : '▼'}</span>
+                      </button>
+                      <div className="flex gap-1 ml-2">
+                        <button
+                          onClick={() => renameCategoryGroup(cat)}
+                          className="text-xs bg-white border px-2 py-1 rounded hover:bg-gray-50"
+                          title="부위 이름 변경"
+                        >
+                          이름변경
+                        </button>
+                        <button
+                          onClick={() => duplicateCategory(cat)}
+                          className="text-xs bg-white border px-2 py-1 rounded hover:bg-gray-50"
+                          title="이 부위 전체를 복제"
+                        >
+                          복제
+                        </button>
+                        <button
+                          onClick={() => deleteCategoryGroup(cat)}
+                          className="text-xs bg-red-50 text-red-600 border border-red-300 px-2 py-1 rounded hover:bg-red-100"
+                          title="이 부위 전체 삭제"
+                        >
+                          통째삭제
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 mt-2 text-xs">
+                      <span className="text-gray-500 mr-1">일괄 조정:</span>
+                      <span className="text-gray-500">폭</span>
+                      <button
+                        onClick={() => adjustCategoryDimension(cat, 'width', -10)}
+                        className="px-2 py-1 bg-white border rounded hover:bg-gray-50"
+                        title="이 부위 전체 폭 -10mm"
+                      >
+                        -10
                       </button>
                       <button
-                        onClick={() => duplicateCategory(cat)}
-                        className="text-xs bg-white border px-2 py-1 rounded hover:bg-gray-50"
-                        title="이 부위 전체를 복제"
+                        onClick={() => adjustCategoryDimension(cat, 'width', 10)}
+                        className="px-2 py-1 bg-white border rounded hover:bg-gray-50"
+                        title="이 부위 전체 폭 +10mm"
                       >
-                        복제
+                        +10
+                      </button>
+                      <span className="text-gray-500 ml-3">길이</span>
+                      <button
+                        onClick={() => adjustCategoryDimension(cat, 'height', -50)}
+                        className="px-2 py-1 bg-white border rounded hover:bg-gray-50"
+                        title="이 부위 전체 길이 -50mm"
+                      >
+                        -50
                       </button>
                       <button
-                        onClick={() => deleteCategoryGroup(cat)}
-                        className="text-xs bg-red-50 text-red-600 border border-red-300 px-2 py-1 rounded hover:bg-red-100"
-                        title="이 부위 전체 삭제"
+                        onClick={() => adjustCategoryDimension(cat, 'height', 50)}
+                        className="px-2 py-1 bg-white border rounded hover:bg-gray-50"
+                        title="이 부위 전체 길이 +50mm"
                       >
-                        통째삭제
+                        +50
                       </button>
                     </div>
                   </div>
@@ -1288,17 +1330,51 @@ service cloud.firestore {
                             className="border p-2 w-28"
                           />
                           <input
+                            key={`w-${index}-${surface.width}`}
                             type="text" inputMode="numeric" pattern="[0-9]*"
                             placeholder="가로 (mm)" defaultValue={surface.width}
                             onBlur={(e) => handleInputBlur(index, 'width', e.target.value)}
                             className="border p-2 w-24"
                           />
+                          <div className="flex gap-0.5">
+                            <button
+                              onClick={() => adjustSurfaceDimension(index, 'width', -10)}
+                              className="text-xs bg-gray-200 px-1.5 py-2 rounded hover:bg-gray-300"
+                              title="가로 -10mm"
+                            >
+                              -10
+                            </button>
+                            <button
+                              onClick={() => adjustSurfaceDimension(index, 'width', 10)}
+                              className="text-xs bg-gray-200 px-1.5 py-2 rounded hover:bg-gray-300"
+                              title="가로 +10mm"
+                            >
+                              +10
+                            </button>
+                          </div>
                           <input
+                            key={`h-${index}-${surface.height}`}
                             type="text" inputMode="numeric" pattern="[0-9]*"
                             placeholder="세로 (mm)" defaultValue={surface.height}
                             onBlur={(e) => handleInputBlur(index, 'height', e.target.value)}
                             className="border p-2 w-24"
                           />
+                          <div className="flex gap-0.5">
+                            <button
+                              onClick={() => adjustSurfaceDimension(index, 'height', -50)}
+                              className="text-xs bg-gray-200 px-1.5 py-2 rounded hover:bg-gray-300"
+                              title="세로 -50mm"
+                            >
+                              -50
+                            </button>
+                            <button
+                              onClick={() => adjustSurfaceDimension(index, 'height', 50)}
+                              className="text-xs bg-gray-200 px-1.5 py-2 rounded hover:bg-gray-300"
+                              title="세로 +50mm"
+                            >
+                              +50
+                            </button>
+                          </div>
                           <input
                             type="text" inputMode="numeric" pattern="[0-9]*"
                             placeholder="수량" defaultValue={surface.count}
@@ -1395,6 +1471,53 @@ service cloud.firestore {
               {result.unplacedCount > 0 && (
                 <p style={{ color: '#b45309' }}>⚠️ 배치되지 못한 조각 {result.unplacedCount}개 있음 (아래 목록에서 제외됨)</p>
               )}
+
+              <h2 style={{ fontSize: '15px', fontWeight: 'bold', marginTop: '14px', marginBottom: '4px' }}>부위별 소요 내역</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>부위</th>
+                    <th>위치(라벨)</th>
+                    <th>가로(mm)</th>
+                    <th>세로(mm)</th>
+                    <th>수량</th>
+                    <th>면적(㎡)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {printSummary.map(group => (
+                    <React.Fragment key={group.cat}>
+                      {group.rows.map((r, i) => (
+                        <tr key={`${group.cat}-${i}`}>
+                          {i === 0 && <td rowSpan={group.rows.length + 1}>{group.cat}</td>}
+                          <td>{r.label || '-'}</td>
+                          <td>{r.width}</td>
+                          <td>{r.height}</td>
+                          <td>{r.count}</td>
+                          <td>{r.areaM2.toFixed(3)}</td>
+                        </tr>
+                      ))}
+                      <tr style={{ fontWeight: 'bold', background: '#f3f4f6' }}>
+                        <td>소계</td>
+                        <td>{group.subtotalCount}개</td>
+                        <td colSpan={2}></td>
+                        <td>{group.subtotalAreaM2.toFixed(3)}</td>
+                      </tr>
+                    </React.Fragment>
+                  ))}
+                  <tr style={{ fontWeight: 'bold', background: '#e5e7eb' }}>
+                    <td colSpan={2}>총 소요량</td>
+                    <td colSpan={2}></td>
+                    <td>{totalRequiredCount}개</td>
+                    <td>{totalRequiredAreaM2.toFixed(3)} ㎡</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p style={{ fontSize: '10px', color: '#666', marginTop: '2px' }}>
+                * 위 면적은 낭비율을 반영하지 않은 순수 필요 면적입니다. 실제 재단 시 사용되는 필름 면적은 위 "사용된 필름" 항목을 참고하세요.
+              </p>
+
+              <h2 style={{ fontSize: '15px', fontWeight: 'bold', marginTop: '14px', marginBottom: '4px' }}>재단 배치 목록</h2>
               <table>
                 <thead>
                   <tr>
