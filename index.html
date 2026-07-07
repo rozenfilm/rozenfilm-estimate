@@ -1647,17 +1647,64 @@ async function exportToPDF() {
     const imgW = printW;
     const imgH = printW / ratio;
 
-    // How many mm of image content fits per page
-    const pageContentH = printH;
+    // mm-per-CSS-px conversion, derived from the actual rendered DOM height
+    // (independent of the html2canvas scale factor, since both canvas dimensions
+    // and imgH share the same scale).
+    const contentPxHeight = area.scrollHeight || area.offsetHeight || 1;
+    const mmPerPx = imgH / contentPxHeight;
 
-    // Total pages needed
-    const totalPages = Math.ceil(imgH / pageContentH);
+    // Collect the vertical extents (in mm, relative to the rendered image) of every
+    // "leaf" block-level element in the render area. These represent lines/rows that
+    // must never be sliced in half across a page boundary.
+    const areaRect = area.getBoundingClientRect();
+    const blockSelector = 'tr, p, div, li, span, td, th';
+    const candidates = Array.from(area.querySelectorAll(blockSelector));
+    const blocks = [];
+    candidates.forEach(el => {
+      // Only consider elements with no block-level children (i.e. leaf content blocks),
+      // to avoid treating giant wrapper divs as a single unsplittable unit.
+      const hasBlockChild = Array.from(el.children).some(c =>
+        candidates.includes(c)
+      );
+      if (hasBlockChild) return;
+      const r = el.getBoundingClientRect();
+      if (r.height <= 0) return;
+      const top = (r.top - areaRect.top) * mmPerPx;
+      const bottom = (r.bottom - areaRect.top) * mmPerPx;
+      if (bottom > top) blocks.push({ top, bottom });
+    });
+    blocks.sort((a, b) => a.top - b.top);
+
+    // Given a naive page-boundary y-position (in mm, image space), find the safest
+    // nearby position that does not fall inside any block. Prefers moving the
+    // boundary earlier (so the offending block starts fresh on the next page).
+    function findSafeBreak(naiveY) {
+      const intruding = blocks.find(b => naiveY > b.top + 0.01 && naiveY < b.bottom - 0.01);
+      if (!intruding) return naiveY;
+      return intruding.top; // push the break to just before this block starts
+    }
+
+    // Determine page break y-positions (in mm, image space) one at a time,
+    // snapping each to a safe gap so no block is ever split across pages.
+    const breakpoints = [0];
+    let cursor = 0;
+    while (cursor < imgH - 0.01) {
+      let next = Math.min(cursor + printH, imgH);
+      if (next < imgH) next = findSafeBreak(next);
+      // Guard against an unsafe zero-progress loop (e.g. a single block taller
+      // than one page) by forcing at least a full page's worth of progress.
+      if (next <= cursor + 0.01) next = Math.min(cursor + printH, imgH);
+      breakpoints.push(next);
+      cursor = next;
+    }
+
+    const totalPages = breakpoints.length - 1;
 
     for (let page = 0; page < totalPages; page++) {
       if (page > 0) pdf.addPage();
 
       // y offset into the image (in mm) for this page
-      const yOffset = page * pageContentH;
+      const yOffset = breakpoints[page];
 
       // Draw the image shifted upward so the right slice shows
       pdf.addImage(
@@ -1673,7 +1720,7 @@ async function exportToPDF() {
       pdf.setFillColor(255, 255, 255);
       pdf.rect(0, 0, pageW, margin, 'F');
       // Bottom cover (hides content below current page slice)
-      pdf.rect(0, margin + pageContentH, pageW, pageH, 'F');
+      pdf.rect(0, margin + printH, pageW, pageH, 'F');
     }
 
     pdf.save(`견적서_${siteName}_${getFileDateFormat()}.pdf`);
