@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROZEN FILM · 시공 상담</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap');
+  * { font-family: 'Noto Sans KR', sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+  .hidden { display: none !important; }
+
+  :root {
+    --bg: #F0F4F8;
+    --surface: #FFFFFF;
+    --border: #E2E8F0;
+    --text: #1A202C;
+    --muted: #718096;
+    --brand: #2B6CB0;
+    --brand-light: #EBF8FF;
+    --accent: #38A169;
+  }
+
+  body { background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .wrap { max-width: 560px; margin: 0 auto; padding: 20px; padding-bottom: 100px; }
+
+  .header { text-align: center; padding: 20px 0 24px; }
+  .header .logo { font-size: 20px; font-weight: 800; color: var(--brand); }
+  .header .sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  .progress-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 8px;
+  }
+  .progress-bar {
+    height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 28px;
+  }
+  .progress-fill { height: 100%; background: var(--brand); border-radius: 3px; transition: width .3s ease; }
+
+  .step {
+    background: var(--surface); border-radius: 16px; padding: 28px 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  }
+
+  .step-label { font-size: 12px; font-weight: 700; color: var(--brand); letter-spacing: .04em; margin-bottom: 8px; }
+  .step-question { font-size: 20px; font-weight: 800; line-height: 1.4; margin-bottom: 20px; }
+  .step-hint { font-size: 13px; color: var(--muted); margin-top: -12px; margin-bottom: 20px; }
+
+  .text-input {
+    width: 100%; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; font-size: 16px; outline: none; transition: border-color .15s;
+  }
+  .text-input:focus { border-color: var(--brand); }
+
+  .btn-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 4px; }
+  .choice-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    border: 1.5px solid var(--border); border-radius: 12px; background: #fff;
+    padding: 18px 10px; cursor: pointer; font-size: 14px; font-weight: 700; color: var(--text);
+    transition: all .15s;
+  }
+  .choice-btn .emoji { font-size: 26px; }
+  .choice-btn.selected { border-color: var(--brand); background: var(--brand-light); color: var(--brand); }
+
+  .entry-card {
+    border: 1.5px solid var(--border); border-radius: 14px; padding: 20px;
+    margin-bottom: 14px; cursor: pointer; transition: all .15s;
+  }
+  .entry-card:active { transform: scale(.98); }
+  .entry-card.quick { background: #FFFBEB; border-color: #FDE68A; }
+  .entry-card.detail { background: var(--brand-light); border-color: #BFDBFE; }
+  .entry-card-title { font-size: 16px; font-weight: 800; margin-bottom: 4px; display:flex; align-items:center; gap:8px; }
+  .entry-card-desc { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .entry-card-btn {
+    width: 100%; padding: 12px; border-radius: 10px; border: none;
+    font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .entry-card.quick .entry-card-btn { background: #FEE500; color: #191919; }
+  .entry-card.detail .entry-card-btn { background: var(--brand); color: #fff; }
+
+  .resume-banner {
+    background: #F0FDF4; border: 1.5px solid #BBF7D0; border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 16px; font-size: 13px;
+  }
+  .resume-banner .row { display: flex; gap: 8px; margin-top: 10px; }
+  .resume-banner button {
+    flex: 1; padding: 9px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+  .resume-banner .go-btn { background: var(--accent); color: #fff; }
+  .resume-banner .clear-btn { background: #fff; color: #64748b; border: 1px solid var(--border); }
+
+  .pyeong-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+  .pyeong-btn {
+    padding: 16px 10px; border-radius: 12px; border: 1.5px solid var(--border); background: #fff;
+    font-size: 15px; font-weight: 700; cursor: pointer; text-align: center; transition: all .15s;
+  }
+  .pyeong-btn.selected { border-color: var(--brand); background: var(--brand-light); color: var(--brand); }
+
+  .category-all-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; margin-bottom: 14px;
+    background: var(--brand); color: #fff; border: none;
+    border-radius: 12px; padding: 18px; font-size: 16px; font-weight: 800; cursor: pointer;
+    transition: all .15s; box-shadow: 0 3px 10px rgba(43,108,176,.25);
+  }
+  .category-all-btn.active { background: var(--accent); box-shadow: 0 3px 10px rgba(56,161,105,.25); }
+  .category-all-hint { text-align: center; font-size: 12px; color: var(--muted); margin: -8px 0 18px; }
+
+  .detail-toggle {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; background: none; border: none; border-top: 1px dashed var(--border);
+    padding: 14px 0 4px; font-size: 13px; font-weight: 700; color: var(--brand); cursor: pointer;
+  }
+  .detail-section { margin-top: 10px; }
+
+  .sash-row {
+    display: flex; align-items: center; gap: 10px; padding: 4px 0; margin-bottom: 8px;
+  }
+  .sash-name-btn {
+    flex: 1; border: 1.5px solid var(--border); border-radius: 10px; background: #fff;
+    padding: 13px 14px; font-size: 14px; font-weight: 700; color: var(--text);
+    cursor: pointer; transition: all .15s;
+  }
+  .sash-name-btn.selected { border-color: var(--brand); background: var(--brand-light); color: var(--brand); }
+  .sash-double-check {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 10px; color: var(--muted); font-weight: 600; white-space: nowrap; cursor: pointer;
+  }
+  .sash-double-check input { width: 18px; height: 18px; accent-color: var(--brand); cursor: pointer; }
+  .sash-custom-input {
+    flex: 1; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; font-size: 14px; outline: none; font-family: inherit;
+  }
+  .sash-custom-input:focus { border-color: var(--brand); }
+
+  .molding-row { margin-bottom: 8px; }
+  .molding-toggle-btn {
+    width: 100%; border: 1.5px solid var(--border); border-radius: 10px; background: #fff;
+    padding: 13px 14px; font-size: 14px; font-weight: 700; color: var(--text);
+    cursor: pointer; transition: all .15s; text-align: left;
+  }
+  .molding-toggle-btn.selected { border-color: var(--brand); background: var(--brand-light); color: var(--brand); }
+  .molding-count-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    border: 1.5px solid var(--border); border-radius: 10px; padding: 10px 14px;
+  }
+  .molding-count-row .molding-count-name { font-size: 14px; font-weight: 700; }
+  .molding-count-input {
+    width: 90px; border: 1.5px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 14px; text-align: center; outline: none;
+  }
+  .molding-count-input:focus { border-color: var(--brand); }
+
+  .builtin-custom-row {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .builtin-custom-row .sash-custom-input { flex: 1; }
+  .builtin-custom-row .molding-count-input { width: 90px; flex-shrink: 0; }
+
+  .custom-note-wrap { margin-bottom: 16px; }
+  .custom-note-label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+  .custom-note-input {
+    width: 100%; min-height: 64px; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 13px; font-family: inherit; outline: none; resize: vertical;
+    transition: border-color .15s;
+  }
+  .custom-note-input:focus { border-color: var(--brand); }
+
+  .qty-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .qty-row:last-child { border-bottom: none; }
+  .qty-info { flex: 1; min-width: 0; }
+  .qty-name { font-size: 14px; font-weight: 700; }
+  .qty-controls { display: flex; align-items: center; gap: 10px; }
+  .qty-btn {
+    width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--border);
+    background: #fff; font-size: 18px; font-weight: 700; color: var(--brand);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
+  }
+  .qty-btn:active { background: var(--brand-light); }
+  .qty-value { min-width: 28px; text-align: center; font-size: 16px; font-weight: 800; }
+
+  .nav-row { display: flex; gap: 10px; margin-top: 24px; }
+  .nav-btn {
+    flex: 1; padding: 14px; border-radius: 10px; border: none;
+    font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity .15s;
+  }
+  .nav-btn.primary { background: var(--brand); color: #fff; }
+  .nav-btn.primary:disabled { opacity: .4; cursor: not-allowed; }
+  .nav-btn.secondary { background: #F1F5F9; color: #475569; flex: none; padding: 14px 18px; }
+
+  .summary-cat { margin-bottom: 18px; }
+  .summary-cat-title { font-size: 13px; font-weight: 800; color: var(--brand); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .summary-item { display: flex; justify-content: space-between; font-size: 14px; padding: 6px 0; color: var(--text); }
+  .summary-item .cnt { color: var(--muted); font-weight: 600; }
+
+  .final-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; }
+  .final-btn {
+    padding: 16px; border-radius: 12px; border: none; font-size: 15px; font-weight: 700;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .final-btn.go { background: var(--brand); color: #fff; }
+  .final-btn.report { background: #fff; color: var(--text); border: 1.5px solid var(--border); }
+
+  .photo-notice {
+    margin-top: 20px; padding: 16px; background: #FFFBEB; border: 1.5px solid #FDE68A;
+    border-radius: 12px; text-align: center;
+  }
+  .photo-notice-text { font-size: 13px; font-weight: 700; color: #92400E; margin-bottom: 10px; }
+  .final-btn.kakao {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    background: #FEE500; color: #191919; text-decoration: none;
+  }
+
+  .status-msg { font-size: 12px; text-align: center; margin-top: 10px; color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="header">
+    <div class="logo">📊 ROZEN FILM</div>
+    <div class="sub">시공 상담 · 항목 선택</div>
+  </div>
+
+  <div id="progressWrap">
+    <div class="progress-meta">
+      <span id="progressStepText"></span>
+      <span id="progressTimeText"></span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  </div>
+
+  <div id="stepContainer"></div>
+</div>
+
+<!-- ─── 상담사용 리포트 모달 ─── -->
+<div id="reportModalOverlay" class="hidden" style="position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:16px;font-weight:800">📄 상담사용 리포트</h3>
+      <button onclick="closeReportModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <pre id="reportModalBody" style="flex:1;overflow-y:auto;padding:18px 20px;font-size:13px;line-height:1.6;white-space:pre-wrap;font-family:'Noto Sans KR',monospace;color:var(--text);margin:0"></pre>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px">
+      <button id="copyReportBtn" onclick="copyReportText()" style="flex:1;background:var(--brand);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">📋 복사하기</button>
+      <button onclick="closeReportModal()" style="background:#F1F5F9;color:#475569;border:none;border-radius:8px;padding:10px 16px;font-size:13px;cursor:pointer">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const KAKAO_LINK = 'https://open.kakao.com/o/sVVaN3J';
+
+// "문" 카테고리는 개수 입력 대신 위치별 버튼 선택 방식 사용 (실제 견적 계산기의 itemKey/location에 매핑됨)
+const DOOR_LOCATION_ITEMS = [
+  { key: 'main_room',           name: '안방문',        itemKey: 'door',                 location: '안방' },
+  { key: 'entrance_room',       name: '입구방문',      itemKey: 'door',                 location: '입구방' },
+  { key: 'small_room',          name: '작은방문',      itemKey: 'door',                 location: '작은방' },
+  { key: 'alpha_room',          name: '알파룸문',      itemKey: 'door',                 location: '알파룸' },
+  { key: 'kitchen_utility',     name: '주방다용도실문', itemKey: 'door',                location: '주방다용도실' },
+  { key: 'entrance_door',       name: '현관문',        itemKey: 'front_fire_door',      location: '현관' },
+  { key: 'entrance_middle_door',name: '현관중문',      itemKey: 'sliding_middle_door',  location: '현관' },
+  { key: 'veranda_middle_door', name: '베란다중문',    itemKey: 'sliding_middle_door',  location: '베란다' },
+  { key: 'outdoor_unit_room',   name: '실외기실문',    itemKey: 'door',                 location: '실외기실' }
+];
+
+// "샷시" 카테고리도 위치별 버튼 선택 방식 사용 (기타 부위는 직접 입력)
+const SASH_LOCATION_ITEMS = [
+  { key: 'living_room',   name: '거실 창',   location: '거실' },
+  { key: 'main_room',     name: '안방 창',   location: '안방' },
+  { key: 'entrance_room', name: '입구방 창', location: '입구방' },
+  { key: 'small_room',    name: '작은방 창', location: '작은방' },
+  { key: 'alpha_room',    name: '알파룸 창', location: '알파룸' },
+  { key: 'kitchen',       name: '주방 창',   location: '주방' },
+  { key: 'foyer',         name: '전실 창',   location: '전실' }
+];
+
+// "몰딩" 카테고리 — 거실/주방 관련은 버튼 토글, "방"이 붙은 항목은 방 개수 직접 입력
+const MOLDING_ITEMS = [
+  { key: 'living_kitchen_ceiling',   type: 'toggle', name: '거실주방 천정몰딩', itemKey: 'ceiling_molding', location: '거실·주방' },
+  { key: 'room_ceiling',             type: 'count',  name: '방 천정몰딩',       itemKey: 'ceiling_molding', location: '방' },
+  { key: 'living_kitchen_baseboard', type: 'toggle', name: '거실 주방 걸레받이', itemKey: 'baseboard',       location: '거실·주방' },
+  { key: 'room_baseboard',           type: 'count',  name: '방 걸레받이',       itemKey: 'baseboard',       location: '방' },
+  { key: 'well_ceiling',             type: 'toggle', name: '거실 우물천정몰딩', itemKey: 'well_ceiling',    location: '거실' },
+  { key: 'living_wall',              type: 'toggle', name: '거실 벽면',         itemKey: 'wall_panel',      location: '거실' },
+  { key: 'artwall_border',           type: 'toggle', name: '아트월 테두리',     itemKey: 'artwall_border',  location: '거실' },
+  { key: 'artwall_wall',             type: 'toggle', name: '아트월',           itemKey: 'artwall_wall',    location: '거실' }
+];
+
+// "붙박이" 카테고리 — 각 항목마다 문짝개수 입력란, 단 "오픈 책장"만 개수 없이 버튼 토글
+const BUILTIN_ITEMS = [
+  { key: 'shoe_cabinet',          type: 'count',  name: '신발장',              itemKey: 'builtin_door_large',  location: '현관' },
+  { key: 'entrance_room_builtin', type: 'count',  name: '입구방 붙박이장',     itemKey: 'builtin_door_medium', location: '입구방' },
+  { key: 'small_room_builtin',    type: 'count',  name: '작은방 붙박이장',     itemKey: 'builtin_door_medium', location: '작은방' },
+  { key: 'living_pantry',         type: 'count',  name: '거실펜트리장',        itemKey: 'builtin_door_medium', location: '거실' },
+  { key: 'main_room_wardrobe',    type: 'count',  name: '안방 붙박이장(장롱)', itemKey: 'builtin_door_large',  location: '안방' },
+  { key: 'dressroom_entrance',    type: 'count',  name: '드레스룸 입구 문짝', itemKey: 'builtin_door_small',  location: '드레스룸' },
+  { key: 'dressing_table',        type: 'count',  name: '화장대',              itemKey: 'dressing_table',      location: null },
+  { key: 'wash_area',             type: 'count',  name: '세면장',              itemKey: 'dressing_table',      location: '욕실' },
+  { key: 'open_shelf',            type: 'toggle', name: '오픈 책장',           itemKey: 'open_shelf',          location: null },
+  { key: 'veranda_storage_door',  type: 'count',  name: '베란다 창고문',       itemKey: 'builtin_door_small',  location: '베란다' }
+];
+
+// "싱크대" 카테고리 — 모든 항목 문짝개수 입력
+const KITCHEN_ITEMS = [
+  { key: 'sink_upper',        type: 'count',  name: '싱크대 상부장',   itemKey: 'sink_door',            location: '상부장' },
+  { key: 'sink_lower',        type: 'count',  name: '싱크대 하부장',   itemKey: 'sink_door',            location: '하부장' },
+  { key: 'island_cabinet',    type: 'toggle', name: '아일랜드장',      itemKey: 'island_cabinet',        location: null },
+  { key: 'rice_cooker',       type: 'toggle', name: '밥솥장',          itemKey: 'rice_cooker_cabinet',   location: null },
+  { key: 'tall_cabinet',      type: 'count',  name: '키큰장',          itemKey: 'kitchen_storage_door',  location: '키큰장' },
+  { key: 'fridge_cabinet',    type: 'count',  name: '냉장고장',        itemKey: 'fridge_cabinet',        location: null },
+  { key: 'kitchen_storage',   type: 'count',  name: '주방 수납장',     itemKey: 'kitchen_storage_door',  location: null },
+  { key: 'auxiliary_kitchen', type: 'count',  name: '보조주방',        itemKey: 'sink_door',             location: '보조주방' },
+  { key: 'home_bar',          type: 'count',  name: '홈바장',          itemKey: 'kitchen_storage_door',  location: '홈바' },
+  { key: 'open_shelf_kitchen',type: 'toggle', name: '오픈수납선반',    itemKey: 'exposed_shelf',         location: null }
+];
+
+const CATEGORY_DEFS = {
+  doors: {
+    emoji: '🚪', label: '문',
+    items: [
+      { key: 'door', name: '문짝' },
+      { key: 'door_frame', name: '문틀(공틀)' },
+      { key: 'front_fire_door', name: '현관·방화문' },
+      { key: 'sliding_middle_door', name: '슬라이딩 중문' },
+      { key: 'turning_door', name: '터닝도어' }
+    ]
+  },
+  sash: {
+    emoji: '🪟', label: '샷시',
+    items: [
+      { key: 'high_sash_large', name: '하이샷시 대창' },
+      { key: 'high_sash_medium', name: '하이샷시 중창' },
+      { key: 'high_sash_small', name: '하이샷시 소창' },
+      { key: 'high_sash_side', name: '하이샷시 쪽창' },
+      { key: 'system_large', name: '시스템 대창' },
+      { key: 'system_medium', name: '시스템 중창' },
+      { key: 'system_small', name: '시스템 소창' },
+      { key: 'system_side', name: '시스템 쪽창' }
+    ]
+  },
+  molding: {
+    emoji: '🖼️', label: '몰딩',
+    items: [
+      { key: 'ceiling_molding', name: '천정 몰딩 (m)' },
+      { key: 'baseboard', name: '걸레받이 (m)' },
+      { key: 'well_ceiling', name: '우물천장' },
+      { key: 'artwall_border', name: '아트월 테두리' },
+      { key: 'artwall_wall', name: '아트월 벽면' }
+    ]
+  },
+  builtin_furniture: {
+    emoji: '🗄️', label: '붙박이',
+    items: [
+      { key: 'builtin_door_large', name: '붙박이 문짝 대(신발장·붙박이장)' },
+      { key: 'builtin_door_medium', name: '붙박이 문짝 중' },
+      { key: 'builtin_door_small', name: '붙박이 문짝 소' },
+      { key: 'open_shelf', name: '오픈장(책장)' },
+      { key: 'dressing_table', name: '화장대(세면장)' }
+    ]
+  },
+  kitchen_furniture: {
+    emoji: '🍳', label: '싱크대',
+    items: [
+      { key: 'sink_door', name: '싱크대 문짝' },
+      { key: 'kitchen_storage_door', name: '주방수납장 문짝' },
+      { key: 'exposed_shelf', name: '노출 선반' },
+      { key: 'fridge_cabinet', name: '냉장고장' },
+      { key: 'island_cabinet', name: '아일랜드장 겉면' }
+    ]
+  }
+};
+
+const PYEONG_RANGES = ['10평대', '20평대', '30평대', '40평대 이상'];
+
+let currentStep = -1;
+let apartmentName = '';
+let pyeongRange = '';
+let siteName = '';
+let selectedCategories = [];
+let quantities = {};
+let categoryAllFlags = {};
+let customNotes = {};
+let expandedCategories = {};
+let doorLocationSelections = {}; // { 'main_room': true, ... } → "문" 카테고리 전용 위치 선택 상태
+let sashLocationSelections = {}; // { 'living_room': true, ... } → "샷시" 카테고리 전용 위치 선택 상태
+let sashDoubleFlags = {}; // { 'living_room': true } → 해당 위치 "이중창 모두" 체크 여부
+let sashCustomLocation = ''; // 기타 부위 직접입력 텍스트
+let sashCustomDouble = false; // 기타 부위의 "이중창 모두" 체크 여부
+let moldingSelections = {}; // { 'living_kitchen_ceiling': true, ... } → 토글형 몰딩 항목 선택 상태
+let moldingCounts = {}; // { 'room_ceiling': 3, ... } → "방" 관련 항목의 방 개수
+let moldingCustomLocation = ''; // 기타 부위 직접입력 텍스트
+let builtinCounts = {}; // { 'shoe_cabinet': 3, ... } → 문짝개수 입력형 항목의 개수
+let builtinToggles = {}; // { 'open_shelf': true } → 개수 없는 토글형 항목(오픈 책장)
+let builtinCustomLocation = ''; // 기타 부위 직접입력 텍스트
+let builtinCustomCount = 0; // 기타 부위의 문짝개수
+let kitchenCounts = {}; // { 'sink_upper': 3, ... } → 싱크대 항목 문짝개수
+let kitchenToggles = {}; // { 'island_cabinet': true, ... } → 개수 없는 토글형 항목(아일랜드장/밥솥장/오픈수납선반)
+let kitchenCustomLocation = ''; // 기타 부위 직접입력 텍스트
+let kitchenCustomCount = 0; // 기타 부위의 문짝개수
+
+const DRAFT_KEY = 'rozenfilm_consultation_draft';
+
+function getTotalSteps() {
+  return 2 + selectedCategories.length + 1;
+}
+
+function updateSiteName() {
+  siteName = apartmentName.trim()
+    ? `${apartmentName.trim()} ${pyeongRange || ''}`.trim()
+    : (pyeongRange || '평수 미상');
+}
+
+function saveDraft() {
+  if (currentStep < 0) return;
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      currentStep, apartmentName, pyeongRange, selectedCategories,
+      quantities, categoryAllFlags, customNotes, expandedCategories, doorLocationSelections,
+      sashLocationSelections, sashDoubleFlags, sashCustomLocation, sashCustomDouble,
+      moldingSelections, moldingCounts, moldingCustomLocation,
+      builtinCounts, builtinToggles, builtinCustomLocation, builtinCustomCount,
+      kitchenCounts, kitchenToggles, kitchenCustomLocation, kitchenCustomCount,
+      savedAt: new Date().toISOString()
+    }));
+  } catch(e) { /* 저장 실패는 조용히 무시 */ }
+}
+
+function clearDraft() {
+  localStorage.removeItem(DRAFT_KEY);
+}
+
+function loadDraftIfAny() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch(e) { return null; }
+}
+
+function restoreDraft(draft) {
+  currentStep = draft.currentStep || 0;
+  apartmentName = draft.apartmentName || '';
+  pyeongRange = draft.pyeongRange || '';
+  selectedCategories = draft.selectedCategories || [];
+  quantities = draft.quantities || {};
+  categoryAllFlags = draft.categoryAllFlags || {};
+  customNotes = draft.customNotes || {};
+  expandedCategories = draft.expandedCategories || {};
+  doorLocationSelections = draft.doorLocationSelections || {};
+  sashLocationSelections = draft.sashLocationSelections || {};
+  sashDoubleFlags = draft.sashDoubleFlags || {};
+  sashCustomLocation = draft.sashCustomLocation || '';
+  sashCustomDouble = draft.sashCustomDouble || false;
+  moldingSelections = draft.moldingSelections || {};
+  moldingCounts = draft.moldingCounts || {};
+  moldingCustomLocation = draft.moldingCustomLocation || '';
+  builtinCounts = draft.builtinCounts || {};
+  builtinToggles = draft.builtinToggles || {};
+  builtinCustomLocation = draft.builtinCustomLocation || '';
+  builtinCustomCount = draft.builtinCustomCount || 0;
+  kitchenCounts = draft.kitchenCounts || {};
+  kitchenToggles = draft.kitchenToggles || {};
+  kitchenCustomLocation = draft.kitchenCustomLocation || '';
+  kitchenCustomCount = draft.kitchenCustomCount || 0;
+  updateSiteName();
+  render();
+}
+
+function dismissResumeBanner() {
+  clearDraft();
+  currentStep = -1;
+  render();
+}
+
+function updateProgressUI() {
+  const progressWrap = document.getElementById('progressWrap');
+  if (currentStep < 0) { progressWrap.classList.add('hidden'); return; }
+  progressWrap.classList.remove('hidden');
+
+  const total = getTotalSteps();
+  const stepNo = currentStep + 1;
+  const pct = Math.min(100, Math.round((stepNo / total) * 100));
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressStepText').textContent = `${stepNo} / ${total} 단계`;
+
+  const remaining = total - stepNo;
+  const estSec = Math.max(10, remaining * 12);
+  const estMin = Math.ceil(estSec / 60);
+  document.getElementById('progressTimeText').textContent =
+    remaining <= 0 ? '⏱ 거의 다 왔어요!' : `⏱ 약 ${estMin}분이면 끝나요`;
+}
+
+function render() {
+  updateProgressUI();
+  const container = document.getElementById('stepContainer');
+
+  if (currentStep === -1) {
+    container.innerHTML = renderStepEntry();
+  } else if (currentStep === 0) {
+    container.innerHTML = renderStepSiteName();
+  } else if (currentStep === 1) {
+    container.innerHTML = renderStepCategories();
+  } else if (currentStep - 2 < selectedCategories.length) {
+    const catKey = selectedCategories[currentStep - 2];
+    container.innerHTML = renderStepQuantities(catKey);
+  } else {
+    container.innerHTML = renderStepSummary();
+  }
+
+  saveDraft();
+}
+
+function renderStepEntry() {
+  const draft = loadDraftIfAny();
+  const resumeHtml = draft ? `
+    <div class="resume-banner">
+      📝 이전에 작성하던 상담 내용이 있습니다.
+      <div class="row">
+        <button class="go-btn" onclick='restoreDraft(${JSON.stringify(draft).replace(/'/g, "&#39;")})'>이어서 하기</button>
+        <button class="clear-btn" onclick="dismissResumeBanner()">새로 시작</button>
+      </div>
+    </div>
+  ` : '';
+
+  return `
+    <div class="step">
+      <div class="step-question">어떻게 도와드릴까요?</div>
+      <div class="step-hint">편하신 방법을 선택해주세요</div>
+      ${resumeHtml}
+      <div class="entry-card quick" onclick="goQuickInquiry()">
+        <div class="entry-card-title">📷 빠른 문의</div>
+        <div class="entry-card-desc">시공 부위 사진 몇 장만 보내주시면<br>상담사가 확인 후 바로 연락드려요</div>
+        <button class="entry-card-btn">카카오톡으로 바로 문의하기</button>
+      </div>
+      <div class="entry-card detail" onclick="goDetailInquiry()">
+        <div class="entry-card-title">📝 상세히 입력하기</div>
+        <div class="entry-card-desc">약 3분이면 끝나요 · 더 정확한 견적을 받아보실 수 있어요</div>
+        <button class="entry-card-btn">시작하기</button>
+      </div>
+    </div>
+  `;
+}
+
+function goQuickInquiry() {
+  window.open(KAKAO_LINK, '_blank', 'noopener');
+}
+
+function goDetailInquiry() {
+  currentStep = 0;
+  render();
+}
+
+function renderStepSiteName() {
+  const pyeongButtons = PYEONG_RANGES.map(r => `
+    <div class="pyeong-btn ${pyeongRange === r ? 'selected' : ''}" onclick="selectPyeong('${r}')">${r}</div>
+  `).join('');
+
+  return `
+    <div class="step">
+      <div class="step-label">STEP 1</div>
+      <div class="step-question">평수가 어떻게 되시나요?</div>
+      <div class="step-hint">해당하는 구간을 선택해주세요</div>
+      <div class="pyeong-grid">${pyeongButtons}</div>
+      <label class="custom-note-label">아파트명 (선택)</label>
+      <input type="text" id="apartmentNameInput" class="text-input" placeholder="예: 강남 래미안" value="${apartmentName}" oninput="onApartmentNameInput()" style="margin-bottom:4px">
+      <div class="nav-row">
+        <button class="nav-btn secondary" onclick="goBack()">이전</button>
+        <button class="nav-btn primary" id="siteNameNextBtn" onclick="goSiteNameNext()" ${pyeongRange ? '' : 'disabled'}>다음</button>
+      </div>
+    </div>
+  `;
+}
+
+function selectPyeong(range) {
+  pyeongRange = range;
+  updateSiteName();
+  render();
+}
+
+function onApartmentNameInput() {
+  apartmentName = document.getElementById('apartmentNameInput').value;
+  updateSiteName();
+  saveDraft();
+}
+
+function goSiteNameNext() {
+  if (!pyeongRange) return;
+  updateSiteName();
+  currentStep = 1;
+  render();
+}
+
+function renderStepCategories() {
+  const catButtons = Object.keys(CATEGORY_DEFS).map(key => {
+    const def = CATEGORY_DEFS[key];
+    const isSel = selectedCategories.includes(key);
+    return `
+      <div class="choice-btn ${isSel ? 'selected' : ''}" onclick="toggleCategory('${key}')">
+        <span class="emoji">${def.emoji}</span>
+        <span>${def.label}</span>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="step">
+      <div class="step-label">STEP 2</div>
+      <div class="step-question">원하시는 시공부위를<br>선택해 주세요</div>
+      <div class="step-hint">여러 개 선택 가능합니다</div>
+      <div class="btn-grid">${catButtons}</div>
+      <div class="nav-row">
+        <button class="nav-btn secondary" onclick="goBack()">이전</button>
+        <button class="nav-btn primary" id="catNextBtn" onclick="goCategoriesNext()" ${selectedCategories.length ? '' : 'disabled'}>다음</button>
+      </div>
+    </div>
+  `;
+}
+
+function toggleCategory(key) {
+  const idx = selectedCategories.indexOf(key);
+  if (idx > -1) selectedCategories.splice(idx, 1);
+  else selectedCategories.push(key);
+  render();
+}
+
+function goCategoriesNext() {
+  if (selectedCategories.length === 0) return;
+  currentStep = 2;
+  render();
+}
+
+function renderStepQuantities(catKey) {
+  const def = CATEGORY_DEFS[catKey];
+  const stepNum = selectedCategories.indexOf(catKey) + 3;
+  const isAll = !!categoryAllFlags[catKey];
+  const isExpanded = !!expandedCategories[catKey];
+  const isDoors = catKey === 'doors';
+  const isSash = catKey === 'sash';
+  const isMolding = catKey === 'molding';
+  const isBuiltin = catKey === 'builtin_furniture';
+  const isKitchen = catKey === 'kitchen_furniture';
+
+  const detailContent = isDoors
+    ? `<div class="btn-grid">${DOOR_LOCATION_ITEMS.map(loc => `
+        <div class="choice-btn ${doorLocationSelections[loc.key] ? 'selected' : ''}" onclick="toggleDoorLocation('${loc.key}')">
+          <span>${loc.name}</span>
+        </div>
+      `).join('')}</div>`
+    : isSash
+    ? `
+      ${SASH_LOCATION_ITEMS.map(loc => `
+        <div class="sash-row">
+          <button type="button" class="sash-name-btn ${sashLocationSelections[loc.key] ? 'selected' : ''}" onclick="toggleSashLocation('${loc.key}')">${loc.name}</button>
+          <label class="sash-double-check">
+            <input type="checkbox" ${sashDoubleFlags[loc.key] ? 'checked' : ''} onchange="toggleSashDouble('${loc.key}')">
+            이중창 모두
+          </label>
+        </div>
+      `).join('')}
+      <div class="sash-row">
+        <input type="text" class="sash-custom-input" id="sashCustomInput" placeholder="기타 부위 (직접입력)" value="${sashCustomLocation}" oninput="onSashCustomInput()">
+        <label class="sash-double-check">
+          <input type="checkbox" ${sashCustomDouble ? 'checked' : ''} onchange="toggleSashCustomDouble()">
+          이중창 모두
+        </label>
+      </div>
+    `
+    : isMolding
+    ? `
+      ${MOLDING_ITEMS.map(it => it.type === 'toggle' ? `
+        <div class="molding-row">
+          <button type="button" class="molding-toggle-btn ${moldingSelections[it.key] ? 'selected' : ''}" onclick="toggleMolding('${it.key}')">${it.name}</button>
+        </div>
+      ` : `
+        <div class="molding-row">
+          <div class="molding-count-row">
+            <span class="molding-count-name">${it.name}</span>
+            <input type="number" min="0" class="molding-count-input" id="moldingCount-${it.key}" placeholder="방 개수" value="${moldingCounts[it.key] || ''}" oninput="onMoldingCountInput('${it.key}')">
+          </div>
+        </div>
+      `).join('')}
+      <div class="molding-row">
+        <input type="text" class="sash-custom-input" style="width:100%" id="moldingCustomInput" placeholder="기타 부위 (직접입력)" value="${moldingCustomLocation}" oninput="onMoldingCustomInput()">
+      </div>
+    `
+    : isBuiltin
+    ? `
+      ${BUILTIN_ITEMS.map(it => it.type === 'toggle' ? `
+        <div class="molding-row">
+          <button type="button" class="molding-toggle-btn ${builtinToggles[it.key] ? 'selected' : ''}" onclick="toggleBuiltinToggle('${it.key}')">${it.name}</button>
+        </div>
+      ` : `
+        <div class="molding-row">
+          <div class="molding-count-row">
+            <span class="molding-count-name">${it.name}</span>
+            <input type="number" min="0" class="molding-count-input" id="builtinCount-${it.key}" placeholder="문짝개수" value="${builtinCounts[it.key] || ''}" oninput="onBuiltinCountInput('${it.key}')">
+          </div>
+        </div>
+      `).join('')}
+      <div class="molding-row builtin-custom-row">
+        <input type="text" class="sash-custom-input" id="builtinCustomInput" placeholder="기타 부위 (직접입력)" value="${builtinCustomLocation}" oninput="onBuiltinCustomInput()">
+        <input type="number" min="0" class="molding-count-input" id="builtinCustomCount" placeholder="문짝개수" value="${builtinCustomCount || ''}" oninput="onBuiltinCustomCountInput()">
+      </div>
+    `
+    : isKitchen
+    ? `
+      ${KITCHEN_ITEMS.map(it => it.type === 'toggle' ? `
+        <div class="molding-row">
+          <button type="button" class="molding-toggle-btn ${kitchenToggles[it.key] ? 'selected' : ''}" onclick="toggleKitchenToggle('${it.key}')">${it.name}</button>
+        </div>
+      ` : `
+        <div class="molding-row">
+          <div class="molding-count-row">
+            <span class="molding-count-name">${it.name}</span>
+            <input type="number" min="0" class="molding-count-input" id="kitchenCount-${it.key}" placeholder="문짝개수" value="${kitchenCounts[it.key] || ''}" oninput="onKitchenCountInput('${it.key}')">
+          </div>
+        </div>
+      `).join('')}
+      <div class="molding-row builtin-custom-row">
+        <input type="text" class="sash-custom-input" id="kitchenCustomInput" placeholder="기타 부위 (직접입력)" value="${kitchenCustomLocation}" oninput="onKitchenCustomInput()">
+        <input type="number" min="0" class="molding-count-input" id="kitchenCustomCount" placeholder="문짝개수" value="${kitchenCustomCount || ''}" oninput="onKitchenCustomCountInput()">
+      </div>
+    `
+    : def.items.map(item => {
+        const qKey = `${catKey}:${item.key}`;
+        const qty = quantities[qKey] || 0;
+        return `
+          <div class="qty-row">
+            <div class="qty-info"><div class="qty-name">${item.name}</div></div>
+            <div class="qty-controls">
+              <div class="qty-btn" onclick="adjustQty('${qKey}', -1)">−</div>
+              <div class="qty-value">${qty}</div>
+              <div class="qty-btn" onclick="adjustQty('${qKey}', 1)">+</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+  const toggleLabel = isExpanded
+    ? '🔼 세부 항목 접기'
+    : (isDoors ? '🔽 필요하신 문 위치를 선택해주세요'
+      : isSash ? '🔽 필요하신 창 위치를 선택해주세요'
+      : isMolding ? '🔽 필요하신 몰딩 항목을 선택해주세요'
+      : isBuiltin ? '🔽 필요하신 붙박이 항목을 선택해주세요'
+      : isKitchen ? '🔽 필요하신 싱크대 항목을 선택해주세요'
+      : '🔽 수량을 정확히 아신다면 세부 항목 직접 입력하기');
+
+  return `
+    <div class="step">
+      <div class="step-label">STEP ${stepNum} · ${def.emoji} ${def.label}</div>
+      <div class="step-question">${def.label} 시공이<br>필요하신가요?</div>
+      <button class="category-all-btn ${isAll ? 'active' : ''}" onclick="toggleCategoryAll('${catKey}')">
+        ${isAll ? '✅ 전체 해당으로 선택됨' : `${def.label} 전체 해당해요`}
+      </button>
+      <div class="category-all-hint">정확한 수량은 상담사가 검색해서 확인해드려요</div>
+
+      <div class="custom-note-wrap">
+        <label class="custom-note-label">✏️ 직접 설명하기 (선택)</label>
+        <textarea class="custom-note-input" id="customNote-${catKey}" placeholder="예: 거실이랑 안방 문짝만 하고 싶어요, 밝은 우드 톤으로 하고 싶습니다 등" oninput="onCustomNoteInput('${catKey}')">${customNotes[catKey] || ''}</textarea>
+      </div>
+
+      <button class="detail-toggle" onclick="toggleDetailSection('${catKey}')">${toggleLabel}</button>
+      <div class="detail-section ${isExpanded ? '' : 'hidden'}">${detailContent}</div>
+
+      <div class="nav-row">
+        <button class="nav-btn secondary" onclick="goBack()">이전</button>
+        <button class="nav-btn primary" onclick="goNext()">다음</button>
+      </div>
+    </div>
+  `;
+}
+
+function toggleDetailSection(catKey) {
+  expandedCategories[catKey] = !expandedCategories[catKey];
+  render();
+}
+
+function onCustomNoteInput(catKey) {
+  const el = document.getElementById(`customNote-${catKey}`);
+  if (el) customNotes[catKey] = el.value;
+  saveDraft();
+}
+
+function adjustQty(qKey, delta) {
+  const cur = quantities[qKey] || 0;
+  quantities[qKey] = Math.max(0, cur + delta);
+  render();
+}
+
+function toggleCategoryAll(catKey) {
+  categoryAllFlags[catKey] = !categoryAllFlags[catKey];
+  render();
+}
+
+function toggleDoorLocation(locKey) {
+  doorLocationSelections[locKey] = !doorLocationSelections[locKey];
+  render();
+}
+
+function toggleSashLocation(locKey) {
+  sashLocationSelections[locKey] = !sashLocationSelections[locKey];
+  render();
+}
+
+function toggleSashDouble(locKey) {
+  sashDoubleFlags[locKey] = !sashDoubleFlags[locKey];
+  render();
+}
+
+function onSashCustomInput() {
+  const el = document.getElementById('sashCustomInput');
+  if (el) sashCustomLocation = el.value;
+  saveDraft();
+}
+
+function toggleSashCustomDouble() {
+  sashCustomDouble = !sashCustomDouble;
+  saveDraft();
+}
+
+function toggleMolding(key) {
+  moldingSelections[key] = !moldingSelections[key];
+  render();
+}
+
+function onMoldingCountInput(key) {
+  const el = document.getElementById(`moldingCount-${key}`);
+  if (el) moldingCounts[key] = Math.max(0, parseInt(el.value) || 0);
+  saveDraft();
+}
+
+function onMoldingCustomInput() {
+  const el = document.getElementById('moldingCustomInput');
+  if (el) moldingCustomLocation = el.value;
+  saveDraft();
+}
+
+function toggleBuiltinToggle(key) {
+  builtinToggles[key] = !builtinToggles[key];
+  render();
+}
+
+function onBuiltinCountInput(key) {
+  const el = document.getElementById(`builtinCount-${key}`);
+  if (el) builtinCounts[key] = Math.max(0, parseInt(el.value) || 0);
+  saveDraft();
+}
+
+function onBuiltinCustomInput() {
+  const el = document.getElementById('builtinCustomInput');
+  if (el) builtinCustomLocation = el.value;
+  saveDraft();
+}
+
+function onBuiltinCustomCountInput() {
+  const el = document.getElementById('builtinCustomCount');
+  if (el) builtinCustomCount = Math.max(0, parseInt(el.value) || 0);
+  saveDraft();
+}
+
+function toggleKitchenToggle(key) {
+  kitchenToggles[key] = !kitchenToggles[key];
+  render();
+}
+
+function onKitchenCountInput(key) {
+  const el = document.getElementById(`kitchenCount-${key}`);
+  if (el) kitchenCounts[key] = Math.max(0, parseInt(el.value) || 0);
+  saveDraft();
+}
+
+function onKitchenCustomInput() {
+  const el = document.getElementById('kitchenCustomInput');
+  if (el) kitchenCustomLocation = el.value;
+  saveDraft();
+}
+
+function onKitchenCustomCountInput() {
+  const el = document.getElementById('kitchenCustomCount');
+  if (el) kitchenCustomCount = Math.max(0, parseInt(el.value) || 0);
+  saveDraft();
+}
+
+function goNext() { currentStep++; render(); }
+function goBack() {
+  if (currentStep > -1) currentStep--;
+  render();
+}
+
+function buildItemList() {
+  const list = [];
+  selectedCategories.forEach(catKey => {
+    if (catKey === 'doors') {
+      DOOR_LOCATION_ITEMS.forEach(loc => {
+        if (doorLocationSelections[loc.key]) {
+          list.push({ categoryKey: 'doors', itemKey: loc.itemKey, quantity: 1, difficulty: 1, location: loc.location, _name: loc.name });
+        }
+      });
+      return;
+    }
+    if (catKey === 'sash') {
+      // 정확한 사이즈/타입은 현장 확인이 필요하므로 기본값(하이샷시 중창)으로 등록,
+      // "이중창 모두" 체크 시 내부/외부 2짝으로 간주해 수량 2로 등록
+      SASH_LOCATION_ITEMS.forEach(loc => {
+        if (sashLocationSelections[loc.key]) {
+          const isDouble = !!sashDoubleFlags[loc.key];
+          list.push({
+            categoryKey: 'sash', itemKey: 'high_sash_medium',
+            quantity: isDouble ? 2 : 1, difficulty: 1, location: loc.location,
+            _name: `${loc.name}${isDouble ? ' (이중창 모두)' : ''}`
+          });
+        }
+      });
+      if (sashCustomLocation.trim()) {
+        const isDouble = !!sashCustomDouble;
+        list.push({
+          categoryKey: 'sash', itemKey: 'high_sash_medium',
+          quantity: isDouble ? 2 : 1, difficulty: 1, location: sashCustomLocation.trim(),
+          _name: `${sashCustomLocation.trim()} 창${isDouble ? ' (이중창 모두)' : ''}`
+        });
+      }
+      return;
+    }
+    if (catKey === 'molding') {
+      MOLDING_ITEMS.forEach(it => {
+        if (it.type === 'toggle') {
+          if (moldingSelections[it.key]) {
+            list.push({ categoryKey: 'molding', itemKey: it.itemKey, quantity: 1, difficulty: 1, location: it.location, _name: it.name });
+          }
+        } else { // type === 'count'
+          const cnt = moldingCounts[it.key] || 0;
+          if (cnt > 0) {
+            list.push({ categoryKey: 'molding', itemKey: it.itemKey, quantity: cnt, difficulty: 1, location: it.location, _name: `${it.name} (${cnt}개 방)` });
+          }
+        }
+      });
+      if (moldingCustomLocation.trim()) {
+        list.push({ categoryKey: 'molding', itemKey: 'misc_molding', quantity: 1, difficulty: 1, location: moldingCustomLocation.trim(), _name: `${moldingCustomLocation.trim()} 몰딩` });
+      }
+      return;
+    }
+    if (catKey === 'builtin_furniture') {
+      BUILTIN_ITEMS.forEach(it => {
+        if (it.type === 'toggle') {
+          if (builtinToggles[it.key]) {
+            list.push({ categoryKey: 'builtin_furniture', itemKey: it.itemKey, quantity: 1, difficulty: 1, location: it.location, _name: it.name });
+          }
+        } else { // type === 'count'
+          const cnt = builtinCounts[it.key] || 0;
+          if (cnt > 0) {
+            list.push({ categoryKey: 'builtin_furniture', itemKey: it.itemKey, quantity: cnt, difficulty: 1, location: it.location, _name: `${it.name} (문짝 ${cnt}개)` });
+          }
+        }
+      });
+      if (builtinCustomLocation.trim() && builtinCustomCount > 0) {
+        list.push({ categoryKey: 'builtin_furniture', itemKey: 'misc_builtin', quantity: builtinCustomCount, difficulty: 1, location: builtinCustomLocation.trim(), _name: `${builtinCustomLocation.trim()} (문짝 ${builtinCustomCount}개)` });
+      }
+      return;
+    }
+    if (catKey === 'kitchen_furniture') {
+      KITCHEN_ITEMS.forEach(it => {
+        if (it.type === 'toggle') {
+          if (kitchenToggles[it.key]) {
+            list.push({ categoryKey: 'kitchen_furniture', itemKey: it.itemKey, quantity: 1, difficulty: 1, location: it.location, _name: it.name });
+          }
+        } else {
+          const cnt = kitchenCounts[it.key] || 0;
+          if (cnt > 0) {
+            list.push({ categoryKey: 'kitchen_furniture', itemKey: it.itemKey, quantity: cnt, difficulty: 1, location: it.location, _name: `${it.name} (문짝 ${cnt}개)` });
+          }
+        }
+      });
+      if (kitchenCustomLocation.trim() && kitchenCustomCount > 0) {
+        list.push({ categoryKey: 'kitchen_furniture', itemKey: 'misc_kitchen', quantity: kitchenCustomCount, difficulty: 1, location: kitchenCustomLocation.trim(), _name: `${kitchenCustomLocation.trim()} (문짝 ${kitchenCustomCount}개)` });
+      }
+      return;
+    }
+    const def = CATEGORY_DEFS[catKey];
+    def.items.forEach(item => {
+      const qKey = `${catKey}:${item.key}`;
+      const qty = quantities[qKey] || 0;
+      if (qty > 0) {
+        list.push({ categoryKey: catKey, itemKey: item.key, quantity: qty, difficulty: 1, location: null, _name: item.name });
+      }
+    });
+  });
+  return list;
+}
+
+function renderStepSummary() {
+  const itemList = buildItemList();
+  const hasAnyContent = itemList.length > 0
+    || selectedCategories.some(c => categoryAllFlags[c])
+    || selectedCategories.some(c => (customNotes[c] || '').trim());
+
+  let bodyHtml;
+  if (!hasAnyContent) {
+    bodyHtml = `<p style="text-align:center;color:var(--muted);font-size:14px;padding:20px 0">선택된 시공 항목이 없습니다.<br>이전 단계로 돌아가 입력해주세요.</p>`;
+  } else {
+    bodyHtml = selectedCategories.map(catKey => {
+      const def = CATEGORY_DEFS[catKey];
+      const itemsInCat = itemList.filter(it => it.categoryKey === catKey);
+      const isAll = !!categoryAllFlags[catKey];
+      const note = (customNotes[catKey] || '').trim();
+      if (itemsInCat.length === 0 && !isAll && !note) return '';
+      return `
+        <div class="summary-cat">
+          <div class="summary-cat-title">${def.emoji} ${def.label}${isAll ? ' <span style="color:var(--accent)">· 전체 해당</span>' : ''}</div>
+          ${itemsInCat.map(it => `
+            <div class="summary-item"><span>${it._name}</span>${(catKey === 'doors' || catKey === 'molding' || catKey === 'builtin_furniture' || catKey === 'kitchen_furniture') ? '<span class="cnt">✓</span>' : `<span class="cnt">${it.quantity}개</span>`}</div>
+          `).join('')}
+          ${isAll && itemsInCat.length === 0 ? `<p style="font-size:12px;color:var(--muted)">정확한 수량은 상담사가 검색해서 확인 예정</p>` : ''}
+          ${note ? `<p style="font-size:13px;color:var(--text);background:var(--bg);border-radius:8px;padding:8px 10px;margin-top:6px">✏️ "${note}"</p>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  return `
+    <div class="step">
+      <div class="step-label">STEP ${getTotalSteps()} · 확인</div>
+      <div class="step-question">상담 내용을 확인해주세요</div>
+      <div class="step-hint" style="margin-bottom:16px">📍 ${siteName}</div>
+      ${bodyHtml}
+      <div class="final-actions">
+        <button class="final-btn go" onclick="sendToCalculator()" ${hasAnyContent ? '' : 'disabled'}>📊 견적 요청 하기</button>
+        <button class="final-btn report" onclick="showReportModal()" ${hasAnyContent ? '' : 'disabled'}>📄 상담사용 리포트 보기</button>
+      </div>
+      <div class="photo-notice">
+        <p class="photo-notice-text">📷 정확한 견적을 위해 시공 부위 사진을 보내주세요</p>
+        <a class="final-btn kakao" href="${KAKAO_LINK}" target="_blank" rel="noopener">💬 카카오톡으로 사진 전송하기</a>
+      </div>
+      <p id="statusMsg" class="status-msg hidden"></p>
+      <div class="nav-row">
+        <button class="nav-btn secondary" onclick="goBack()">이전</button>
+        <button class="nav-btn secondary" onclick="resetAll()">처음부터 다시</button>
+      </div>
+    </div>
+  `;
+}
+
+function buildHandoffPayload() {
+  const itemList = buildItemList().map(({ _name, ...rest }) => rest);
+  return { siteName, items: itemList, savedAt: new Date().toISOString() };
+}
+
+function sendToCalculator() {
+  const payload = buildHandoffPayload();
+  try {
+    localStorage.setItem('rozenfilm_consultation_handoff', JSON.stringify(payload));
+    clearDraft();
+    const msg = document.getElementById('statusMsg');
+    msg.textContent = '✅ 저장 완료! 견적 계산기로 이동합니다...';
+    msg.classList.remove('hidden');
+    setTimeout(() => { window.location.href = './index.html'; }, 600);
+  } catch(e) {
+    alert('저장 중 오류가 발생했습니다: ' + e.message);
+  }
+}
+
+function buildReportText() {
+  const itemList = buildItemList();
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const hasAnyContent = itemList.length > 0
+    || selectedCategories.some(c => categoryAllFlags[c])
+    || selectedCategories.some(c => (customNotes[c] || '').trim());
+
+  let text = '';
+  text += '========================================\n';
+  text += '   ROZEN FILM 시공 상담 결과 리포트\n';
+  text += '========================================\n\n';
+  text += `작성일시: ${dateStr}\n`;
+  text += `현장명(아파트/평수): ${siteName}\n\n`;
+  text += '----------------------------------------\n';
+  text += '선택된 시공 항목\n';
+  text += '----------------------------------------\n\n';
+
+  if (!hasAnyContent) {
+    text += '선택된 시공 항목이 없습니다.\n';
+  } else {
+    selectedCategories.forEach(catKey => {
+      const def = CATEGORY_DEFS[catKey];
+      const itemsInCat = itemList.filter(it => it.categoryKey === catKey);
+      const isAll = !!categoryAllFlags[catKey];
+      const note = (customNotes[catKey] || '').trim();
+      if (itemsInCat.length === 0 && !isAll && !note) return;
+      text += `[${def.emoji} ${def.label}]${isAll ? ' ⭐ 전체 해당 (정확한 수량 검색해서 확인 필요)' : ''}\n`;
+      itemsInCat.forEach(it => {
+        text += (catKey === 'doors' || catKey === 'molding' || catKey === 'builtin_furniture' || catKey === 'kitchen_furniture') ? `  - ${it._name}\n` : `  - ${it._name} : ${it.quantity}개\n`;
+      });
+      if (isAll && itemsInCat.length === 0) {
+        text += `  (고객이 입력한 세부 수량 없음 — 전체 해당으로만 표시됨)\n`;
+      }
+      if (note) text += `  💬 고객 설명: "${note}"\n`;
+      text += '\n';
+    });
+  }
+
+  text += '----------------------------------------\n';
+  text += '※ 본 리포트는 고객 상담 시 선택한 항목을 기록한 것으로,\n';
+  text += '   정확한 수량 및 시공 범위는 상담사가 검색해서 확인 후 확정합니다.\n';
+  text += '----------------------------------------\n';
+
+  return text;
+}
+
+function showReportModal() {
+  document.getElementById('reportModalBody').textContent = buildReportText();
+  document.getElementById('reportModalOverlay').classList.remove('hidden');
+}
+function closeReportModal() { document.getElementById('reportModalOverlay').classList.add('hidden'); }
+
+function copyReportText() {
+  const text = document.getElementById('reportModalBody').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copyReportBtn');
+    const orig = btn.textContent;
+    btn.textContent = '✅ 복사됨';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  }).catch(() => { alert('복사에 실패했습니다. 직접 선택해서 복사해주세요.'); });
+}
+
+function resetAll() {
+  if (!confirm('처음부터 다시 시작할까요? 입력한 내용이 모두 초기화됩니다.')) return;
+  apartmentName = ''; pyeongRange = ''; siteName = '';
+  selectedCategories = []; quantities = {}; categoryAllFlags = {};
+  customNotes = {}; expandedCategories = {}; doorLocationSelections = {};
+  sashLocationSelections = {}; sashDoubleFlags = {}; sashCustomLocation = ''; sashCustomDouble = false;
+  moldingSelections = {}; moldingCounts = {}; moldingCustomLocation = '';
+  builtinCounts = {}; builtinToggles = {}; builtinCustomLocation = ''; builtinCustomCount = 0;
+  kitchenCounts = {}; kitchenToggles = {}; kitchenCustomLocation = ''; kitchenCustomCount = 0;
+  clearDraft();
+  currentStep = -1;
+  render();
+}
+
+render();
+</script>
+</body>
+</html>
