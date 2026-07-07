@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ROZEN FILM · 시공 상담</title>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap');
   * { font-family: 'Noto Sans KR', sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
@@ -251,6 +252,13 @@
 
 <script>
 const KAKAO_LINK = 'https://open.kakao.com/o/sVVaN3J';
+const COMPANY_PHONE = '010-4729-4911';
+
+// ── EmailJS 설정 (견적 요청 접수 시 알림 이메일 발송용) ──
+const EMAILJS_SERVICE_ID = 'service_jnji7hg';
+const EMAILJS_TEMPLATE_ID = 'template_18mbtk4';
+const EMAILJS_PUBLIC_KEY = 'q_-75tCfqlslBJeCB';
+if (window.emailjs) emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
 
 // "문" 카테고리는 개수 입력 대신 위치별 버튼 선택 방식 사용 (실제 견적 계산기의 itemKey/location에 매핑됨)
 const DOOR_LOCATION_ITEMS = [
@@ -399,6 +407,9 @@ let kitchenCounts = {}; // { 'sink_upper': 3, ... } → 싱크대 항목 문짝�
 let kitchenToggles = {}; // { 'island_cabinet': true, ... } → 개수 없는 토글형 항목(아일랜드장/밥솥장/오픈수납선반)
 let kitchenCustomLocation = ''; // 기타 부위 직접입력 텍스트
 let kitchenCustomCount = 0; // 기타 부위의 문짝개수
+let submitted = false; // 견적 요청 제출 완료 여부
+let contactPhone = ''; // 전화 상담용 연락처
+let phoneSaved = false; // 전화번호 저장 완료 표시
 
 const DRAFT_KEY = 'rozenfilm_consultation_draft';
 
@@ -476,7 +487,7 @@ function dismissResumeBanner() {
 
 function updateProgressUI() {
   const progressWrap = document.getElementById('progressWrap');
-  if (currentStep < 0) { progressWrap.classList.add('hidden'); return; }
+  if (submitted || currentStep < 0) { progressWrap.classList.add('hidden'); return; }
   progressWrap.classList.remove('hidden');
 
   const total = getTotalSteps();
@@ -495,6 +506,11 @@ function updateProgressUI() {
 function render() {
   updateProgressUI();
   const container = document.getElementById('stepContainer');
+
+  if (submitted) {
+    container.innerHTML = renderStepSubmitted();
+    return;
+  }
 
   if (currentStep === -1) {
     container.innerHTML = renderStepEntry();
@@ -674,11 +690,9 @@ function renderStepQuantities(catKey) {
           <button type="button" class="molding-toggle-btn ${moldingSelections[it.key] ? 'selected' : ''}" onclick="toggleMolding('${it.key}')">${it.name}</button>
         </div>
       ` : `
-        <div class="molding-row">
-          <div class="molding-count-row">
-            <span class="molding-count-name">${it.name}</span>
-            <input type="number" min="0" class="molding-count-input" id="moldingCount-${it.key}" placeholder="방 개수" value="${moldingCounts[it.key] || ''}" oninput="onMoldingCountInput('${it.key}')">
-          </div>
+        <div class="molding-row sash-row">
+          <button type="button" class="sash-name-btn ${moldingSelections[it.key] ? 'selected' : ''}" onclick="toggleMolding('${it.key}')">${it.name}</button>
+          <input type="number" min="0" class="molding-count-input" id="moldingCount-${it.key}" placeholder="개수(선택)" value="${moldingCounts[it.key] || ''}" oninput="onMoldingCountInput('${it.key}')">
         </div>
       `).join('')}
       <div class="molding-row">
@@ -692,16 +706,14 @@ function renderStepQuantities(catKey) {
           <button type="button" class="molding-toggle-btn ${builtinToggles[it.key] ? 'selected' : ''}" onclick="toggleBuiltinToggle('${it.key}')">${it.name}</button>
         </div>
       ` : `
-        <div class="molding-row">
-          <div class="molding-count-row">
-            <span class="molding-count-name">${it.name}</span>
-            <input type="number" min="0" class="molding-count-input" id="builtinCount-${it.key}" placeholder="문짝개수" value="${builtinCounts[it.key] || ''}" oninput="onBuiltinCountInput('${it.key}')">
-          </div>
+        <div class="molding-row sash-row">
+          <button type="button" class="sash-name-btn ${builtinToggles[it.key] ? 'selected' : ''}" onclick="toggleBuiltinToggle('${it.key}')">${it.name}</button>
+          <input type="number" min="0" class="molding-count-input" id="builtinCount-${it.key}" placeholder="개수(선택)" value="${builtinCounts[it.key] || ''}" oninput="onBuiltinCountInput('${it.key}')">
         </div>
       `).join('')}
       <div class="molding-row builtin-custom-row">
         <input type="text" class="sash-custom-input" id="builtinCustomInput" placeholder="기타 부위 (직접입력)" value="${builtinCustomLocation}" oninput="onBuiltinCustomInput()">
-        <input type="number" min="0" class="molding-count-input" id="builtinCustomCount" placeholder="문짝개수" value="${builtinCustomCount || ''}" oninput="onBuiltinCustomCountInput()">
+        <input type="number" min="0" class="molding-count-input" id="builtinCustomCount" placeholder="개수(선택)" value="${builtinCustomCount || ''}" oninput="onBuiltinCustomCountInput()">
       </div>
     `
     : isKitchen
@@ -711,16 +723,14 @@ function renderStepQuantities(catKey) {
           <button type="button" class="molding-toggle-btn ${kitchenToggles[it.key] ? 'selected' : ''}" onclick="toggleKitchenToggle('${it.key}')">${it.name}</button>
         </div>
       ` : `
-        <div class="molding-row">
-          <div class="molding-count-row">
-            <span class="molding-count-name">${it.name}</span>
-            <input type="number" min="0" class="molding-count-input" id="kitchenCount-${it.key}" placeholder="문짝개수" value="${kitchenCounts[it.key] || ''}" oninput="onKitchenCountInput('${it.key}')">
-          </div>
+        <div class="molding-row sash-row">
+          <button type="button" class="sash-name-btn ${kitchenToggles[it.key] ? 'selected' : ''}" onclick="toggleKitchenToggle('${it.key}')">${it.name}</button>
+          <input type="number" min="0" class="molding-count-input" id="kitchenCount-${it.key}" placeholder="개수(선택)" value="${kitchenCounts[it.key] || ''}" oninput="onKitchenCountInput('${it.key}')">
         </div>
       `).join('')}
       <div class="molding-row builtin-custom-row">
         <input type="text" class="sash-custom-input" id="kitchenCustomInput" placeholder="기타 부위 (직접입력)" value="${kitchenCustomLocation}" oninput="onKitchenCustomInput()">
-        <input type="number" min="0" class="molding-count-input" id="kitchenCustomCount" placeholder="문짝개수" value="${kitchenCustomCount || ''}" oninput="onKitchenCustomCountInput()">
+        <input type="number" min="0" class="molding-count-input" id="kitchenCustomCount" placeholder="개수(선택)" value="${kitchenCustomCount || ''}" oninput="onKitchenCustomCountInput()">
       </div>
     `
     : def.items.map(item => {
@@ -931,8 +941,9 @@ function buildItemList() {
           }
         } else { // type === 'count'
           const cnt = moldingCounts[it.key] || 0;
-          if (cnt > 0) {
-            list.push({ categoryKey: 'molding', itemKey: it.itemKey, quantity: cnt, difficulty: 1, location: it.location, _name: `${it.name} (${cnt}개 방)` });
+          if (moldingSelections[it.key] || cnt > 0) {
+            const label = cnt > 0 ? `${it.name} (${cnt}개 방)` : `${it.name} (개수 미상 - 확인 필요)`;
+            list.push({ categoryKey: 'molding', itemKey: it.itemKey, quantity: cnt > 0 ? cnt : 1, difficulty: 1, location: it.location, _name: label });
           }
         }
       });
@@ -949,13 +960,16 @@ function buildItemList() {
           }
         } else { // type === 'count'
           const cnt = builtinCounts[it.key] || 0;
-          if (cnt > 0) {
-            list.push({ categoryKey: 'builtin_furniture', itemKey: it.itemKey, quantity: cnt, difficulty: 1, location: it.location, _name: `${it.name} (문짝 ${cnt}개)` });
+          if (builtinToggles[it.key] || cnt > 0) {
+            const label = cnt > 0 ? `${it.name} (문짝 ${cnt}개)` : `${it.name} (개수 미상 - 확인 필요)`;
+            list.push({ categoryKey: 'builtin_furniture', itemKey: it.itemKey, quantity: cnt > 0 ? cnt : 1, difficulty: 1, location: it.location, _name: label });
           }
         }
       });
-      if (builtinCustomLocation.trim() && builtinCustomCount > 0) {
-        list.push({ categoryKey: 'builtin_furniture', itemKey: 'misc_builtin', quantity: builtinCustomCount, difficulty: 1, location: builtinCustomLocation.trim(), _name: `${builtinCustomLocation.trim()} (문짝 ${builtinCustomCount}개)` });
+      if (builtinCustomLocation.trim()) {
+        const cnt = builtinCustomCount || 0;
+        const label = cnt > 0 ? `${builtinCustomLocation.trim()} (문짝 ${cnt}개)` : `${builtinCustomLocation.trim()} (개수 미상 - 확인 필요)`;
+        list.push({ categoryKey: 'builtin_furniture', itemKey: 'misc_builtin', quantity: cnt > 0 ? cnt : 1, difficulty: 1, location: builtinCustomLocation.trim(), _name: label });
       }
       return;
     }
@@ -967,13 +981,16 @@ function buildItemList() {
           }
         } else {
           const cnt = kitchenCounts[it.key] || 0;
-          if (cnt > 0) {
-            list.push({ categoryKey: 'kitchen_furniture', itemKey: it.itemKey, quantity: cnt, difficulty: 1, location: it.location, _name: `${it.name} (문짝 ${cnt}개)` });
+          if (kitchenToggles[it.key] || cnt > 0) {
+            const label = cnt > 0 ? `${it.name} (문짝 ${cnt}개)` : `${it.name} (개수 미상 - 확인 필요)`;
+            list.push({ categoryKey: 'kitchen_furniture', itemKey: it.itemKey, quantity: cnt > 0 ? cnt : 1, difficulty: 1, location: it.location, _name: label });
           }
         }
       });
-      if (kitchenCustomLocation.trim() && kitchenCustomCount > 0) {
-        list.push({ categoryKey: 'kitchen_furniture', itemKey: 'misc_kitchen', quantity: kitchenCustomCount, difficulty: 1, location: kitchenCustomLocation.trim(), _name: `${kitchenCustomLocation.trim()} (문짝 ${kitchenCustomCount}개)` });
+      if (kitchenCustomLocation.trim()) {
+        const cnt = kitchenCustomCount || 0;
+        const label = cnt > 0 ? `${kitchenCustomLocation.trim()} (문짝 ${cnt}개)` : `${kitchenCustomLocation.trim()} (개수 미상 - 확인 필요)`;
+        list.push({ categoryKey: 'kitchen_furniture', itemKey: 'misc_kitchen', quantity: cnt > 0 ? cnt : 1, difficulty: 1, location: kitchenCustomLocation.trim(), _name: label });
       }
       return;
     }
@@ -1025,7 +1042,7 @@ function renderStepSummary() {
       <div class="step-hint" style="margin-bottom:16px">📍 ${siteName}</div>
       ${bodyHtml}
       <div class="final-actions">
-        <button class="final-btn go" onclick="sendToCalculator()" ${hasAnyContent ? '' : 'disabled'}>📊 견적 요청 하기</button>
+        <button class="final-btn go" onclick="submitRequest()" ${hasAnyContent ? '' : 'disabled'}>📊 견적 요청 하기</button>
         <button class="final-btn report" onclick="showReportModal()" ${hasAnyContent ? '' : 'disabled'}>📄 상담사용 리포트 보기</button>
       </div>
       <div class="photo-notice">
@@ -1046,15 +1063,81 @@ function buildHandoffPayload() {
   return { siteName, items: itemList, savedAt: new Date().toISOString() };
 }
 
-function sendToCalculator() {
+function submitRequest() {
   const payload = buildHandoffPayload();
   try {
     localStorage.setItem('rozenfilm_consultation_handoff', JSON.stringify(payload));
     clearDraft();
-    const msg = document.getElementById('statusMsg');
-    msg.textContent = '✅ 저장 완료! 견적 계산기로 이동합니다...';
-    msg.classList.remove('hidden');
-    setTimeout(() => { window.location.href = './index.html'; }, 600);
+    submitted = true;
+    render();
+    sendNotificationEmail(); // 접수 알림 이메일 발송 (실패해도 고객 화면엔 영향 없음)
+  } catch(e) {
+    alert('저장 중 오류가 발생했습니다: ' + e.message);
+  }
+}
+
+// 견적 요청 접수 시 담당자에게 알림 이메일을 보냅니다. 실패해도 조용히 무시합니다
+// (이메일 발송 실패가 고객의 상담 접수 자체를 막아서는 안 되므로).
+function sendNotificationEmail(extraNote) {
+  if (!window.emailjs) return;
+  const params = {
+    apartment_name: siteName || '미지정',
+    phone: contactPhone.trim() || '(미입력)',
+    report_text: buildReportText() + (extraNote ? `\n\n[추가 메모]\n${extraNote}` : '')
+  };
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
+    .catch(e => console.error('알림 이메일 발송 실패:', e));
+}
+
+function renderStepSubmitted() {
+  return `
+    <div class="step" style="text-align:center">
+      <div style="font-size:52px;margin-bottom:14px">✅</div>
+      <div style="text-align:left;font-size:15px;line-height:1.8;color:var(--text);margin-bottom:24px">
+        요청이 접수 완료 되었습니다.<br>
+        채팅 상담을 이어서 진행 예정 입니다.<br>
+        빠르고 정확하게 견적서를 보내드리겠습니다.<br>
+        <br>
+        전화 상담을 원하시면 아래 연락처로 전화 주시거나<br>
+        전화번호를 남겨주시면 담당자가 연락 드리겠습니다.<br>
+        <br>
+        <span style="font-size:17px;font-weight:800;color:var(--brand)">📞 ${COMPANY_PHONE}</span><br>
+        <br>
+        견적 요청에 감사드립니다!
+      </div>
+
+      <label class="custom-note-label" style="text-align:left">전화번호 남기기 (선택)</label>
+      <input type="tel" id="contactPhoneInput" class="text-input" placeholder="예: 010-1234-5678" value="${contactPhone}" oninput="onContactPhoneInput()" style="margin-bottom:10px">
+      <button class="nav-btn primary" style="width:100%" onclick="savePhoneNumber()">전화번호 남기기</button>
+      <p id="phoneStatusMsg" class="status-msg ${phoneSaved ? '' : 'hidden'}">✅ 전화번호가 저장되었습니다. 곧 연락드리겠습니다!</p>
+
+      <div class="photo-notice" style="margin-top:20px">
+        <p class="photo-notice-text">📷 정확한 견적을 위해 시공 부위 사진을 보내주세요</p>
+        <a class="final-btn kakao" href="${KAKAO_LINK}" target="_blank" rel="noopener">💬 카카오톡으로 사진 전송하기</a>
+      </div>
+    </div>
+  `;
+}
+
+function onContactPhoneInput() {
+  const el = document.getElementById('contactPhoneInput');
+  if (el) contactPhone = el.value;
+}
+
+function savePhoneNumber() {
+  if (!contactPhone.trim()) {
+    alert('전화번호를 입력해주세요.');
+    return;
+  }
+  try {
+    const raw = localStorage.getItem('rozenfilm_consultation_handoff');
+    const data = raw ? JSON.parse(raw) : buildHandoffPayload();
+    data.contactPhone = contactPhone.trim();
+    localStorage.setItem('rozenfilm_consultation_handoff', JSON.stringify(data));
+    phoneSaved = true;
+    const msg = document.getElementById('phoneStatusMsg');
+    if (msg) msg.classList.remove('hidden');
+    sendNotificationEmail(`고객이 전화번호를 남겼습니다: ${contactPhone.trim()}`);
   } catch(e) {
     alert('저장 중 오류가 발생했습니다: ' + e.message);
   }
@@ -1132,6 +1215,7 @@ function resetAll() {
   moldingSelections = {}; moldingCounts = {}; moldingCustomLocation = '';
   builtinCounts = {}; builtinToggles = {}; builtinCustomLocation = ''; builtinCustomCount = 0;
   kitchenCounts = {}; kitchenToggles = {}; kitchenCustomLocation = ''; kitchenCustomCount = 0;
+  submitted = false; contactPhone = ''; phoneSaved = false;
   clearDraft();
   currentStep = -1;
   render();
