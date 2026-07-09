@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ROZEN FILM · 시공팀 일정</title>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap');
@@ -623,6 +624,10 @@
         <label style="font-size:12px;font-weight:600;color:var(--muted)">연락처 (선택)</label>
         <input type="text" id="workerPhone" class="input mt-1" placeholder="010-0000-0000">
       </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--muted)">이메일 (선택 — 현장 배치 알림 발송용)</label>
+        <input type="email" id="workerEmail" class="input mt-1" placeholder="worker@example.com">
+      </div>
       <div class="flex gap-2 pt-2">
         <button onclick="saveWorker()" class="btn-primary flex-1">저장</button>
         <button onclick="closeWorkerModal()" class="btn-secondary">취소</button>
@@ -751,6 +756,12 @@ const COLORS = [
 let selectedColor = COLORS[0];
 
 const ADMIN_EMAIL = 'kilaloss2@gmail.com'; // Firebase 소유자 이메일 → 관리자
+
+// ── EmailJS 설정 (현장 배치 알림 이메일 발송용) ──
+const EMAILJS_SERVICE_ID = 'service_jnji7hg';
+const EMAILJS_ASSIGNMENT_TEMPLATE_ID = 'template_quixmzp';
+const EMAILJS_PUBLIC_KEY = 'q_-75tCfqlslBJeCB';
+if (window.emailjs) emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
 function isAdmin() {
   return window._user && window._user.email === ADMIN_EMAIL;
 }
@@ -1061,6 +1072,7 @@ async function saveSite() {
 async function syncSiteWorkerSchedules(site, previousSite) {
   const dateList = getDateRangeList(site.startDate, site.endDate);
   const dailyAssignments = site.dailyAssignments || {};
+  const newlyAssigned = {}; // { workerId: [dateKey, ...] } → 이번 저장에서 새로 배치된 일자만 모음 (알림용)
 
   // Clean up entries for any date that's now outside the (possibly changed) range
   if (previousSite) {
@@ -1099,12 +1111,36 @@ async function syncSiteWorkerSchedules(site, previousSite) {
         await saveScheduleToDb(entry);
         if (!schedules[dateKey]) schedules[dateKey] = [];
         schedules[dateKey].push(entry);
+        if (!newlyAssigned[workerId]) newlyAssigned[workerId] = [];
+        newlyAssigned[workerId].push(dateKey);
       } else if (stillThere.location !== site.name) {
         stillThere.location = site.name;
         await saveScheduleToDb(stillThere);
       }
     }
   }
+
+  // 새로 배치된 시공자들에게 이메일 알림 발송 (이메일 미등록/발송 실패는 조용히 무시 — 배치 저장 자체를 막지 않음)
+  sendAssignmentNotifications(site, newlyAssigned);
+}
+
+function sendAssignmentNotifications(site, newlyAssigned) {
+  if (!window.emailjs) return;
+  Object.keys(newlyAssigned).forEach(workerId => {
+    const worker = workers.find(w => w.id === workerId);
+    if (!worker || !worker.email) return; // 이메일 미등록 시공자는 건너뜀
+
+    const dates = newlyAssigned[workerId].slice().sort();
+    const params = {
+      to_email: worker.email,
+      worker_name: worker.name,
+      site_name: site.name,
+      site_address: site.address || '(주소 미입력)',
+      assigned_dates: dates.join(', ')
+    };
+    emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_ASSIGNMENT_TEMPLATE_ID, params)
+      .catch(e => console.error(`배치 알림 이메일 발송 실패 (${worker.name}):`, e));
+  });
 }
 
 async function deleteSiteConfirm() {
@@ -1807,6 +1843,7 @@ function openAddWorkerModal(id = null) {
   document.getElementById('workerModalTitle').textContent = id ? '팀원 수정' : '팀원 추가';
   document.getElementById('workerName').value = worker?.name || '';
   document.getElementById('workerPhone').value = worker?.phone || '';
+  document.getElementById('workerEmail').value = worker?.email || '';
   selectedColor = worker?.color || COLORS[0];
 
   const picker = document.getElementById('colorPicker');
@@ -1834,10 +1871,11 @@ function closeWorkerModal() {
 async function saveWorker() {
   const name = document.getElementById('workerName').value.trim();
   const phone = document.getElementById('workerPhone').value.trim();
+  const email = document.getElementById('workerEmail').value.trim();
   if (!name) { alert('이름을 입력해주세요.'); return; }
 
   const id = editingWorkerId || `worker_${Date.now()}`;
-  const worker = { id, name, color: selectedColor, phone, order: workers.length };
+  const worker = { id, name, color: selectedColor, phone, email, order: workers.length };
 
   try {
     await saveWorkerToDb(worker);
@@ -1879,6 +1917,7 @@ function renderWorkerManage() {
       <div style="flex:1">
         <div style="font-size:15px;font-weight:700">${w.name}</div>
         ${w.phone ? `<div style="font-size:12px;color:var(--muted)">${w.phone}</div>` : ''}
+        ${w.email ? `<div style="font-size:12px;color:var(--muted)">✉️ ${w.email}</div>` : ''}
       </div>
       ${isAdmin() ? `
         <button onclick="openAddWorkerModal('${w.id}')" class="btn-secondary" style="padding:6px 12px;font-size:12px">수정</button>
