@@ -481,20 +481,20 @@
 
       let sampleImageUrl = editingId ? (items.find(i=>i.id===editingId).sampleImageUrl || '') : '';
       if(sampleFile){
-        statusEl.textContent = '대표 사진 업로드 중...';
         const ref = storage.ref(`film_samples/${currentTab}/${docId}/sample_${Date.now()}.jpg`);
-        await ref.put(sampleFile);
-        sampleImageUrl = await ref.getDownloadURL();
+        sampleImageUrl = await uploadWithProgress(ref, sampleFile, (pct) => {
+          statusEl.textContent = `대표 사진 업로드 중... (${pct}%)`;
+        });
       }
 
       let installImages = editingId ? (items.find(i=>i.id===editingId).installImages || []) : [];
       if(installFiles.length){
         installImages = [];
         for(let i=0; i<installFiles.length; i++){
-          statusEl.textContent = `시공 사진 업로드 중 (${i+1}/${installFiles.length})...`;
           const ref = storage.ref(`film_samples/${currentTab}/${docId}/install_${Date.now()}_${i}.jpg`);
-          await ref.put(installFiles[i]);
-          const url = await ref.getDownloadURL();
+          const url = await uploadWithProgress(ref, installFiles[i], (pct) => {
+            statusEl.textContent = `시공 사진 업로드 중 (${i+1}/${installFiles.length})... (${pct}%)`;
+          });
           installImages.push(url);
         }
       }
@@ -522,7 +522,8 @@
       }, 400);
     }catch(err){
       console.error(err);
-      statusEl.textContent = '저장하지 못했어요: ' + (err.message || '알 수 없는 오류');
+      const codeText = err.code ? ` (${err.code})` : '';
+      statusEl.textContent = '저장하지 못했어요' + codeText + ': ' + (err.message || '알 수 없는 오류');
       statusEl.className = 'error';
     }finally{
       saveBtn.disabled = false;
@@ -533,6 +534,50 @@
     return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   }
   function escapeAttr(str){ return escapeHtml(str); }
+
+  // 업로드 진행률 표시 + 15초 이상 진행이 없으면 타임아웃으로 처리
+  function uploadWithProgress(ref, file, onProgress){
+    return new Promise((resolve, reject) => {
+      const task = ref.put(file);
+      let lastProgressAt = Date.now();
+      let settled = false;
+
+      const watchdog = setInterval(() => {
+        if(settled) return;
+        if(Date.now() - lastProgressAt > 15000){
+          settled = true;
+          clearInterval(watchdog);
+          task.cancel();
+          reject(new Error('업로드가 15초 이상 진행되지 않았어요. Firebase Storage가 활성화되어 있는지, 보안 규칙이 설정되어 있는지 확인해주세요.'));
+        }
+      }, 1000);
+
+      task.on('state_changed',
+        (snapshot) => {
+          lastProgressAt = Date.now();
+          const pct = snapshot.totalBytes ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) : 0;
+          onProgress(pct);
+        },
+        (err) => {
+          if(settled) return;
+          settled = true;
+          clearInterval(watchdog);
+          reject(err);
+        },
+        async () => {
+          if(settled) return;
+          settled = true;
+          clearInterval(watchdog);
+          try{
+            const url = await task.snapshot.ref.getDownloadURL();
+            resolve(url);
+          }catch(err){
+            reject(err);
+          }
+        }
+      );
+    });
+  }
 </script>
 </body>
 </html>
