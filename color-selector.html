@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ROZEN FILM · 필름 색상 선택 도우미</title>
+<link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
+<link rel="dns-prefetch" href="https://firebasestorage.googleapis.com">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap');
   * { font-family: 'Noto Sans KR', sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
@@ -348,7 +350,7 @@
         const card = document.createElement('div');
         card.className = 'sample-card';
         card.innerHTML = `
-          <img class="sample-thumb" src="${escapeAttr((data.sampleImages && data.sampleImages[0]) || data.sampleImageUrl || '')}" alt="${escapeAttr(data.name || '')}" loading="lazy" />
+          <img class="sample-thumb" src="${escapeAttr((data.sampleImages && data.sampleImages[0]) || data.sampleImageUrl || '')}" alt="${escapeAttr(data.name || '')}" loading="lazy" decoding="async" />
           <div class="sample-info">
             <div class="sample-name">${escapeHtml(data.name || '이름 없음')}</div>
             ${data.code ? `<div class="sample-code">${escapeHtml(data.code)}</div>` : ''}
@@ -402,6 +404,7 @@
         const img = document.createElement('img');
         img.src = url;
         img.loading = 'lazy';
+        img.decoding = 'async';
         if(url === heroSrc) img.classList.add('active');
         img.addEventListener('click', () => {
           document.getElementById('detail-hero-img').src = url;
