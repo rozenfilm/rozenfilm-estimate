@@ -111,11 +111,18 @@
   .modal-section-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
 
   .thumb-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-  .thumb-row img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1.5px solid var(--border); }
+  .thumb-row img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1.5px solid var(--border); display: block; }
   .thumb-row .thumb-empty {
     width: 56px; height: 56px; border-radius: 8px; border: 1.5px dashed var(--border);
     display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px;
   }
+  .thumb-wrap { position: relative; width: 56px; height: 56px; flex-shrink: 0; }
+  .thumb-remove {
+    position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--danger); color: #fff; border: 2px solid var(--surface); font-size: 12px;
+    line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .thumb-count { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
   .hint { font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
 
   .case-row { display: flex; gap: 8px; margin-bottom: 8px; }
@@ -197,17 +204,19 @@
     </div>
 
     <div class="modal-section">
-      <div class="modal-section-label">📷 대표 샘플 사진 (1장)</div>
+      <div class="modal-section-label">📷 대표 샘플 사진 (최대 3장)</div>
+      <div class="thumb-count" id="sample-thumb-count"></div>
       <div class="thumb-row" id="sample-thumb-preview"></div>
-      <input type="file" id="f-sample-image" accept="image/*" />
-      <p class="hint">새 파일을 선택하면 기존 사진을 대체합니다. 선택하지 않으면 기존 사진이 유지돼요.</p>
+      <input type="file" id="f-sample-image" accept="image/*" multiple />
+      <p class="hint">여러 장 선택하면 기존 사진에 추가돼요. 사진 위 × 버튼으로 개별 삭제할 수 있어요.</p>
     </div>
 
     <div class="modal-section">
-      <div class="modal-section-label">🏠 시공 사진 (최대 5장)</div>
+      <div class="modal-section-label">🏠 시공 사진 (최대 10장)</div>
+      <div class="thumb-count" id="install-thumb-count"></div>
       <div class="thumb-row" id="install-thumb-preview"></div>
       <input type="file" id="f-install-images" accept="image/*" multiple />
-      <p class="hint">최대 5장까지 선택 가능해요. 새로 선택하면 기존 시공 사진 전체를 대체합니다.</p>
+      <p class="hint">여러 장 선택하면 기존 사진에 추가돼요. 사진 위 × 버튼으로 개별 삭제할 수 있어요.</p>
     </div>
 
     <div class="modal-section">
@@ -247,8 +256,10 @@
   let currentTab = 'white';
   let items = [];
   let editingId = null;
-  let existingSampleUrl = '';
-  let existingInstallUrls = [];
+  const SAMPLE_MAX = 3;
+  const INSTALL_MAX = 10;
+  let sampleImages = [];   // [{ url, file, isNew }]
+  let installImages = [];  // [{ url, file, isNew }]
 
   // ---------- AUTH ----------
   auth.onAuthStateChanged(user => {
@@ -317,10 +328,10 @@
       const row = document.createElement('div');
       row.className = 'item-row';
       row.innerHTML = `
-        <img src="${item.sampleImageUrl || ''}" alt="" />
+        <img src="${(item.sampleImages && item.sampleImages[0]) || item.sampleImageUrl || ''}" alt="" />
         <div class="info">
           <div class="name">${escapeHtml(item.name || '이름 없음')}</div>
-          <div class="meta">${item.code ? `<span class="code">${escapeHtml(item.code)}</span> · ` : ''}시공사진 ${((item.installImages||[]).length)}장 · 링크 ${((item.caseLinks||[]).length)}개</div>
+          <div class="meta">${item.code ? `<span class="code">${escapeHtml(item.code)}</span> · ` : ''}대표사진 ${((item.sampleImages||(item.sampleImageUrl?[item.sampleImageUrl]:[])).length)}장 · 시공사진 ${((item.installImages||[]).length)}장 · 링크 ${((item.caseLinks||[]).length)}개</div>
         </div>
         <div class="item-actions">
           <button class="btn btn-secondary btn-sm" data-edit="${item.id}">수정</button>
@@ -362,8 +373,8 @@
   function openModal(id){
     editingId = id;
     caseLinks = [];
-    existingSampleUrl = '';
-    existingInstallUrls = [];
+    sampleImages = [];
+    installImages = [];
     document.getElementById('f-name').value = '';
     document.getElementById('f-code').value = '';
     document.getElementById('f-sample-image').value = '';
@@ -376,13 +387,21 @@
       document.getElementById('modal-title').textContent = '샘플 수정';
       document.getElementById('f-name').value = item.name || '';
       document.getElementById('f-code').value = item.code || '';
-      existingSampleUrl = item.sampleImageUrl || '';
-      existingInstallUrls = Array.isArray(item.installImages) ? item.installImages.slice() : [];
+
+      // sampleImages 배열이 없는 기존(레거시) 문서는 sampleImageUrl 단일값을 자동 변환
+      const legacySampleList = Array.isArray(item.sampleImages) && item.sampleImages.length
+        ? item.sampleImages
+        : (item.sampleImageUrl ? [item.sampleImageUrl] : []);
+      sampleImages = legacySampleList.map(url => ({ url, file: null, isNew: false }));
+
+      installImages = (Array.isArray(item.installImages) ? item.installImages : [])
+        .map(url => ({ url, file: null, isNew: false }));
+
       caseLinks = Array.isArray(item.caseLinks) ? item.caseLinks.map(c => ({...c})) : [];
     } else {
       document.getElementById('modal-title').textContent = '새 샘플 추가';
     }
-    renderSampleThumb();
+    renderSampleThumbs();
     renderInstallThumbs();
     renderCaseLinks();
     overlay.classList.add('active');
@@ -393,24 +412,61 @@
     editingId = null;
   }
 
-  function renderSampleThumb(){
-    const box = document.getElementById('sample-thumb-preview');
-    box.innerHTML = existingSampleUrl ? `<img src="${existingSampleUrl}" />` : `<div class="thumb-empty">없음</div>`;
+  function renderThumbBox(boxId, countId, images, max, onRemove){
+    const box = document.getElementById(boxId);
+    const countEl = document.getElementById(countId);
+    countEl.textContent = `${images.length} / ${max}장`;
+    if(images.length === 0){
+      box.innerHTML = `<div class="thumb-empty">없음</div>`;
+      return;
+    }
+    box.innerHTML = images.map((img, idx) => `
+      <div class="thumb-wrap">
+        <img src="${img.url}" />
+        <button type="button" class="thumb-remove" data-idx="${idx}">×</button>
+      </div>
+    `).join('');
+    box.querySelectorAll('.thumb-remove').forEach(btn => {
+      btn.addEventListener('click', () => onRemove(Number(btn.dataset.idx)));
+    });
+  }
+
+  function renderSampleThumbs(){
+    renderThumbBox('sample-thumb-preview', 'sample-thumb-count', sampleImages, SAMPLE_MAX, (idx) => {
+      sampleImages.splice(idx, 1);
+      renderSampleThumbs();
+    });
   }
   function renderInstallThumbs(){
-    const box = document.getElementById('install-thumb-preview');
-    box.innerHTML = existingInstallUrls.length
-      ? existingInstallUrls.map(u => `<img src="${u}" />`).join('')
-      : `<div class="thumb-empty">없음</div>`;
+    renderThumbBox('install-thumb-preview', 'install-thumb-count', installImages, INSTALL_MAX, (idx) => {
+      installImages.splice(idx, 1);
+      renderInstallThumbs();
+    });
   }
 
   document.getElementById('f-sample-image').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if(file){ existingSampleUrl = URL.createObjectURL(file); renderSampleThumb(); }
+    const files = Array.from(e.target.files);
+    const remaining = SAMPLE_MAX - sampleImages.length;
+    if(files.length > remaining){
+      alert(`대표 샘플 사진은 최대 ${SAMPLE_MAX}장까지 등록할 수 있어요. 앞의 ${Math.max(remaining,0)}장만 추가할게요.`);
+    }
+    files.slice(0, remaining).forEach(file => {
+      sampleImages.push({ url: URL.createObjectURL(file), file, isNew: true });
+    });
+    e.target.value = '';
+    renderSampleThumbs();
   });
   document.getElementById('f-install-images').addEventListener('change', (e) => {
-    const files = Array.from(e.target.files).slice(0,5);
-    if(files.length){ existingInstallUrls = files.map(f => URL.createObjectURL(f)); renderInstallThumbs(); }
+    const files = Array.from(e.target.files);
+    const remaining = INSTALL_MAX - installImages.length;
+    if(files.length > remaining){
+      alert(`시공 사진은 최대 ${INSTALL_MAX}장까지 등록할 수 있어요. 앞의 ${Math.max(remaining,0)}장만 추가할게요.`);
+    }
+    files.slice(0, remaining).forEach(file => {
+      installImages.push({ url: URL.createObjectURL(file), file, isNew: true });
+    });
+    e.target.value = '';
+    renderInstallThumbs();
   });
 
   function renderCaseLinks(){
@@ -455,8 +511,6 @@
     const statusEl = document.getElementById('form-status');
     const name = document.getElementById('f-name').value.trim();
     const code = document.getElementById('f-code').value.trim();
-    const sampleFile = document.getElementById('f-sample-image').files[0];
-    const installFiles = Array.from(document.getElementById('f-install-images').files).slice(0,5);
     const cleanCaseLinks = caseLinks.filter(c => c.url && c.url.trim());
 
     if(!name){
@@ -464,8 +518,8 @@
       statusEl.className = 'error';
       return;
     }
-    if(!editingId && !sampleFile){
-      statusEl.textContent = '대표 샘플 사진을 선택해주세요.';
+    if(sampleImages.length === 0){
+      statusEl.textContent = '대표 샘플 사진을 1장 이상 등록해주세요.';
       statusEl.className = 'error';
       return;
     }
@@ -479,23 +533,32 @@
       const docId = editingId || db.collection('film_samples').doc().id;
       const docRef = db.collection('film_samples').doc(docId);
 
-      let sampleImageUrl = editingId ? (items.find(i=>i.id===editingId).sampleImageUrl || '') : '';
-      if(sampleFile){
-        const ref = storage.ref(`film_samples/${currentTab}/${docId}/sample_${Date.now()}.jpg`);
-        sampleImageUrl = await uploadWithProgress(ref, sampleFile, (pct) => {
-          statusEl.textContent = `대표 사진 업로드 중... (${pct}%)`;
-        });
+      // 새로 추가된 파일만 업로드하고, 기존 이미지는 URL을 그대로 유지 (순서 보존)
+      const finalSampleUrls = [];
+      for(let i=0; i<sampleImages.length; i++){
+        const img = sampleImages[i];
+        if(img.isNew){
+          const ref = storage.ref(`film_samples/${currentTab}/${docId}/sample_${Date.now()}_${i}.jpg`);
+          const url = await uploadWithProgress(ref, img.file, (pct) => {
+            statusEl.textContent = `대표 사진 업로드 중 (${i+1}/${sampleImages.length})... (${pct}%)`;
+          });
+          finalSampleUrls.push(url);
+        } else {
+          finalSampleUrls.push(img.url);
+        }
       }
 
-      let installImages = editingId ? (items.find(i=>i.id===editingId).installImages || []) : [];
-      if(installFiles.length){
-        installImages = [];
-        for(let i=0; i<installFiles.length; i++){
+      const finalInstallUrls = [];
+      for(let i=0; i<installImages.length; i++){
+        const img = installImages[i];
+        if(img.isNew){
           const ref = storage.ref(`film_samples/${currentTab}/${docId}/install_${Date.now()}_${i}.jpg`);
-          const url = await uploadWithProgress(ref, installFiles[i], (pct) => {
-            statusEl.textContent = `시공 사진 업로드 중 (${i+1}/${installFiles.length})... (${pct}%)`;
+          const url = await uploadWithProgress(ref, img.file, (pct) => {
+            statusEl.textContent = `시공 사진 업로드 중 (${i+1}/${installImages.length})... (${pct}%)`;
           });
-          installImages.push(url);
+          finalInstallUrls.push(url);
+        } else {
+          finalInstallUrls.push(img.url);
         }
       }
 
@@ -503,8 +566,8 @@
         category: currentTab,
         name,
         code,
-        sampleImageUrl,
-        installImages,
+        sampleImages: finalSampleUrls,
+        installImages: finalInstallUrls,
         caseLinks: cleanCaseLinks,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       };
