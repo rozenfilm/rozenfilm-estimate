@@ -253,6 +253,7 @@
 <script>
 const KAKAO_LINK = 'https://open.kakao.com/o/sVVaN3J';
 const COMPANY_PHONE = '010-4729-4911';
+const NTFY_TOPIC = 'rozenfilm-consult-a8k2p'; // 견적 요청 접수 시 푸시 알림용 (ntfy.sh)
 
 // ── EmailJS 설정 (견적 요청 접수 시 알림 이메일 발송용) ──
 const EMAILJS_SERVICE_ID = 'service_jnji7hg';
@@ -1219,6 +1220,7 @@ function submitRequest() {
     submitted = true;
     render();
     sendNotificationEmail(); // 접수 알림 이메일 발송 (실패해도 고객 화면엔 영향 없음)
+    sendNtfyNotification();  // 접수 알림 푸시 발송 (실패해도 고객 화면엔 영향 없음)
   } catch(e) {
     alert('저장 중 오류가 발생했습니다: ' + e.message);
   }
@@ -1235,6 +1237,28 @@ function sendNotificationEmail(extraNote) {
   };
   emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
     .catch(e => console.error('알림 이메일 발송 실패:', e));
+}
+
+// 견적 요청 접수 시 ntfy.sh로 휴대폰 푸시 알림을 보냅니다 (Gmail 계정과 무관하게 항상 수신됨).
+// 실패해도 조용히 무시합니다 (고객의 접수 자체를 막아서는 안 되므로).
+function sendNtfyNotification(extraNote) {
+  const title = `📋 새 견적 상담 요청 - ${siteName || '미지정'}`;
+  const body = [
+    `현장: ${siteName || '미지정'}`,
+    `연락처: ${contactPhone.trim() || '(미입력)'}`,
+    `시공 시기: ${getTimingLabel()}`,
+    extraNote ? extraNote : null
+  ].filter(Boolean).join('\n');
+
+  fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+    method: 'POST',
+    body: body,
+    headers: {
+      'Title': encodeURIComponent(title),
+      'Priority': 'high',
+      'Tags': 'clipboard'
+    }
+  }).catch(e => console.error('ntfy 푸시 알림 발송 실패:', e));
 }
 
 function renderStepSubmitted() {
@@ -1286,6 +1310,7 @@ function savePhoneNumber() {
     const msg = document.getElementById('phoneStatusMsg');
     if (msg) msg.classList.remove('hidden');
     sendNotificationEmail(`고객이 전화번호를 남겼습니다: ${contactPhone.trim()}`);
+    sendNtfyNotification(`📞 고객이 전화번호를 남겼습니다: ${contactPhone.trim()}`);
   } catch(e) {
     alert('저장 중 오류가 발생했습니다: ' + e.message);
   }
