@@ -657,11 +657,12 @@ const ORIGINAL_PRICES = JSON.parse(JSON.stringify(
   ]))
 ));
 
-const locations = [
+let locations = [
   '거실','안방','작은방','입구방','중간방','현관','주방',
   '거실베란다','안방베란다','주방베란다','드레스룸','실외기실',
   '거실욕실','안방욕실','작은방베란다'
 ];
+let tempLocations = []; // 단가 관리 모달에서 편집 중인 위치 목록 (저장 눌러야 확정)
 
 const difficultyLabels = ['매우 쉬움','쉬움','보통-','보통','보통+','어려움-','어려움','어려움+','매우 어려움','최고 난이도'];
 
@@ -1256,6 +1257,14 @@ async function loadPriceOverrides() {
       if (typeof calculateTotal === 'function') calculateTotal();
     }
   } catch(e) { console.error('단가 불러오기 오류:', e); }
+
+  try {
+    const locSnap = await getDoc(doc(window._fbDb, 'price_settings', 'locations'));
+    if (locSnap.exists() && Array.isArray(locSnap.data().list) && locSnap.data().list.length > 0) {
+      locations = locSnap.data().list;
+      if (typeof renderItems === 'function') renderItems();
+    }
+  } catch(e) { console.error('위치 목록 불러오기 오류:', e); }
 }
 window.loadPriceOverrides = loadPriceOverrides;
 
@@ -1263,7 +1272,9 @@ function openPriceManageModal() {
   const modal = document.getElementById('priceManageModal');
   const body = document.getElementById('priceManageBody');
 
-  body.innerHTML = Object.keys(categories).map(catKey => {
+  tempLocations = [...locations];
+
+  const priceRowsHTML = Object.keys(categories).map(catKey => {
     const cat = categories[catKey];
     const rows = Object.keys(cat.items).map(itemKey => {
       const item = cat.items[itemKey];
@@ -1287,8 +1298,63 @@ function openPriceManageModal() {
     `;
   }).join('');
 
+  body.innerHTML = `
+    <div style="margin-bottom:22px;padding-bottom:18px;border-bottom:2px solid #F1F5F9">
+      <p style="font-size:13px;font-weight:800;color:#7C3AED;margin-bottom:8px">📍 시공 부위 위치 관리</p>
+      <p style="font-size:11px;color:#94A3B8;margin-bottom:10px">각 항목의 이름을 눌러 직접 수정하거나, × 로 삭제하고, 아래에서 새 위치를 추가할 수 있습니다.</p>
+      <div id="locationPillList" class="flex flex-wrap gap-2 mb-3"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="newLocationInput" placeholder="새 위치 이름 (예: 팬트리)"
+          style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:8px 10px;font-size:13px"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addPriceLocation();}">
+        <button type="button" onclick="addPriceLocation()" style="background:#7C3AED;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">+ 추가</button>
+      </div>
+    </div>
+    ${priceRowsHTML}
+  `;
+
+  renderLocationPills();
+
   modal.classList.remove('hidden');
   modal.style.display = 'flex';
+}
+
+function renderLocationPills() {
+  const wrap = document.getElementById('locationPillList');
+  if (!wrap) return;
+  if (tempLocations.length === 0) {
+    wrap.innerHTML = '<p style="font-size:12px;color:#94A3B8">등록된 위치가 없습니다.</p>';
+    return;
+  }
+  wrap.innerHTML = tempLocations.map((loc, idx) => `
+    <div style="display:flex;align-items:center;gap:4px;background:#F5F3FF;border:1.5px solid #DDD6FE;border-radius:20px;padding:3px 6px 3px 12px">
+      <input type="text" value="${loc}" data-idx="${idx}" oninput="editPriceLocation(${idx}, this.value)"
+        style="border:none;background:transparent;font-size:13px;font-weight:600;color:#5B21B6;width:${Math.max(loc.length, 2) + 1}ch;outline:none">
+      <button type="button" onclick="removePriceLocation(${idx})" style="width:20px;height:20px;border-radius:50%;border:none;background:#EDE9FE;color:#7C3AED;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+    </div>
+  `).join('');
+}
+
+function addPriceLocation() {
+  const input = document.getElementById('newLocationInput');
+  const name = input.value.trim();
+  if (!name) return;
+  if (tempLocations.includes(name)) {
+    alert('이미 존재하는 위치입니다.');
+    return;
+  }
+  tempLocations.push(name);
+  input.value = '';
+  renderLocationPills();
+}
+
+function editPriceLocation(idx, value) {
+  tempLocations[idx] = value;
+}
+
+function removePriceLocation(idx) {
+  tempLocations.splice(idx, 1);
+  renderLocationPills();
 }
 
 function closePriceManageModal() {
@@ -1317,6 +1383,12 @@ async function savePriceOverrides() {
   btn.disabled = true; btn.textContent = '저장 중...';
   try {
     await setDoc(doc(window._fbDb, 'price_settings', 'overrides'), overrides);
+
+    // 위치 목록 저장 (빈 항목 제거, 중복 제거)
+    const cleanedLocations = [...new Set(tempLocations.map(l => l.trim()).filter(Boolean))];
+    await setDoc(doc(window._fbDb, 'price_settings', 'locations'), { list: cleanedLocations });
+    locations = cleanedLocations;
+
     if (typeof renderItems === 'function') renderItems();
     if (typeof calculateTotal === 'function') calculateTotal();
     closePriceManageModal();
