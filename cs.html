@@ -1242,7 +1242,7 @@ function sendNotificationEmail(extraNote) {
 // 견적 요청 접수 시 ntfy.sh로 휴대폰 푸시 알림을 보냅니다 (Gmail 계정과 무관하게 항상 수신됨).
 // 실패해도 조용히 무시합니다 (고객의 접수 자체를 막아서는 안 되므로).
 function sendNtfyNotification(extraNote) {
-  const title = `📋 새 견적 상담 요청 - ${siteName || '미지정'}`;
+  const title = `새 견적 상담 요청 - ${siteName || '미지정'}`;
   const body = [
     `현장: ${siteName || '미지정'}`,
     `연락처: ${contactPhone.trim() || '(미입력)'}`,
@@ -1250,15 +1250,22 @@ function sendNtfyNotification(extraNote) {
     extraNote ? extraNote : null
   ].filter(Boolean).join('\n');
 
-  fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+  // 커스텀 헤더(Title/Priority/Tags) 대신 URL 쿼리 파라미터로 옵션을 전달합니다.
+  // 헤더 방식은 브라우저의 CORS preflight 요청을 유발해 일부 환경에서 조용히 실패할 수 있어,
+  // 쿼리 파라미터 + 단순 POST(text/plain) 방식으로 preflight 자체를 피합니다.
+  const url = `https://ntfy.sh/${NTFY_TOPIC}`
+    + `?title=${encodeURIComponent(title)}`
+    + `&priority=high`
+    + `&tags=clipboard`;
+
+  fetch(url, {
     method: 'POST',
-    body: body,
-    headers: {
-      'Title': encodeURIComponent(title),
-      'Priority': 'high',
-      'Tags': 'clipboard'
-    }
-  }).catch(e => console.error('ntfy 푸시 알림 발송 실패:', e));
+    body: body
+  })
+    .then(res => {
+      if (!res.ok) console.error('ntfy 푸시 알림 발송 실패: HTTP', res.status);
+    })
+    .catch(e => console.error('ntfy 푸시 알림 발송 실패:', e));
 }
 
 function renderStepSubmitted() {
