@@ -705,6 +705,8 @@ let locations = [
   '거실욕실','안방욕실','작은방베란다'
 ];
 let tempLocations = []; // 단가 관리 모달에서 편집 중인 위치 목록 (저장 눌러야 확정)
+let addItemFormOpenFor = null; // 현재 "항목추가" 폼이 열려있는 카테고리 키
+let newlyAddedPriceItems = []; // 이번 모달 세션에서 새로 추가된 항목 [{catKey, itemKey, name, unit}]
 
 // ───────── 도배 견적 ─────────
 let WALLPAPER_LABOR_RATE = 330000; // 품당 단가 (관리자가 수정 가능)
@@ -1351,6 +1353,24 @@ const ADMIN_EMAIL = 'kilaloss2@gmail.com';
 async function loadPriceOverrides() {
   if (!window._fbUser) return;
   const { doc, getDoc } = window._fbFns;
+
+  // 1) 관리자가 새로 추가한 항목의 정의(이름/단위)를 먼저 categories에 주입
+  try {
+    const customSnap = await getDoc(doc(window._fbDb, 'price_settings', 'custom_items'));
+    if (customSnap.exists()) {
+      const customItems = customSnap.data();
+      Object.keys(customItems).forEach(catKey => {
+        if (!categories[catKey]) return;
+        Object.keys(customItems[catKey]).forEach(itemKey => {
+          if (!categories[catKey].items[itemKey]) {
+            const def = customItems[catKey][itemKey];
+            categories[catKey].items[itemKey] = { name: def.name, unit: def.unit, basePrice: 0 };
+          }
+        });
+      });
+    }
+  } catch(e) { console.error('신규 항목 목록 불러오기 오류:', e); }
+
   try {
     const snap = await getDoc(doc(window._fbDb, 'price_settings', 'overrides'));
     if (snap.exists()) {
@@ -1384,8 +1404,36 @@ function openPriceManageModal() {
   const body = document.getElementById('priceManageBody');
 
   tempLocations = [...locations];
+  addItemFormOpenFor = null;
 
-  const priceRowsHTML = Object.keys(categories).map(catKey => {
+  body.innerHTML = `
+    <div style="margin-bottom:22px;padding-bottom:18px;border-bottom:2px solid #F1F5F9">
+      <p style="font-size:13px;font-weight:800;color:#7C3AED;margin-bottom:8px">📍 시공 부위 위치 관리</p>
+      <p style="font-size:11px;color:#94A3B8;margin-bottom:10px">각 항목의 이름을 눌러 직접 수정하거나, × 로 삭제하고, 아래에서 새 위치를 추가할 수 있습니다.</p>
+      <div id="locationPillList" class="flex flex-wrap gap-2 mb-3"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="newLocationInput" placeholder="새 위치 이름 (예: 팬트리)"
+          style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:8px 10px;font-size:13px"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addPriceLocation();}">
+        <button type="button" onclick="addPriceLocation()" style="background:#7C3AED;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">+ 추가</button>
+      </div>
+    </div>
+    <div id="priceCategoryRows"></div>
+  `;
+
+  renderLocationPills();
+  renderPriceCategoryRows();
+
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+}
+
+// 대분류별 단가 항목 목록 + "항목추가" 버튼/폼을 렌더링합니다. (항목 추가 후 이 함수만 다시 호출해 갱신)
+function renderPriceCategoryRows() {
+  const container = document.getElementById('priceCategoryRows');
+  if (!container) return;
+
+  container.innerHTML = Object.keys(categories).map(catKey => {
     const cat = categories[catKey];
     const rows = Object.keys(cat.items).map(itemKey => {
       const item = cat.items[itemKey];
@@ -1401,33 +1449,72 @@ function openPriceManageModal() {
         </div>
       `;
     }).join('');
+
+    const isAddFormOpen = addItemFormOpenFor === catKey;
+    const addForm = isAddFormOpen ? `
+      <div style="background:#EFF6FF;border:1.5px solid #BFDBFE;border-radius:8px;padding:10px;margin-top:8px">
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input type="text" id="newItemName-${catKey}" placeholder="항목 이름 (예: 걸레받이)"
+            style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px">
+          <input type="text" id="newItemUnit-${catKey}" placeholder="단위 (예: ea, m)" value="ea"
+            style="width:70px;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px">
+        </div>
+        <div style="display:flex;gap:6px">
+          <input type="number" id="newItemPrice-${catKey}" placeholder="단가"
+            style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px;text-align:right">
+          <button type="button" onclick="confirmAddPriceItem('${catKey}')" style="background:#2563EB;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">추가</button>
+          <button type="button" onclick="cancelAddPriceItem()" style="background:#F1F5F9;color:#475569;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">취소</button>
+        </div>
+      </div>
+    ` : '';
+
     return `
       <div style="margin-bottom:18px">
-        <p style="font-size:13px;font-weight:800;color:#2563EB;margin-bottom:6px">${cat.pictogram} ${cat.name}</p>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <p style="font-size:13px;font-weight:800;color:#2563EB">${cat.pictogram} ${cat.name}</p>
+          <button type="button" onclick="${isAddFormOpen ? 'cancelAddPriceItem()' : `openAddPriceItemForm('${catKey}')`}"
+            style="background:${isAddFormOpen ? '#F1F5F9' : '#EFF6FF'};color:${isAddFormOpen ? '#475569' : '#2563EB'};border:1px solid ${isAddFormOpen ? '#E2E8F0' : '#BFDBFE'};border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">
+            ${isAddFormOpen ? '닫기' : '+ 항목추가'}
+          </button>
+        </div>
         ${rows}
+        ${addForm}
       </div>
     `;
   }).join('');
+}
 
-  body.innerHTML = `
-    <div style="margin-bottom:22px;padding-bottom:18px;border-bottom:2px solid #F1F5F9">
-      <p style="font-size:13px;font-weight:800;color:#7C3AED;margin-bottom:8px">📍 시공 부위 위치 관리</p>
-      <p style="font-size:11px;color:#94A3B8;margin-bottom:10px">각 항목의 이름을 눌러 직접 수정하거나, × 로 삭제하고, 아래에서 새 위치를 추가할 수 있습니다.</p>
-      <div id="locationPillList" class="flex flex-wrap gap-2 mb-3"></div>
-      <div style="display:flex;gap:8px">
-        <input type="text" id="newLocationInput" placeholder="새 위치 이름 (예: 팬트리)"
-          style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:8px 10px;font-size:13px"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();addPriceLocation();}">
-        <button type="button" onclick="addPriceLocation()" style="background:#7C3AED;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">+ 추가</button>
-      </div>
-    </div>
-    ${priceRowsHTML}
-  `;
+function openAddPriceItemForm(catKey) {
+  addItemFormOpenFor = catKey;
+  renderPriceCategoryRows();
+  setTimeout(() => {
+    const el = document.getElementById(`newItemName-${catKey}`);
+    if (el) el.focus();
+  }, 50);
+}
 
-  renderLocationPills();
+function cancelAddPriceItem() {
+  addItemFormOpenFor = null;
+  renderPriceCategoryRows();
+}
 
-  modal.classList.remove('hidden');
-  modal.style.display = 'flex';
+function confirmAddPriceItem(catKey) {
+  const nameEl = document.getElementById(`newItemName-${catKey}`);
+  const unitEl = document.getElementById(`newItemUnit-${catKey}`);
+  const priceEl = document.getElementById(`newItemPrice-${catKey}`);
+
+  const name = nameEl.value.trim();
+  const unit = unitEl.value.trim() || 'ea';
+  const price = Math.max(0, parseInt(priceEl.value) || 0);
+
+  if (!name) { alert('항목 이름을 입력해주세요.'); return; }
+
+  const itemKey = 'custom_' + Date.now();
+  categories[catKey].items[itemKey] = { name, unit, basePrice: price };
+  newlyAddedPriceItems.push({ catKey, itemKey, name, unit });
+
+  addItemFormOpenFor = null;
+  renderPriceCategoryRows();
 }
 
 function renderLocationPills() {
@@ -1476,7 +1563,7 @@ function closePriceManageModal() {
 
 async function savePriceOverrides() {
   if (!window._fbUser) return;
-  const { doc, setDoc } = window._fbFns;
+  const { doc, setDoc, getDoc } = window._fbFns;
 
   const overrides = {};
   Object.keys(categories).forEach(catKey => {
@@ -1494,6 +1581,22 @@ async function savePriceOverrides() {
   btn.disabled = true; btn.textContent = '저장 중...';
   try {
     await setDoc(doc(window._fbDb, 'price_settings', 'overrides'), overrides);
+
+    // 새로 추가된 항목의 정의(이름/단위)를 기존 custom_items와 병합해서 저장
+    // (다른 기기/세션에서도 새 항목이 보이려면 이름·단위 정보 자체가 저장되어야 함)
+    if (newlyAddedPriceItems.length > 0) {
+      let customItems = {};
+      try {
+        const snap = await getDoc(doc(window._fbDb, 'price_settings', 'custom_items'));
+        if (snap.exists()) customItems = snap.data() || {};
+      } catch(e) { /* 문서 없으면 무시 */ }
+      newlyAddedPriceItems.forEach(({ catKey, itemKey, name, unit }) => {
+        if (!customItems[catKey]) customItems[catKey] = {};
+        customItems[catKey][itemKey] = { name, unit };
+      });
+      await setDoc(doc(window._fbDb, 'price_settings', 'custom_items'), customItems);
+      newlyAddedPriceItems = [];
+    }
 
     // 위치 목록 저장 (빈 항목 제거, 중복 제거)
     const cleanedLocations = [...new Set(tempLocations.map(l => l.trim()).filter(Boolean))];
