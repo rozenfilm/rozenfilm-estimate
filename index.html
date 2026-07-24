@@ -714,6 +714,8 @@ let locations = [
 let tempLocations = []; // 단가 관리 모달에서 편집 중인 위치 목록 (저장 눌러야 확정)
 let addItemFormOpenFor = null; // 현재 "항목추가" 폼이 열려있는 카테고리 키
 let newlyAddedPriceItems = []; // 이번 모달 세션에서 새로 추가된 항목 [{catKey, itemKey, name, unit}]
+let materialUpcharges = []; // 자재 업그레이드 단가인상 목록 [{id, name, meters, priceDiff}]
+let tempMaterialUpcharges = []; // 단가 관리 모달에서 편집 중인 자재 업그레이드 목록
 
 // ───────── 도배 견적 ─────────
 let WALLPAPER_LABOR_RATE = 330000; // 품당 단가 (관리자가 수정 가능)
@@ -1270,6 +1272,26 @@ function buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, l
         <p style="font-size:16px;font-weight:800;color:#059669;margin-top:8px">최종 통합 금액: ${finalExcl.toLocaleString('ko-KR')}원(${finalIncl.toLocaleString('ko-KR')}원)</p>
       </div>` : ''}`;
     })()}
+    ${(typeof materialUpcharges !== 'undefined' && materialUpcharges.length > 0) ? `
+    <div style="margin-top:12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px">
+      <p style="font-size:14px;font-weight:800;color:#D97706;margin-bottom:8px">🎨 자재 업그레이드 시 예상 추가금액</p>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;color:#92400E">
+        <tr style="border-bottom:1px solid #FDE68A">
+          <th style="text-align:left;padding:4px 6px;font-weight:700">자재명</th>
+          <th style="text-align:right;padding:4px 6px;font-weight:700">예상 미터수</th>
+          <th style="text-align:right;padding:4px 6px;font-weight:700">단가차이</th>
+          <th style="text-align:right;padding:4px 6px;font-weight:700">예상 인상금액</th>
+        </tr>
+        ${materialUpcharges.map(u => `
+        <tr>
+          <td style="padding:4px 6px">${u.name}</td>
+          <td style="text-align:right;padding:4px 6px">${u.meters.toLocaleString('ko-KR')}m</td>
+          <td style="text-align:right;padding:4px 6px">${u.priceDiff.toLocaleString('ko-KR')}원/m</td>
+          <td style="text-align:right;padding:4px 6px;font-weight:700">${(u.meters * u.priceDiff).toLocaleString('ko-KR')}원</td>
+        </tr>`).join('')}
+      </table>
+      <p style="font-size:10px;color:#B45309;margin-top:6px">※ 위 금액은 참고용이며, 실제 선택한 자재에 따라 최종 견적에 반영됩니다.</p>
+    </div>` : ''}
     <div style="margin-top:12px;font-size:11px;color:#374151;border:1px solid #e2e8f0;border-radius:8px;padding:14px;line-height:2">
       <p>• 위 견적은 5천여건의 실무경험을 토대로 축적된 데이터를 기반으로 작성되었습니다。</p>
       <p>• 상담내용에서 누락된 부분이 없는 한 비용이 추가되는 일은 없습니다。</p>
@@ -1405,6 +1427,14 @@ async function loadPriceOverrides() {
       if (typeof renderItems === 'function') renderItems();
     }
   } catch(e) { console.error('위치 목록 불러오기 오류:', e); }
+
+  try {
+    const upSnap = await getDoc(doc(window._fbDb, 'price_settings', 'material_upcharges'));
+    if (upSnap.exists() && Array.isArray(upSnap.data().list)) {
+      materialUpcharges = upSnap.data().list;
+      if (typeof calculateTotal === 'function') calculateTotal();
+    }
+  } catch(e) { console.error('자재 업그레이드 목록 불러오기 오류:', e); }
 }
 window.loadPriceOverrides = loadPriceOverrides;
 
@@ -1413,6 +1443,7 @@ function openPriceManageModal() {
   const body = document.getElementById('priceManageBody');
 
   tempLocations = [...locations];
+  tempMaterialUpcharges = JSON.parse(JSON.stringify(materialUpcharges));
   addItemFormOpenFor = null;
 
   body.innerHTML = `
@@ -1427,10 +1458,19 @@ function openPriceManageModal() {
         <button type="button" onclick="addPriceLocation()" style="background:#7C3AED;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">+ 추가</button>
       </div>
     </div>
+
+    <div style="margin-bottom:22px;padding-bottom:18px;border-bottom:2px solid #F1F5F9">
+      <p style="font-size:13px;font-weight:800;color:#D97706;margin-bottom:8px">🎨 자재 업그레이드 단가인상 관리</p>
+      <p style="font-size:11px;color:#94A3B8;margin-bottom:10px">자재명·예상 미터수·단가차이를 입력하면 예상 인상금액이 자동 계산되어 견적서에 참고 정보로 표시됩니다.</p>
+      <div id="materialUpchargeList"></div>
+      <button type="button" onclick="addMaterialUpchargeRow()" style="width:100%;margin-top:8px;background:#FFFBEB;color:#D97706;border:1.5px solid #FDE68A;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">+ 자재 업그레이드 항목 추가</button>
+    </div>
+
     <div id="priceCategoryRows"></div>
   `;
 
   renderLocationPills();
+  renderMaterialUpchargeList();
   renderPriceCategoryRows();
 
   modal.classList.remove('hidden');
@@ -1526,6 +1566,64 @@ function confirmAddPriceItem(catKey) {
   renderPriceCategoryRows();
 }
 
+// ── 자재 업그레이드 단가인상 관리 ──
+function renderMaterialUpchargeList() {
+  const wrap = document.getElementById('materialUpchargeList');
+  if (!wrap) return;
+
+  if (tempMaterialUpcharges.length === 0) {
+    wrap.innerHTML = '<p style="font-size:12px;color:#94A3B8;padding:8px 0">등록된 자재 업그레이드 항목이 없습니다.</p>';
+    return;
+  }
+
+  wrap.innerHTML = tempMaterialUpcharges.map((row, idx) => {
+    const amount = (parseFloat(row.meters) || 0) * (parseFloat(row.priceDiff) || 0);
+    return `
+      <div style="background:#FFFBEB;border:1.5px solid #FDE68A;border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input type="text" placeholder="자재명 (예: 디아망 실크)" value="${row.name || ''}"
+            oninput="editMaterialUpcharge(${idx}, 'name', this.value)"
+            style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px">
+          <button type="button" onclick="removeMaterialUpcharge(${idx})" style="width:26px;height:26px;border-radius:50%;border:none;background:#FEF2F2;color:#EF4444;font-size:12px;cursor:pointer;flex-shrink:0">✕</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" placeholder="예상 미터수" value="${row.meters || ''}"
+            oninput="editMaterialUpcharge(${idx}, 'meters', this.value)"
+            style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px;text-align:right">
+          <span style="font-size:11px;color:#92400E">m ×</span>
+          <input type="number" placeholder="단가차이" value="${row.priceDiff || ''}"
+            oninput="editMaterialUpcharge(${idx}, 'priceDiff', this.value)"
+            style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px;text-align:right">
+          <span style="font-size:11px;color:#92400E">원/m</span>
+        </div>
+        <p style="font-size:12px;font-weight:700;color:#D97706;margin-top:6px;text-align:right">예상 인상금액: ${amount.toLocaleString('ko-KR')}원</p>
+      </div>
+    `;
+  }).join('');
+}
+
+function addMaterialUpchargeRow() {
+  tempMaterialUpcharges.push({ id: 'up_' + Date.now(), name: '', meters: '', priceDiff: '' });
+  renderMaterialUpchargeList();
+}
+
+function editMaterialUpcharge(idx, field, value) {
+  if (!tempMaterialUpcharges[idx]) return;
+  tempMaterialUpcharges[idx][field] = field === 'name' ? value : value;
+  // 금액만 다시 계산해서 표시 (전체 재렌더링하면 입력 포커스가 끊기므로 최소한만 갱신)
+  const amount = (parseFloat(tempMaterialUpcharges[idx].meters) || 0) * (parseFloat(tempMaterialUpcharges[idx].priceDiff) || 0);
+  const wrap = document.getElementById('materialUpchargeList');
+  if (wrap && wrap.children[idx]) {
+    const amountEl = wrap.children[idx].querySelector('p');
+    if (amountEl) amountEl.textContent = `예상 인상금액: ${amount.toLocaleString('ko-KR')}원`;
+  }
+}
+
+function removeMaterialUpcharge(idx) {
+  tempMaterialUpcharges.splice(idx, 1);
+  renderMaterialUpchargeList();
+}
+
 function renderLocationPills() {
   const wrap = document.getElementById('locationPillList');
   if (!wrap) return;
@@ -1611,6 +1709,18 @@ async function savePriceOverrides() {
     const cleanedLocations = [...new Set(tempLocations.map(l => l.trim()).filter(Boolean))];
     await setDoc(doc(window._fbDb, 'price_settings', 'locations'), { list: cleanedLocations });
     locations = cleanedLocations;
+
+    // 자재 업그레이드 단가인상 목록 저장 (이름 없는 빈 행 제거)
+    const cleanedUpcharges = tempMaterialUpcharges
+      .filter(row => (row.name || '').trim())
+      .map(row => ({
+        id: row.id,
+        name: row.name.trim(),
+        meters: parseFloat(row.meters) || 0,
+        priceDiff: parseFloat(row.priceDiff) || 0
+      }));
+    await setDoc(doc(window._fbDb, 'price_settings', 'material_upcharges'), { list: cleanedUpcharges });
+    materialUpcharges = cleanedUpcharges;
 
     if (typeof renderItems === 'function') renderItems();
     if (typeof calculateTotal === 'function') calculateTotal();
