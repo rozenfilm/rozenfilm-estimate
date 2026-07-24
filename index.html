@@ -554,6 +554,13 @@
           </div>
         </div>
         <div class="mb-3">
+          <p class="text-xs font-semibold mb-1" style="color:var(--muted)">🧑‍🔧 투입 인원 (직접 입력)</p>
+          <div class="flex gap-2">
+            <input type="number" id="manualPersonnelInput" min="1" placeholder="자동 계산값 사용" class="input-field flex-1" style="font-size:13px;padding:6px 10px" oninput="setManualLaborPersonnel(this.value)">
+            <button onclick="resetLaborPersonnel()" class="secondary-btn" style="padding:6px 10px;font-size:12px;white-space:nowrap">자동 계산</button>
+          </div>
+        </div>
+        <div class="mb-3">
           <div class="flex items-center justify-between mb-1">
             <p class="text-xs font-semibold" style="color:var(--muted)">💰 기업이윤 항목</p>
             <label class="flex items-center gap-1" style="font-size:12px;cursor:pointer">
@@ -738,6 +745,7 @@ let laborRatioPct = 65;      // 인건비 비율 (%)
 let materialRatioPct = 25;   // 자재비 비율 (%) → 나머지가 기업이윤 비율
 let isProfitHidden = false;  // 기업이윤 항목 숨김 여부
 let manualConstructionDays = null; // 사용자가 직접 입력한 시공 일자 (null이면 자동 계산)
+let manualLaborPersonnel = null; // 사용자가 직접 입력한 투입 인원 (null이면 자동 계산)
 
 // ───────── Item CRUD ─────────
 
@@ -1065,7 +1073,8 @@ function calculateTotal(showFull = true) {
   lastFilmTotalExclVAT = discountedTotal; // 필름 견적 부가세 별도 금액
   const profitRatioPct = Math.max(0, 100 - laborRatioPct - materialRatioPct);
   const profit = Math.max(0, Math.round((total * (profitRatioPct / 100) - disc) / 1000) * 1000);
-  const laborPersonnel = Math.max(1, Math.ceil(total / 500000));
+  const autoLaborPersonnel = Math.max(1, Math.ceil(total / 500000));
+  const laborPersonnel = (manualLaborPersonnel != null && manualLaborPersonnel !== '') ? manualLaborPersonnel : autoLaborPersonnel;
   // Construction days based on discountedTotal (자동 계산), 사용자가 직접 입력했으면 그 값을 우선 사용
   function getConstructionDays(amt) {
     if (amt <= 1500000) return '1일';
@@ -2183,7 +2192,7 @@ async function saveEstimate() {
   const data = {
     siteName, items, discountAmount, isDiscountEnabled,
     priceAdjustment, catAdjustments,
-    laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays,
+    laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays, manualLaborPersonnel,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -2276,6 +2285,7 @@ function applyEstimateData(data) {
   materialRatioPct = data.materialRatioPct != null ? data.materialRatioPct : 25;
   isProfitHidden = data.isProfitHidden || false;
   manualConstructionDays = data.manualConstructionDays || null;
+  manualLaborPersonnel = data.manualLaborPersonnel != null ? data.manualLaborPersonnel : null;
 
   // 설정 패널 UI 동기화
   const laborInput = document.getElementById('laborRatioInput');
@@ -2283,11 +2293,13 @@ function applyEstimateData(data) {
   const ratioHint = document.getElementById('ratioHint');
   const hideProfitCheckbox = document.getElementById('hideProfitToggle');
   const manualDaysInput = document.getElementById('manualDaysInput');
+  const manualPersonnelInput = document.getElementById('manualPersonnelInput');
   if (laborInput) laborInput.value = laborRatioPct;
   if (materialInput) materialInput.value = materialRatioPct;
   if (ratioHint) ratioHint.textContent = `기업이윤: ${Math.max(0, 100 - laborRatioPct - materialRatioPct)}%`;
   if (hideProfitCheckbox) hideProfitCheckbox.checked = isProfitHidden;
   if (manualDaysInput) manualDaysInput.value = manualConstructionDays || '';
+  if (manualPersonnelInput) manualPersonnelInput.value = manualLaborPersonnel || '';
 
   if (isDiscountEnabled) {
     document.getElementById('discountToggle').checked = true;
@@ -2601,6 +2613,18 @@ function setManualConstructionDays(val) {
 function resetConstructionDays() {
   manualConstructionDays = null;
   const input = document.getElementById('manualDaysInput');
+  if (input) input.value = '';
+  calculateTotal();
+}
+
+function setManualLaborPersonnel(val) {
+  manualLaborPersonnel = val === '' ? null : Math.max(1, parseInt(val) || 1);
+  calculateTotal();
+}
+
+function resetLaborPersonnel() {
+  manualLaborPersonnel = null;
+  const input = document.getElementById('manualPersonnelInput');
   if (input) input.value = '';
   calculateTotal();
 }
