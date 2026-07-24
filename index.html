@@ -1068,6 +1068,13 @@ function calculateTotal(showFull = true) {
 
   laborCost = Math.round(laborCost / 1000) * 1000;
   materialCost = Math.round(materialCost / 1000) * 1000;
+
+  // 자재 업그레이드 인상금액 합계 (부가세 별도) — 최종 견적에 합산 반영
+  const materialUpchargeTotal = (typeof materialUpcharges !== 'undefined' ? materialUpcharges : [])
+    .reduce((sum, u) => sum + (parseFloat(u.meters) || 0) * (parseFloat(u.priceDiff) || 0), 0);
+  total += materialUpchargeTotal;
+  materialCost += materialUpchargeTotal; // 인상분은 자재비 성격이므로 자재비에도 합산
+
   const disc = isDiscountEnabled ? discountAmount : 0;
   const discountedTotal = Math.max(0, total - disc);
   const totalWithVAT = Math.round(discountedTotal * 1.1);
@@ -1135,6 +1142,13 @@ function calculateTotal(showFull = true) {
   });
 
   summaryRows.innerHTML = rowsHTML;
+
+  if (materialUpchargeTotal > 0) {
+    summaryRows.innerHTML += `
+      <div class="summary-row text-sm" style="color:#D97706">
+        <span>🎨 자재 업그레이드 인상금액 (부가세 별도)</span><span>+ ${materialUpchargeTotal.toLocaleString('ko-KR')} 원</span>
+      </div>`;
+  }
 
   if (disc > 0) {
     summaryRows.innerHTML += `
@@ -1229,6 +1243,10 @@ function buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, l
       </tbody>
     </table>
     <div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:8px;padding:16px">
+      ${(typeof materialUpcharges !== 'undefined' && materialUpcharges.length > 0) ? (() => {
+        const upTotal = materialUpcharges.reduce((sum, u) => sum + (parseFloat(u.meters) || 0) * (parseFloat(u.priceDiff) || 0), 0);
+        return upTotal > 0 ? `<p style="font-size:13px;color:#D97706">🎨 자재 업그레이드 인상금액 (부가세 별도): + ${upTotal.toLocaleString('ko-KR')} 원</p>` : '';
+      })() : ''}
       ${disc > 0 ? `<p style="font-size:14px">할인 전 금액: ${total.toLocaleString('ko-KR')} 원</p>
       <p style="font-size:14px;color:#ef4444">할인 금액: ${disc.toLocaleString('ko-KR')} 원</p>` : ''}
       <p style="font-size:18px;font-weight:700">최종 견적: ${discountedTotal.toLocaleString('ko-KR')} 원 <span style="font-size:12px;font-weight:400;color:#64748b">(부가세 별도)</span></p>
@@ -1290,7 +1308,7 @@ function buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, l
           <td style="text-align:right;padding:4px 6px;font-weight:700">${(u.meters * u.priceDiff).toLocaleString('ko-KR')}원</td>
         </tr>`).join('')}
       </table>
-      <p style="font-size:10px;color:#B45309;margin-top:6px">※ 위 금액은 참고용이며, 실제 선택한 자재에 따라 최종 견적에 반영됩니다.</p>
+      <p style="font-size:10px;color:#B45309;margin-top:6px">※ 위 인상금액은 최종 견적에 이미 합산되어 있습니다 (부가세 별도 기준).</p>
     </div>` : ''}
     <div style="margin-top:12px;font-size:11px;color:#374151;border:1px solid #e2e8f0;border-radius:8px;padding:14px;line-height:2">
       <p>• 위 견적은 5천여건의 실무경험을 토대로 축적된 데이터를 기반으로 작성되었습니다。</p>
