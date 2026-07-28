@@ -75,13 +75,14 @@
       document.getElementById('appContainer').classList.remove('hidden');
       document.getElementById('userEmail').textContent = user.email;
       loadCloudEstimates();
-      // Show admin button if admin
+      // "사용자 승인 관리"는 지정된 관리자 계정만
       if (user.email === 'kilaloss2@gmail.com') {
         const btn = document.getElementById('adminPanelBtn');
         if (btn) btn.classList.remove('hidden');
-        const priceBtn = document.getElementById('priceManageBtn');
-        if (priceBtn) priceBtn.classList.remove('hidden');
       }
+      // "단가 관리"는 계정마다 자기 단가를 독립적으로 관리하므로 모든 로그인 계정에게 표시
+      const priceBtn = document.getElementById('priceManageBtn');
+      if (priceBtn) priceBtn.classList.remove('hidden');
       if (window.loadPriceOverrides) window.loadPriceOverrides();
       if (window.loadWallpaperSettings) window.loadWallpaperSettings();
     }
@@ -1411,7 +1412,7 @@ async function loadPriceOverrides() {
 
   // 1) 관리자가 새로 추가한 항목의 정의(이름/단위)를 먼저 categories에 주입
   try {
-    const customSnap = await getDoc(doc(window._fbDb, 'price_settings', 'custom_items'));
+    const customSnap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'custom_items'));
     if (customSnap.exists()) {
       const customItems = customSnap.data();
       Object.keys(customItems).forEach(catKey => {
@@ -1427,7 +1428,7 @@ async function loadPriceOverrides() {
   } catch(e) { console.error('신규 항목 목록 불러오기 오류:', e); }
 
   try {
-    const snap = await getDoc(doc(window._fbDb, 'price_settings', 'overrides'));
+    const snap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'overrides'));
     if (snap.exists()) {
       const overrides = snap.data();
       Object.keys(overrides).forEach(catKey => {
@@ -1445,7 +1446,7 @@ async function loadPriceOverrides() {
   } catch(e) { console.error('단가 불러오기 오류:', e); }
 
   try {
-    const locSnap = await getDoc(doc(window._fbDb, 'price_settings', 'locations'));
+    const locSnap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'locations'));
     if (locSnap.exists() && Array.isArray(locSnap.data().list) && locSnap.data().list.length > 0) {
       locations = locSnap.data().list;
       if (typeof renderItems === 'function') renderItems();
@@ -1453,7 +1454,7 @@ async function loadPriceOverrides() {
   } catch(e) { console.error('위치 목록 불러오기 오류:', e); }
 
   try {
-    const upSnap = await getDoc(doc(window._fbDb, 'price_settings', 'material_upcharges'));
+    const upSnap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'material_upcharges'));
     if (upSnap.exists() && Array.isArray(upSnap.data().list)) {
       materialUpcharges = upSnap.data().list;
       if (typeof calculateTotal === 'function') calculateTotal();
@@ -1711,27 +1712,27 @@ async function savePriceOverrides() {
   const orig = btn.textContent;
   btn.disabled = true; btn.textContent = '저장 중...';
   try {
-    await setDoc(doc(window._fbDb, 'price_settings', 'overrides'), overrides);
+    await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'overrides'), overrides);
 
     // 새로 추가된 항목의 정의(이름/단위)를 기존 custom_items와 병합해서 저장
     // (다른 기기/세션에서도 새 항목이 보이려면 이름·단위 정보 자체가 저장되어야 함)
     if (newlyAddedPriceItems.length > 0) {
       let customItems = {};
       try {
-        const snap = await getDoc(doc(window._fbDb, 'price_settings', 'custom_items'));
+        const snap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'custom_items'));
         if (snap.exists()) customItems = snap.data() || {};
       } catch(e) { /* 문서 없으면 무시 */ }
       newlyAddedPriceItems.forEach(({ catKey, itemKey, name, unit }) => {
         if (!customItems[catKey]) customItems[catKey] = {};
         customItems[catKey][itemKey] = { name, unit };
       });
-      await setDoc(doc(window._fbDb, 'price_settings', 'custom_items'), customItems);
+      await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'custom_items'), customItems);
       newlyAddedPriceItems = [];
     }
 
     // 위치 목록 저장 (빈 항목 제거, 중복 제거)
     const cleanedLocations = [...new Set(tempLocations.map(l => l.trim()).filter(Boolean))];
-    await setDoc(doc(window._fbDb, 'price_settings', 'locations'), { list: cleanedLocations });
+    await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'locations'), { list: cleanedLocations });
     locations = cleanedLocations;
 
     // 자재 업그레이드 단가인상 목록 저장 (이름 없는 빈 행 제거)
@@ -1743,7 +1744,7 @@ async function savePriceOverrides() {
         meters: parseFloat(row.meters) || 0,
         priceDiff: parseFloat(row.priceDiff) || 0
       }));
-    await setDoc(doc(window._fbDb, 'price_settings', 'material_upcharges'), { list: cleanedUpcharges });
+    await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'material_upcharges'), { list: cleanedUpcharges });
     materialUpcharges = cleanedUpcharges;
 
     if (typeof renderItems === 'function') renderItems();
@@ -1778,7 +1779,7 @@ function toggleWallpaperSection() {
     renderWallpaperTypeButtons();
     updateWallpaperEstimate();
     const manageBtn = document.getElementById('wallpaperManageBtn');
-    if (manageBtn && window._fbUser && window._fbUser.email === ADMIN_EMAIL) {
+    if (manageBtn && window._fbUser) {
       manageBtn.classList.remove('hidden');
     }
   }
@@ -1950,7 +1951,7 @@ async function loadWallpaperSettings() {
   if (!window._fbUser) return;
   const { doc, getDoc } = window._fbFns;
   try {
-    const snap = await getDoc(doc(window._fbDb, 'price_settings', 'wallpaper'));
+    const snap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'wallpaper'));
     if (snap.exists()) {
       const data = snap.data();
       if (typeof data.laborRate === 'number') WALLPAPER_LABOR_RATE = data.laborRate;
@@ -2047,7 +2048,7 @@ async function saveWallpaperSettings() {
   const orig = btn.textContent;
   btn.disabled = true; btn.textContent = '저장 중...';
   try {
-    await setDoc(doc(window._fbDb, 'price_settings', 'wallpaper'), {
+    await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'wallpaper'), {
       laborRate: tempWallpaperLaborRate,
       types: tempWallpaperTypes
     });
