@@ -83,8 +83,11 @@
       // "단가 관리"는 계정마다 자기 단가를 독립적으로 관리하므로 모든 로그인 계정에게 표시
       const priceBtn = document.getElementById('priceManageBtn');
       if (priceBtn) priceBtn.classList.remove('hidden');
+      const notesBtn = document.getElementById('notesManageBtn');
+      if (notesBtn) notesBtn.classList.remove('hidden');
       if (window.loadPriceOverrides) window.loadPriceOverrides();
       if (window.loadWallpaperSettings) window.loadWallpaperSettings();
+      if (window.loadEstimateNotes) window.loadEstimateNotes();
     }
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -375,6 +378,7 @@
         <span id="userEmail" class="text-xs" style="color:var(--muted)"></span>
         <button id="adminPanelBtn" onclick="toggleAdminPanel()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">👑 사용자 관리</button>
         <button id="priceManageBtn" onclick="openPriceManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">💰 단가 관리</button>
+        <button id="notesManageBtn" onclick="openNotesManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">📝 상세 설명 편집</button>
         <button onclick="doLogout()" class="danger-btn" style="padding:6px 12px;font-size:12px">로그아웃</button>
       </div>
     </div>
@@ -732,6 +736,27 @@ let lastFilmTotalWithVAT = 0; // 필름 견적 최종금액(VAT포함) - calcula
 let lastFilmTotalExclVAT = 0; // 필름 견적 최종금액(VAT별도) - calculateTotal()에서 갱신됨
 let combinedDiscountAmount = 0; // 필름+도배 통합 진행 시 최종 할인 금액
 let currentPublicEstimateId = null; // "웹으로 보내기" 링크의 공개 견적 ID (재발송 시 같은 링크 재사용)
+
+// 견적서 하단 상세 설명 (계정별로 편집 가능). 줄 앞에 "##"를 붙이면 굵은 소제목으로 표시됩니다.
+const DEFAULT_ESTIMATE_NOTES = `• 위 견적은 5천여건의 실무경험을 토대로 축적된 데이터를 기반으로 작성되었습니다。
+• 상담내용에서 누락된 부분이 없는 한 비용이 추가되는 일은 없습니다。
+• 제품은 친환경 인테리어필름 영림프라임 제품 기준입니다。
+• 제품 선택에 따라 약간의 비용 차이가 있을 수 있습니다。
+• 시공불량 또는 자연발생적인 하자에 대하여 1년 무상 A/S를 보증해 드립니다。
+• 작업은 로젠필름 본사 시공팀이 직접 시공하며 하청시공을 하지 않습니다。
+☞ 위 견적서는 계약금이 입금되는 순간 계약서를 대신합니다。
+☞ 공사진행에 있어서 부가적으로 발생되는 세대동의서제출대행료, 관리실등록비용, 엘레베이터사용료는 별도입니다。
+## @ 시공 기본 사항 @
+* 모든 샷시는 단면 시공 기준입니다. (내부에서 보이는 면만 시공되며 샷시뒷면은 시공하지 않습니다.)
+* 모든 가구류는 겉에서 보이는 면만 시공됩니다. (가구문짝의 뒷면과 내부는 시공하지 않습니다.)
+* 현관문과 터닝도어, 창고문의 경우 겉에서 보이는 단면만 시공됩니다。
+* 나무소재의 욕실문의 경우 방수처리를 위해 밑면까지 시공됩니다。
+* 방문 손잡이는 규격에 맞는 제품을 제공해주시는 경우 무료로 설치해드립니다. (경첩은 불가능)
+* 도배를 새로 시공하지 않으실 경우 하자 방지를 위해 열처리 혹은 실리콘 마감 처리합니다。
+* 강화마루의 걸레받이가 되어있는 경우 실리콘 마감을 하지 않습니다。`;
+
+let estimateNotesText = DEFAULT_ESTIMATE_NOTES;
+let tempEstimateNotesText = '';
 let isWallpaperSectionOpen = false;
 let tempWallpaperLaborRate = 0;
 let tempWallpaperTypes = {};
@@ -1318,22 +1343,14 @@ function buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, l
       <p style="font-size:10px;color:#B45309;margin-top:6px">※ 위 인상금액은 최종 견적에 이미 합산되어 있습니다 (부가세 별도 기준).</p>
     </div>` : ''}
     <div style="margin-top:12px;font-size:11px;color:#374151;border:1px solid #e2e8f0;border-radius:8px;padding:14px;line-height:2">
-      <p>• 위 견적은 5천여건의 실무경험을 토대로 축적된 데이터를 기반으로 작성되었습니다。</p>
-      <p>• 상담내용에서 누락된 부분이 없는 한 비용이 추가되는 일은 없습니다。</p>
-      <p>• 제품은 친환경 인테리어필름 영림프라임 제품 기준입니다。</p>
-      <p>• 제품 선택에 따라 약간의 비용 차이가 있을 수 있습니다。</p>
-      <p>• 시공불량 또는 자연발생적인 하자에 대하여 1년 무상 A/S를 보증해 드립니다。</p>
-      <p>• 작업은 로젠필름 본사 시공팀이 직접 시공하며 하청시공을 하지 않습니다。</p>
-      <p style="margin-top:6px">☞ 위 견적서는 계약금이 입금되는 순간 계약서를 대신합니다。</p>
-      <p>☞ 공사진행에 있어서 부가적으로 발생되는 세대동의서제출대행료, 관리실등록비용, 엘레베이터사용료는 별도입니다。</p>
-      <p style="margin-top:8px;font-weight:700;color:#1e293b">@ 시공 기본 사항 @</p>
-      <p>* 모든 샷시는 단면 시공 기준입니다. (내부에서 보이는 면만 시공되며 샷시뒷면은 시공하지 않습니다.)</p>
-      <p>* 모든 가구류는 겉에서 보이는 면만 시공됩니다. (가구문짝의 뒷면과 내부는 시공하지 않습니다.)</p>
-      <p>* 현관문과 터닝도어, 창고문의 경우 겉에서 보이는 단면만 시공됩니다。</p>
-      <p>* 나무소재의 욕실문의 경우 방수처리를 위해 밑면까지 시공됩니다。</p>
-      <p>* 방문 손잡이는 규격에 맞는 제품을 제공해주시는 경우 무료로 설치해드립니다. (경첩은 불가능)</p>
-      <p>* 도배를 새로 시공하지 않으실 경우 하자 방지를 위해 열처리 혹은 실리콘 마감 처리합니다。</p>
-      <p>* 강화마루의 걸레받이가 되어있는 경우 실리콘 마감을 하지 않습니다。</p>
+      ${(typeof estimateNotesText !== 'undefined' ? estimateNotesText : DEFAULT_ESTIMATE_NOTES)
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => line.startsWith('##')
+          ? `<p style="margin-top:8px;font-weight:700;color:#1e293b">${line.slice(2).trim()}</p>`
+          : `<p>${line}</p>`)
+        .join('')}
     </div>
   </div>
   </div>`;
@@ -2524,6 +2541,60 @@ function importFromFile() {
 // ───────── PDF Export ─────────
 
 // ───────── 웹 링크로 견적서 공유 (방식 A: Firestore에 렌더링된 HTML 저장) ─────────
+// ───────── 견적서 상세 설명(하단 안내문구) 관리 ─────────
+
+async function loadEstimateNotes() {
+  if (!window._fbUser) return;
+  const { doc, getDoc } = window._fbFns;
+  try {
+    const snap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'notes'));
+    if (snap.exists() && typeof snap.data().text === 'string' && snap.data().text.trim()) {
+      estimateNotesText = snap.data().text;
+      if (typeof calculateTotal === 'function') calculateTotal();
+    }
+  } catch(e) { console.error('상세 설명 불러오기 오류:', e); }
+}
+window.loadEstimateNotes = loadEstimateNotes;
+
+function openNotesManageModal() {
+  tempEstimateNotesText = estimateNotesText;
+  document.getElementById('notesTextarea').value = tempEstimateNotesText;
+  const modal = document.getElementById('notesManageModal');
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+}
+
+function closeNotesManageModal() {
+  const modal = document.getElementById('notesManageModal');
+  modal.classList.add('hidden');
+  modal.style.display = 'none';
+}
+
+function resetNotesToDefault() {
+  if (!confirm('기본 안내문구로 되돌릴까요?\n(저장 버튼을 눌러야 실제로 반영됩니다)')) return;
+  document.getElementById('notesTextarea').value = DEFAULT_ESTIMATE_NOTES;
+}
+
+async function saveEstimateNotes() {
+  if (!window._fbUser) return;
+  const { doc, setDoc } = window._fbFns;
+  const text = document.getElementById('notesTextarea').value;
+
+  const btn = document.getElementById('saveNotesBtn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '저장 중...';
+  try {
+    await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'notes'), { text });
+    estimateNotesText = text;
+    if (typeof calculateTotal === 'function') calculateTotal();
+    closeNotesManageModal();
+  } catch(e) {
+    alert('저장 중 오류가 발생했습니다: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
 function generateRandomId() {
   if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID().replace(/-/g, '');
   return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -2960,6 +3031,28 @@ window.onload = () => {
     <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;gap:8px">
       <button id="saveWallpaperBtn" onclick="saveWallpaperSettings()" style="flex:1;background:#8B5CF6;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">저장</button>
       <button onclick="closeWallpaperManageModal()" style="background:#F1F5F9;color:#475569;border:none;border-radius:8px;padding:11px 16px;font-size:13px;cursor:pointer">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 상세 설명(견적서 하단 안내문구) 편집 모달 ─── -->
+<div id="notesManageModal" class="hidden" style="position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:560px;margin:0 auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:18px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;border-radius:16px 16px 0 0">
+      <h3 style="font-size:17px;font-weight:800">📝 견적서 상세 설명 편집</h3>
+      <button onclick="closeNotesManageModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8">✕</button>
+    </div>
+    <div style="padding:16px 20px">
+      <p style="font-size:12px;color:#64748b;margin-bottom:10px">
+        한 줄에 한 문장씩 입력하세요. 줄 앞에 <code style="background:#F1F5F9;padding:1px 5px;border-radius:4px">##</code>를 붙이면 굵은 소제목으로 표시됩니다 (예: <code style="background:#F1F5F9;padding:1px 5px;border-radius:4px">## @ 시공 기본 사항 @</code>).
+        여기서 수정한 내용은 이 계정으로 만드는 모든 견적서 하단에 반영됩니다.
+      </p>
+      <textarea id="notesTextarea" style="width:100%;min-height:340px;border:1.5px solid #E2E8F0;border-radius:10px;padding:12px;font-size:13px;line-height:1.7;font-family:inherit;resize:vertical"></textarea>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;gap:8px">
+      <button id="saveNotesBtn" onclick="saveEstimateNotes()" style="flex:1;background:#2563EB;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">저장</button>
+      <button onclick="resetNotesToDefault()" style="background:#FEF2F2;color:#EF4444;border:1px solid #FECACA;border-radius:8px;padding:11px 14px;font-size:13px;cursor:pointer">기본값으로</button>
+      <button onclick="closeNotesManageModal()" style="background:#F1F5F9;color:#475569;border:none;border-radius:8px;padding:11px 16px;font-size:13px;cursor:pointer">취소</button>
     </div>
   </div>
 </div>
