@@ -586,6 +586,7 @@
       <div id="extraInfo" class="mt-2 text-sm" style="color:var(--muted)"></div>
       <div class="flex gap-2 mt-4">
         <button onclick="exportToPDF()" id="exportPDFBtn" class="primary-btn flex-1">📄 PDF 내보내기</button>
+        <button onclick="shareEstimateAsWebLink()" id="shareWebLinkBtn" class="primary-btn flex-1" style="background:#0EA5E9">🔗 웹으로 보내기</button>
       </div>
     </div>
   </div>
@@ -729,6 +730,7 @@ let wallpaperEstimate = { pyeong: 0, typeKey: 'artbook', manualPum: null, manual
 let lastFilmTotalWithVAT = 0; // 필름 견적 최종금액(VAT포함) - calculateTotal()에서 갱신됨
 let lastFilmTotalExclVAT = 0; // 필름 견적 최종금액(VAT별도) - calculateTotal()에서 갱신됨
 let combinedDiscountAmount = 0; // 필름+도배 통합 진행 시 최종 할인 금액
+let currentPublicEstimateId = null; // "웹으로 보내기" 링크의 공개 견적 ID (재발송 시 같은 링크 재사용)
 let isWallpaperSectionOpen = false;
 let tempWallpaperLaborRate = 0;
 let tempWallpaperTypes = {};
@@ -2321,6 +2323,7 @@ async function saveEstimate() {
     siteName, items, discountAmount, isDiscountEnabled,
     priceAdjustment, catAdjustments,
     laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays, manualLaborPersonnel,
+    currentPublicEstimateId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -2414,6 +2417,7 @@ function applyEstimateData(data) {
   isProfitHidden = data.isProfitHidden || false;
   manualConstructionDays = data.manualConstructionDays || null;
   manualLaborPersonnel = data.manualLaborPersonnel != null ? data.manualLaborPersonnel : null;
+  currentPublicEstimateId = data.currentPublicEstimateId || null;
 
   // 설정 패널 UI 동기화
   const laborInput = document.getElementById('laborRatioInput');
@@ -2513,6 +2517,69 @@ function importFromFile() {
 }
 
 // ───────── PDF Export ─────────
+
+// ───────── 웹 링크로 견적서 공유 (방식 A: Firestore에 렌더링된 HTML 저장) ─────────
+function generateRandomId() {
+  if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID().replace(/-/g, '');
+  return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+async function shareEstimateAsWebLink() {
+  if (!window._fbUser) { alert('로그인이 필요합니다.'); return; }
+
+  const btn = document.getElementById('shareWebLinkBtn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '생성 중...';
+
+  try {
+    // 최신 상태로 pdfRenderArea를 다시 그린 뒤, 그 HTML을 그대로 저장 (PDF/미리보기와 100% 동일한 내용 보장)
+    calculateTotal();
+    const html = document.getElementById('pdfRenderArea').innerHTML;
+    const siteName = document.getElementById('siteName').value.trim() || '미지정';
+
+    if (!currentPublicEstimateId) {
+      currentPublicEstimateId = generateRandomId();
+    }
+
+    const { doc, setDoc } = window._fbFns;
+    await setDoc(doc(window._fbDb, 'public_estimates', currentPublicEstimateId), {
+      html,
+      siteName,
+      updatedAt: new Date().toISOString(),
+      createdBy: window._fbUser.uid
+    }, { merge: true });
+
+    const link = `${window.location.origin}${window.location.pathname.replace(/index\.html$/, '')}view-estimate.html?id=${currentPublicEstimateId}`;
+
+    document.getElementById('webLinkOutput').value = link;
+    document.getElementById('openWebLinkAnchor').href = link;
+    document.getElementById('webLinkModal').classList.remove('hidden');
+    document.getElementById('webLinkModal').style.display = 'flex';
+  } catch(e) {
+    alert('링크 생성 중 오류가 발생했습니다: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+function closeWebLinkModal() {
+  const modal = document.getElementById('webLinkModal');
+  modal.classList.add('hidden');
+  modal.style.display = 'none';
+}
+
+function copyWebLink() {
+  const input = document.getElementById('webLinkOutput');
+  input.select();
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.getElementById('copyWebLinkBtn');
+    const orig = btn.textContent;
+    btn.textContent = '✅ 복사됨';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  }).catch(() => {
+    document.execCommand('copy'); // 구형 브라우저 대비 폴백
+  });
+}
 
 async function exportToPDF() {
   // Rebuild pdfRenderArea with current isBasisVisible state right before rendering
@@ -2888,6 +2955,24 @@ window.onload = () => {
     <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;gap:8px">
       <button id="saveWallpaperBtn" onclick="saveWallpaperSettings()" style="flex:1;background:#8B5CF6;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">저장</button>
       <button onclick="closeWallpaperManageModal()" style="background:#F1F5F9;color:#475569;border:none;border-radius:8px;padding:11px 16px;font-size:13px;cursor:pointer">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 웹 링크 공유 결과 모달 ─── -->
+<div id="webLinkModal" class="hidden" style="position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:18px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:16px;font-weight:800">🔗 웹 견적서 링크</h3>
+      <button onclick="closeWebLinkModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8">✕</button>
+    </div>
+    <div style="padding:20px">
+      <p style="font-size:12px;color:#64748b;margin-bottom:10px">이 링크를 고객에게 카카오톡/문자로 보내주세요. 나중에 견적을 수정하고 다시 "웹으로 보내기"를 누르면 같은 링크가 최신 내용으로 갱신됩니다.</p>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="webLinkOutput" readonly style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:10px;font-size:12px;background:#F8FAFC" onclick="this.select()">
+        <button id="copyWebLinkBtn" onclick="copyWebLink()" style="background:#0EA5E9;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">복사</button>
+      </div>
+      <a id="openWebLinkAnchor" href="#" target="_blank" rel="noopener" style="display:block;text-align:center;margin-top:12px;font-size:13px;color:#0EA5E9;font-weight:600">새 탭에서 미리보기 →</a>
     </div>
   </div>
 </div>
