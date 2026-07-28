@@ -1039,7 +1039,11 @@ function jumpToItem(id) {
 }
 
 function calculateTotal(showFull = true) {
-  const validItems = items.filter(it => it.categoryKey && it.itemKey);
+  const validItems = items.filter(it =>
+    it.categoryKey && it.itemKey &&
+    categories[it.categoryKey] &&
+    categories[it.categoryKey].items[it.itemKey]
+  );
 
   if (validItems.length === 0) {
     document.getElementById('totalSummary').classList.add('hidden');
