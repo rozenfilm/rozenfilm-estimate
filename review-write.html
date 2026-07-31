@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>후기 작성 | 로젠필름</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+<style>
+  :root{
+    --navy:#2B6CB0;
+    --navy-dark:#1E4E85;
+    --ink:#1A2233;
+    --paper:#F7F8FA;
+    --line:#E3E7EE;
+    --gold:#E0A526;
+    --white:#ffffff;
+    --danger:#D64545;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Noto Sans KR',sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:520px;margin:0 auto;min-height:100vh;background:var(--white);position:relative;}
+
+  /* header — 필름 스트립 모티프 */
+  .head{
+    background:linear-gradient(135deg,var(--navy) 0%,var(--navy-dark) 100%);
+    color:#fff;
+    padding:38px 24px 28px;
+    position:relative;
+    overflow:hidden;
+  }
+  .head::before{
+    content:'';
+    position:absolute;
+    top:0;left:0;right:0;height:10px;
+    background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 8px, transparent 8px 20px);
+  }
+  .head::after{
+    content:'';
+    position:absolute;
+    bottom:0;left:0;right:0;height:10px;
+    background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 8px, transparent 8px 20px);
+  }
+  .eyebrow{font-size:12px;letter-spacing:.14em;font-weight:700;opacity:.75;text-transform:uppercase;}
+  .head h1{margin:8px 0 6px;font-size:24px;font-weight:900;letter-spacing:-.01em;}
+  .head p{margin:0;font-size:13.5px;opacity:.85;line-height:1.5;}
+
+  form{padding:28px 24px 100px;}
+  .field{margin-bottom:26px;}
+  label{display:block;font-size:13.5px;font-weight:700;color:var(--ink);margin-bottom:10px;}
+  .req{color:var(--navy);margin-left:2px;}
+  input[type=text], textarea, select{
+    width:100%;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    padding:13px 14px;
+    font-family:'Noto Sans KR',sans-serif;
+    font-size:15px;
+    background:var(--paper);
+    color:var(--ink);
+    transition:border-color .15s;
+  }
+  input[type=text]:focus, textarea:focus, select:focus{
+    outline:none;border-color:var(--navy);background:#fff;
+  }
+  textarea{min-height:130px;resize:vertical;line-height:1.6;}
+
+  /* star rating */
+  .stars{display:flex;gap:6px;}
+  .star{
+    font-size:36px;line-height:1;cursor:pointer;color:#D8DCE3;
+    transition:transform .1s, color .15s; user-select:none;
+  }
+  .star.active{color:var(--gold);}
+  .star:active{transform:scale(.9);}
+  .rating-label{margin-top:8px;font-size:13px;color:#7A8299;font-weight:500;}
+
+  /* photo upload */
+  .photo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .photo-slot{
+    aspect-ratio:1/1;border-radius:10px;overflow:hidden;position:relative;
+    border:1.5px dashed var(--line);background:var(--paper);
+  }
+  .photo-slot img{width:100%;height:100%;object-fit:cover;display:block;}
+  .photo-slot .remove{
+    position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;
+    background:rgba(26,34,51,.7);color:#fff;border:none;font-size:13px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .add-photo{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:#9AA2B6;font-size:12px;font-weight:600;gap:6px;cursor:pointer;height:100%;
+  }
+  .add-photo .plus{font-size:26px;line-height:1;color:var(--navy);}
+  input[type=file]{display:none;}
+  .hint{font-size:12px;color:#9AA2B6;margin-top:8px;}
+
+  .submit-bar{
+    position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+    width:100%;max-width:520px;padding:14px 24px 20px;
+    background:linear-gradient(to top, var(--white) 65%, transparent);
+  }
+  button.submit{
+    width:100%;padding:16px;border:none;border-radius:12px;
+    background:var(--navy);color:#fff;font-size:16px;font-weight:700;
+    font-family:'Noto Sans KR',sans-serif;cursor:pointer;
+    box-shadow:0 8px 20px rgba(43,108,176,.35);
+    transition:background .15s, transform .1s;
+  }
+  button.submit:active{transform:scale(.98);}
+  button.submit:disabled{background:#B9C2D4;box-shadow:none;cursor:not-allowed;}
+
+  .err{color:var(--danger);font-size:12.5px;margin-top:6px;display:none;}
+
+  /* success screen */
+  .success{
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:80px 32px;min-height:100vh;
+  }
+  .success .icon{
+    width:72px;height:72px;border-radius:50%;background:var(--navy);
+    display:flex;align-items:center;justify-content:center;margin-bottom:22px;
+  }
+  .success .icon svg{width:34px;height:34px;}
+  .success h2{font-size:20px;margin:0 0 10px;font-weight:900;}
+  .success p{font-size:14px;color:#7A8299;line-height:1.6;margin:0;}
+
+  .compress-note{font-size:12px;color:var(--navy);margin-top:6px;display:none;font-weight:600;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="formView">
+    <div class="head">
+      <div class="eyebrow">Rozenfilm Review</div>
+      <h1>시공 후기를 들려주세요</h1>
+      <p>고객님의 솔직한 후기는 다음 시공을 고민하시는<br>이웃분들께 큰 도움이 됩니다.</p>
+    </div>
+
+    <form id="reviewForm">
+      <div class="field">
+        <label>성함 (또는 닉네임) <span class="req">*</span></label>
+        <input type="text" id="fName" placeholder="예: 동탄역시범 김OO님" maxlength="30" required />
+      </div>
+
+      <div class="field">
+        <label>시공 지역 / 아파트명 <span class="req">*</span></label>
+        <input type="text" id="fLocation" placeholder="예: 동탄역시범대단지" maxlength="40" required />
+      </div>
+
+      <div class="field">
+        <label>시공 종류</label>
+        <select id="fCategory">
+          <option value="">선택 안 함</option>
+          <option value="창문/발코니">창문 · 발코니 필름</option>
+          <option value="현관/중문">현관 · 중문 필름</option>
+          <option value="가구/몰딩">가구 · 몰딩 필름</option>
+          <option value="상가/사무실">상가 · 사무실 필름</option>
+          <option value="기타">기타</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>만족도 <span class="req">*</span></label>
+        <div class="stars" id="starRow">
+          <span class="star" data-v="1">★</span>
+          <span class="star" data-v="2">★</span>
+          <span class="star" data-v="3">★</span>
+          <span class="star" data-v="4">★</span>
+          <span class="star" data-v="5">★</span>
+        </div>
+        <div class="rating-label" id="ratingLabel">별을 눌러 평가해주세요</div>
+      </div>
+
+      <div class="field">
+        <label>후기 내용 <span class="req">*</span></label>
+        <textarea id="fContent" placeholder="시공 전후 어떤 점이 달라졌는지, 상담이나 시공 과정은 어떠셨는지 편하게 적어주세요." maxlength="800" required></textarea>
+      </div>
+
+      <div class="field">
+        <label>사진 첨부 <span style="color:#9AA2B6;font-weight:500;">(선택, 최대 6장)</span></label>
+        <div class="photo-grid" id="photoGrid">
+          <div class="photo-slot" id="addSlot">
+            <label class="add-photo" for="fPhotos" style="width:100%;height:100%;">
+              <span class="plus">＋</span>
+              <span>사진 추가</span>
+            </label>
+          </div>
+        </div>
+        <input type="file" id="fPhotos" accept="image/*" multiple />
+        <div class="compress-note" id="compressNote">사진을 최적화하는 중...</div>
+        <div class="hint">시공 전/후 사진을 함께 올려주시면 더 좋아요</div>
+      </div>
+
+      <div class="err" id="formErr"></div>
+    </form>
+  </div>
+
+  <div class="submit-bar" id="submitBar">
+    <button class="submit" id="submitBtn" type="button">후기 등록하기</button>
+  </div>
+
+  <div class="success" id="successView">
+    <div class="icon">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h2>후기가 접수되었습니다</h2>
+    <p>소중한 후기 감사합니다.<br>검토 후 홈페이지에 게시됩니다.</p>
+  </div>
+
+</div>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyD1Nqi0J2ust7UTo6XQOLofZobOHS2O7dU",
+    authDomain: "rozenfilm-estimate.firebaseapp.com",
+    projectId: "rozenfilm-estimate",
+    storageBucket: "rozenfilm-estimate.firebasestorage.app",
+    messagingSenderId: "205994221853",
+    appId: "1:205994221853:web:66cf3b8f7e90f9672581f4"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+  const storage = firebase.storage();
+
+  let rating = 0;
+  let photoFiles = []; // {file, previewUrl}
+  const MAX_PHOTOS = 6;
+
+  // ---- star rating ----
+  const starRow = document.getElementById('starRow');
+  const ratingLabel = document.getElementById('ratingLabel');
+  const RATING_TEXT = {1:'아쉬워요',2:'보통이에요',3:'괜찮아요',4:'좋아요',5:'최고예요!'};
+  starRow.addEventListener('click', (e) => {
+    const star = e.target.closest('.star');
+    if (!star) return;
+    rating = parseInt(star.dataset.v, 10);
+    [...starRow.children].forEach(s => {
+      s.classList.toggle('active', parseInt(s.dataset.v,10) <= rating);
+    });
+    ratingLabel.textContent = RATING_TEXT[rating];
+  });
+
+  // ---- photo handling with client-side compression ----
+  const fPhotos = document.getElementById('fPhotos');
+  const photoGrid = document.getElementById('photoGrid');
+  const addSlot = document.getElementById('addSlot');
+  const compressNote = document.getElementById('compressNote');
+
+  function compressImage(file, maxDim = 1600, quality = 0.82) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = (e) => { img.src = e.target.result; };
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+        else if (height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderPhotoGrid() {
+    [...photoGrid.querySelectorAll('.photo-slot.filled')].forEach(el => el.remove());
+    photoFiles.forEach((p, idx) => {
+      const slot = document.createElement('div');
+      slot.className = 'photo-slot filled';
+      slot.innerHTML = `<img src="${p.previewUrl}" /><button type="button" class="remove" data-idx="${idx}">✕</button>`;
+      photoGrid.insertBefore(slot, addSlot);
+    });
+    addSlot.style.display = photoFiles.length >= MAX_PHOTOS ? 'none' : 'flex';
+  }
+
+  photoGrid.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx, 10);
+    photoFiles.splice(idx, 1);
+    renderPhotoGrid();
+  });
+
+  fPhotos.addEventListener('change', async (e) => {
+    const files = [...e.target.files].slice(0, MAX_PHOTOS - photoFiles.length);
+    if (!files.length) return;
+    compressNote.style.display = 'block';
+    for (const file of files) {
+      const blob = await compressImage(file);
+      const previewUrl = URL.createObjectURL(blob);
+      photoFiles.push({ file: blob, previewUrl });
+    }
+    compressNote.style.display = 'none';
+    renderPhotoGrid();
+    fPhotos.value = '';
+  });
+
+  // ---- submit ----
+  const submitBtn = document.getElementById('submitBtn');
+  const formErr = document.getElementById('formErr');
+
+  submitBtn.addEventListener('click', async () => {
+    const name = document.getElementById('fName').value.trim();
+    const location = document.getElementById('fLocation').value.trim();
+    const category = document.getElementById('fCategory').value;
+    const content = document.getElementById('fContent').value.trim();
+
+    if (!name || !location || !content || rating === 0) {
+      formErr.textContent = '성함, 시공 지역, 만족도, 후기 내용을 모두 입력해주세요.';
+      formErr.style.display = 'block';
+      formErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    formErr.style.display = 'none';
+    submitBtn.disabled = true;
+    submitBtn.textContent = '등록 중...';
+
+    try {
+      const docRef = await db.collection('reviews').add({
+        name, location, category, content, rating,
+        photos: [],
+        status: 'pending',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      const photoUrls = [];
+      for (let i = 0; i < photoFiles.length; i++) {
+        const ref = storage.ref(`reviews/${docRef.id}/photo_${i}.jpg`);
+        await ref.put(photoFiles[i].file, { contentType: 'image/jpeg' });
+        photoUrls.push(await ref.getDownloadURL());
+      }
+      if (photoUrls.length) {
+        await docRef.update({ photos: photoUrls });
+      }
+
+      document.getElementById('formView').style.display = 'none';
+      document.getElementById('submitBar').style.display = 'none';
+      document.getElementById('successView').style.display = 'flex';
+    } catch (err) {
+      console.error(err);
+      formErr.textContent = '등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+      formErr.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.textContent = '후기 등록하기';
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>후기 관리자 | 로젠필름</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+<style>
+  :root{
+    --navy:#2B6CB0;--navy-dark:#1E4E85;--ink:#1A2233;--paper:#F2F4F8;
+    --line:#E3E7EE;--gold:#E0A526;--white:#fff;--danger:#D64545;--ok:#1F9D64;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Noto Sans KR',sans-serif;background:var(--paper);color:var(--ink);}
+
+  /* login */
+  #loginView{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+  }
+  .login-card{
+    background:#fff;border-radius:16px;padding:40px 32px;width:100%;max-width:360px;
+    box-shadow:0 12px 32px rgba(26,34,51,.08);text-align:center;
+  }
+  .login-card h1{font-size:19px;font-weight:900;margin:0 0 4px;}
+  .login-card p{font-size:13px;color:#8A92A6;margin:0 0 24px;}
+  .login-card input{
+    width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:9px;
+    font-size:14px;margin-bottom:12px;font-family:inherit;
+  }
+  .login-card button{
+    width:100%;padding:13px;border:none;border-radius:9px;background:var(--navy);
+    color:#fff;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit;
+  }
+  .login-err{color:var(--danger);font-size:12.5px;margin-top:10px;display:none;}
+
+  /* app shell */
+  #appView{display:none;}
+  header{
+    background:var(--navy);color:#fff;padding:20px 24px;
+    display:flex;align-items:center;justify-content:space-between;
+    position:sticky;top:0;z-index:10;
+  }
+  header h1{font-size:16px;margin:0;font-weight:900;}
+  header .who{font-size:12px;opacity:.75;margin-top:2px;}
+  header button{
+    background:rgba(255,255,255,.15);border:none;color:#fff;padding:8px 14px;
+    border-radius:8px;font-size:12.5px;cursor:pointer;font-family:inherit;
+  }
+
+  .tabs{display:flex;gap:8px;padding:16px 24px 0;max-width:960px;margin:0 auto;}
+  .tab{
+    padding:9px 16px;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;
+    background:#fff;color:#8A92A6;border:1.5px solid var(--line);
+  }
+  .tab.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .tab .count{opacity:.75;font-weight:500;margin-left:3px;}
+
+  .list{max-width:960px;margin:0 auto;padding:18px 24px 60px;display:flex;flex-direction:column;gap:14px;}
+  .empty{text-align:center;color:#9AA2B6;font-size:13.5px;padding:60px 20px;}
+
+  .card{
+    background:#fff;border-radius:14px;padding:18px 20px;border:1px solid var(--line);
+  }
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;}
+  .who-block .name{font-weight:800;font-size:14.5px;}
+  .who-block .meta{font-size:12px;color:#9AA2B6;margin-top:2px;}
+  .stars-static{color:var(--gold);font-size:14px;letter-spacing:1px;white-space:nowrap;}
+  .tag{
+    display:inline-block;background:#EEF2F8;color:var(--navy-dark);font-size:11px;
+    font-weight:700;padding:3px 9px;border-radius:6px;margin-top:6px;
+  }
+  .content{font-size:13.5px;line-height:1.65;color:#333;white-space:pre-wrap;margin:10px 0;}
+  .photos{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+  .photos img{
+    width:74px;height:74px;object-fit:cover;border-radius:8px;cursor:pointer;
+    border:1px solid var(--line);
+  }
+  .actions{display:flex;gap:8px;}
+  .actions button{
+    flex:1;padding:10px;border:none;border-radius:8px;font-size:13px;font-weight:700;
+    cursor:pointer;font-family:inherit;
+  }
+  .btn-approve{background:var(--ok);color:#fff;}
+  .btn-reject{background:#F1F2F5;color:#7A8299;}
+  .btn-delete{background:#FBEAEA;color:var(--danger);}
+  .status-pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;}
+  .pill-pending{background:#FFF4E0;color:#B8790A;}
+  .pill-approved{background:#E6F7EE;color:var(--ok);}
+  .pill-rejected{background:#F1F2F5;color:#8A92A6;}
+
+  /* lightbox */
+  #lightbox{
+    display:none;position:fixed;inset:0;background:rgba(10,14,22,.9);z-index:100;
+    align-items:center;justify-content:center;padding:20px;
+  }
+  #lightbox img{max-width:100%;max-height:92vh;border-radius:8px;}
+</style>
+</head>
+<body>
+
+<div id="loginView">
+  <div class="login-card">
+    <h1>로젠필름 후기 관리자</h1>
+    <p>관리자 계정으로 로그인해주세요</p>
+    <input type="text" id="loginEmail" placeholder="이메일" autocomplete="username" />
+    <input type="password" id="loginPw" placeholder="비밀번호" autocomplete="current-password" />
+    <button id="loginBtn">로그인</button>
+    <div class="login-err" id="loginErr"></div>
+  </div>
+</div>
+
+<div id="appView">
+  <header>
+    <div>
+      <h1>후기 관리</h1>
+      <div class="who" id="whoLabel"></div>
+    </div>
+    <button id="logoutBtn">로그아웃</button>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-status="pending">대기중 <span class="count" id="cntPending"></span></div>
+    <div class="tab" data-status="approved">게시중 <span class="count" id="cntApproved"></span></div>
+    <div class="tab" data-status="rejected">거절됨 <span class="count" id="cntRejected"></span></div>
+  </div>
+
+  <div class="list" id="list">
+    <div class="empty">불러오는 중...</div>
+  </div>
+</div>
+
+<div id="lightbox"><img id="lightboxImg" src="" /></div>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyD1Nqi0J2ust7UTo6XQOLofZobOHS2O7dU",
+    authDomain: "rozenfilm-estimate.firebaseapp.com",
+    projectId: "rozenfilm-estimate",
+    storageBucket: "rozenfilm-estimate.firebasestorage.app",
+    messagingSenderId: "205994221853",
+    appId: "1:205994221853:web:66cf3b8f7e90f9672581f4"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  const storage = firebase.storage();
+
+  const ADMIN_EMAILS = ['kilaloss2@gmail.com', 'kilaloss1@gmail.com', 'kilaloss@naver.com'];
+
+  const loginView = document.getElementById('loginView');
+  const appView = document.getElementById('appView');
+  const loginErr = document.getElementById('loginErr');
+
+  document.getElementById('loginBtn').addEventListener('click', async () => {
+    const email = document.getElementById('loginEmail').value.trim();
+    const pw = document.getElementById('loginPw').value;
+    loginErr.style.display = 'none';
+    try {
+      await auth.signInWithEmailAndPassword(email, pw);
+    } catch (e) {
+      loginErr.textContent = '로그인 실패: 이메일 또는 비밀번호를 확인해주세요.';
+      loginErr.style.display = 'block';
+    }
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', () => auth.signOut());
+
+  auth.onAuthStateChanged((user) => {
+    if (user && ADMIN_EMAILS.includes(user.email)) {
+      loginView.style.display = 'none';
+      appView.style.display = 'block';
+      document.getElementById('whoLabel').textContent = user.email;
+      loadReviews();
+    } else {
+      if (user) auth.signOut();
+      appView.style.display = 'none';
+      loginView.style.display = 'flex';
+    }
+  });
+
+  let allReviews = [];
+  let currentTab = 'pending';
+
+  async function loadReviews() {
+    db.collection('reviews').orderBy('createdAt', 'desc')
+      .onSnapshot((snap) => {
+        allReviews = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderCounts();
+        renderList();
+      }, (err) => {
+        document.getElementById('list').innerHTML = `<div class="empty">불러오기 오류: ${err.message}</div>`;
+      });
+  }
+
+  function renderCounts() {
+    document.getElementById('cntPending').textContent = allReviews.filter(r => r.status === 'pending').length || '';
+    document.getElementById('cntApproved').textContent = allReviews.filter(r => r.status === 'approved').length || '';
+    document.getElementById('cntRejected').textContent = allReviews.filter(r => r.status === 'rejected').length || '';
+  }
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentTab = tab.dataset.status;
+      renderList();
+    });
+  });
+
+  function fmtDate(ts) {
+    if (!ts || !ts.toDate) return '';
+    const d = ts.toDate();
+    return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  function renderList() {
+    const list = document.getElementById('list');
+    const items = allReviews.filter(r => r.status === currentTab);
+    if (!items.length) {
+      list.innerHTML = `<div class="empty">해당하는 후기가 없습니다.</div>`;
+      return;
+    }
+    list.innerHTML = items.map(r => `
+      <div class="card" data-id="${r.id}">
+        <div class="card-top">
+          <div class="who-block">
+            <div class="name">${escapeHtml(r.name || '익명')} <span class="tag">${escapeHtml(r.location || '')}</span></div>
+            <div class="meta">${fmtDate(r.createdAt)}${r.category ? ' · ' + escapeHtml(r.category) : ''}</div>
+          </div>
+          <div class="stars-static">${'★'.repeat(r.rating||0)}${'☆'.repeat(5-(r.rating||0))}</div>
+        </div>
+        <div class="content">${escapeHtml(r.content || '')}</div>
+        ${r.photos && r.photos.length ? `<div class="photos">${r.photos.map(u => `<img src="${u}" data-full="${u}" />`).join('')}</div>` : ''}
+        <div class="actions">
+          ${currentTab !== 'approved' ? `<button class="btn-approve" data-action="approve">게시 승인</button>` : ''}
+          ${currentTab !== 'rejected' ? `<button class="btn-reject" data-action="reject">거절</button>` : ''}
+          ${currentTab !== 'pending' ? `<button class="btn-reject" data-action="pending">대기로</button>` : ''}
+          <button class="btn-delete" data-action="delete">삭제</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  document.getElementById('list').addEventListener('click', async (e) => {
+    const img = e.target.closest('.photos img');
+    if (img) {
+      document.getElementById('lightboxImg').src = img.dataset.full;
+      document.getElementById('lightbox').style.display = 'flex';
+      return;
+    }
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const card = btn.closest('.card');
+    const id = card.dataset.id;
+    const action = btn.dataset.action;
+
+    if (action === 'approve') await db.collection('reviews').doc(id).update({ status: 'approved' });
+    if (action === 'reject') await db.collection('reviews').doc(id).update({ status: 'rejected' });
+    if (action === 'pending') await db.collection('reviews').doc(id).update({ status: 'pending' });
+    if (action === 'delete') {
+      if (!confirm('이 후기를 완전히 삭제할까요? 되돌릴 수 없습니다.')) return;
+      const rev = allReviews.find(r => r.id === id);
+      if (rev && rev.photos && rev.photos.length) {
+        for (const url of rev.photos) {
+          try { await storage.refFromURL(url).delete(); } catch (e) {}
+        }
+      }
+      await db.collection('reviews').doc(id).delete();
+    }
+  });
+
+  document.getElementById('lightbox').addEventListener('click', () => {
+    document.getElementById('lightbox').style.display = 'none';
+  });
+</script>
+</body>
+</html>
