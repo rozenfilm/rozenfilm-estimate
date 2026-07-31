@@ -91,26 +91,27 @@
     text-align:center;color:#9AA2B6;font-size:13.5px;padding:50px 20px;
   }
 
-  /* ---- 전체보기 모달 ---- */
+  /* ---- 전체보기 모달 (풀스크린) ---- */
   #rf-rev-modal{
-    display:none;position:fixed;inset:0;background:rgba(10,14,22,.94);z-index:9999;
-    align-items:flex-end;justify-content:center;
+    display:none;position:fixed;inset:0;background:#fff;z-index:9999;
   }
-  #rf-rev-modal.open{display:flex;}
+  #rf-rev-modal.open{display:block;}
   .rf-rev-modal-sheet{
-    background:#fff;width:100%;max-width:480px;max-height:88vh;border-radius:20px 20px 0 0;
+    background:#fff;width:100%;height:100%;max-height:none;
     overflow-y:auto;position:relative;font-family:'Noto Sans KR',sans-serif;
   }
   .rf-rev-modal-close{
-    position:sticky;top:12px;float:right;margin-right:12px;
-    width:32px;height:32px;border-radius:50%;background:rgba(26,34,51,.55);color:#fff;
-    border:none;font-size:16px;cursor:pointer;z-index:5;
+    position:fixed;top:16px;right:16px;float:none;margin-right:0;
+    width:38px;height:38px;border-radius:50%;background:rgba(10,14,22,.55);color:#fff;
+    border:none;font-size:18px;cursor:pointer;z-index:5;
+    display:flex;align-items:center;justify-content:center;
+    backdrop-filter:blur(4px);
   }
   .rf-rev-modal-photos{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;}
   .rf-rev-modal-photos img{
-    width:100%;flex:0 0 100%;aspect-ratio:4/3;object-fit:cover;scroll-snap-align:start;
+    width:100%;flex:0 0 100%;aspect-ratio:1/1;object-fit:cover;scroll-snap-align:start;
   }
-  .rf-rev-modal-body{padding:22px 22px 34px;}
+  .rf-rev-modal-body{padding:22px 22px 40px;}
   .rf-rev-modal-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
   .rf-rev-modal-name{font-size:16px;font-weight:900;color:#1A2233;}
   .rf-rev-modal-stars{color:#E0A526;font-size:14px;letter-spacing:1px;}
