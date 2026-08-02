@@ -79,11 +79,7 @@
   .pick-item.selected{border-color:var(--accent2); opacity:1;}
   .pick-item img{width:100%; height:100%; object-fit:cover; display:block;}
 
-  /* same fixed 3:4 box as .cam-wrap-inline (before tab) — the after camera
-     was cropping more aggressively than before because this box used to
-     stretch to fill whatever leftover space existed on screen, so it ended
-     up a different (narrower) shape than the before box and lost more of
-     the frame. Matching the shape exactly keeps the FOV identical. */
+  /* fixed 3:4 box, sized purely from width so the crop/FOV is predictable */
   .cam-wrap{
     flex:0 0 auto; position:relative; background:#000; overflow:hidden;
     aspect-ratio:3/4; width:calc(100% - 24px); margin:0 12px 12px;
@@ -115,15 +111,6 @@
     background:rgba(0,0,0,.55); color:#cfe0ff; font-size:10px; pointer-events:none; max-width:80%;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .cam-wrap-inline{
-    position:relative; background:#000; overflow:hidden; border-radius:14px;
-    aspect-ratio:3/4; margin-bottom:12px; display:none;
-  }
-  .cam-wrap-inline video{width:100%; height:100%; object-fit:cover; display:block;}
-  .cam-wrap-inline.show{display:block;}
-  .before-shutter-row{display:none; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;}
-  .before-shutter-row.show{display:flex;}
-  .cam-hint{color:var(--muted); font-size:11px; line-height:1.5; margin:-8px 0 12px;}
   .controls{
     flex:0 0 auto; background:var(--panel); border-top:1px solid var(--line);
     padding:10px 12px calc(10px + env(safe-area-inset-bottom));
@@ -193,20 +180,8 @@
   <section class="view active" id="beforeView">
     <p class="hint">시공 전 사진을 여러 장 찍거나 올려두세요. '시공 후' 탭에서 기준 사진으로 선택해 같은 구도로 촬영할 수 있어요.</p>
     <div class="add-row">
-      <button class="btn primary" id="liveCamBeforeBtn" type="button">📷 카메라로 촬영</button>
-      <label class="btn" for="uploadInput">🖼 앨범/기본카메라</label>
+      <label class="btn primary" for="uploadInput">🖼 앨범/기본카메라로 추가</label>
       <input id="uploadInput" type="file" accept="image/*" multiple style="display:none">
-    </div>
-    <p class="cam-hint">※ '카메라로 촬영'은 시공 후 탭과 동일한 카메라(같은 화각)를 사용해요. '앨범/기본카메라'로 찍으면 폰 기본 카메라 앱이 열리는데, 화각이 조금 다르게 나올 수 있어요.</p>
-
-    <div class="cam-wrap-inline" id="camWrapBefore">
-      <video id="videoBefore" playsinline muted autoplay></video>
-      <p class="cam-label" id="camLabelBefore"></p>
-    </div>
-    <div class="before-shutter-row" id="beforeShutterRow">
-      <button class="icon-btn" id="switchCamBeforeBtn" type="button" title="카메라 전환">🔄</button>
-      <button class="shutter" id="shutterBeforeBtn" type="button" title="촬영"></button>
-      <button class="icon-btn" id="closeCamBeforeBtn" type="button" title="닫기">✕</button>
     </div>
 
     <div class="gallery" id="beforeGallery"></div>
@@ -352,12 +327,10 @@
       Object.keys(views).forEach(function(k){ views[k].classList.remove("active"); });
       views[t.dataset.tab].classList.add("active");
       if (t.dataset.tab === "after"){
-        closeBeforeCam();
         renderPicker();
         renderPairs();
       } else {
-        if (currentVideoEl === video) stopCamera();
-        closeBeforeCam();
+        stopCamera();
       }
     });
   });
@@ -461,14 +434,10 @@
     if (b){ ghost.src = b.dataUrl; side.src = b.dataUrl; }
   }
 
-  // ---------- shared camera module (used by BOTH before & after tabs) ----------
-  // Keeping one shared module + a locked deviceId guarantees the exact same
-  // physical lens (same field of view) is used for before and after shots.
+  // ---------- camera module (after tab only — before tab uses album/native camera) ----------
   var video = document.getElementById("video");
   var camMsg = document.getElementById("camMsg");
   var camLabelAfter = document.getElementById("camLabelAfter");
-  var videoBefore = document.getElementById("videoBefore");
-  var camLabelBefore = document.getElementById("camLabelBefore");
 
   var currentStream = null;
   var currentVideoEl = null;
@@ -542,7 +511,6 @@
         }
         var lbl = friendlyCamLabel(track);
         if (camLabelAfter) camLabelAfter.textContent = lbl;
-        if (camLabelBefore) camLabelBefore.textContent = lbl;
       }
     }).catch(function(err){
       if (opts.msgEl){
@@ -557,17 +525,13 @@
       currentStream = null;
       currentVideoEl = null;
       video.srcObject = null;
-      videoBefore.srcObject = null;
     }
   }
   function switchCamera(){
     facingMode = (facingMode === "environment") ? "user" : "environment";
     lockedDeviceId = null; // let the new facingMode pick a fresh device
-    var wasVideoEl = currentVideoEl;
-    var wasMsgEl = wasVideoEl === videoBefore ? null : camMsg;
     stopCamera();
-    if (wasVideoEl === videoBefore) openCamera({ videoEl: videoBefore, msgEl:null });
-    else openCamera({ videoEl: video, msgEl: camMsg });
+    openCamera({ videoEl: video, msgEl: camMsg });
   }
 
   // ---------- AFTER tab: camera availability ----------
@@ -582,35 +546,6 @@
     }
   }
   document.getElementById("switchCamBtn").addEventListener("click", switchCamera);
-
-  // ---------- BEFORE tab: live camera capture ----------
-  var camWrapBefore = document.getElementById("camWrapBefore");
-  var beforeShutterRow = document.getElementById("beforeShutterRow");
-  var liveCamBeforeBtn = document.getElementById("liveCamBeforeBtn");
-
-  function openBeforeCam(){
-    camWrapBefore.classList.add("show");
-    beforeShutterRow.classList.add("show");
-    openCamera({ videoEl: videoBefore, msgEl:null });
-  }
-  function closeBeforeCam(){
-    camWrapBefore.classList.remove("show");
-    beforeShutterRow.classList.remove("show");
-    if (currentVideoEl === videoBefore) stopCamera();
-  }
-  liveCamBeforeBtn.addEventListener("click", function(){
-    if (camWrapBefore.classList.contains("show")) closeBeforeCam();
-    else openBeforeCam();
-  });
-  document.getElementById("closeCamBeforeBtn").addEventListener("click", closeBeforeCam);
-  document.getElementById("switchCamBeforeBtn").addEventListener("click", switchCamera);
-  document.getElementById("shutterBeforeBtn").addEventListener("click", function(){
-    if (currentVideoEl !== videoBefore || !currentStream){ alert("카메라가 켜져 있지 않아요."); return; }
-    var dataUrl = captureFrameFromVideo(videoBefore, camWrapBefore, MAX_DIM);
-    if (!dataUrl){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
-    state.before.push({ id: uid(), dataUrl: dataUrl, label: "" });
-    save(); renderBeforeGallery();
-  });
 
   // ---------- AFTER tab: mode toggles ----------
   var ghostImg = document.getElementById("ghostImg");
