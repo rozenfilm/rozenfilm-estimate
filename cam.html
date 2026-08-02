@@ -222,6 +222,11 @@
       </div>
     </div>
 
+    <div class="pairs" id="afterShotsWrap">
+      <h3>촬영한 시공 후 사진 (비교 저장 여부와 별개로 항상 보관돼요)</h3>
+      <div id="afterShotsList"></div>
+    </div>
+
     <div class="pairs" id="pairsWrap">
       <h3>완료된 비교사진</h3>
       <div id="pairsList"></div>
@@ -251,13 +256,14 @@
   var STORAGE_KEY = "filmCompareApp_v1";
   var MAX_DIM = 1600;
 
-  var state = { before: [], pairs: [] };
+  var state = { before: [], pairs: [], afterShots: [] };
   try {
     var saved = localStorage.getItem(STORAGE_KEY);
     if (saved) state = JSON.parse(saved);
     if (!state.before) state.before = [];
     if (!state.pairs) state.pairs = [];
-  } catch(e){ state = { before: [], pairs: [] }; }
+    if (!state.afterShots) state.afterShots = [];
+  } catch(e){ state = { before: [], pairs: [], afterShots: [] }; }
 
   function save(){
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -328,6 +334,7 @@
       views[t.dataset.tab].classList.add("active");
       if (t.dataset.tab === "after"){
         renderPicker();
+        renderAfterShots();
         renderPairs();
       } else {
         stopCamera();
@@ -613,6 +620,12 @@
     var dataUrl = captureFrameFromVideo(video, camWrap, MAX_DIM);
     if (!dataUrl){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
     pendingAfterDataUrl = dataUrl;
+    // save this shot right away, independent of whether the before/after
+    // comparison ends up being completed — so nothing is lost if the user
+    // retakes, backs out, or never taps "완료"
+    state.afterShots.push({ id: uid(), dataUrl: dataUrl, beforeId: b.id, label: b.label || "", ts: Date.now() });
+    save();
+    renderAfterShots();
     showResult(b.dataUrl, pendingAfterDataUrl);
   });
 
@@ -720,6 +733,49 @@
     afterLabelInput.value = "";
   });
 
+  function downloadDataUrl(dataUrl, filename){
+    var link = document.createElement("a");
+    link.download = filename;
+    link.href = dataUrl;
+    link.click();
+  }
+
+  // ---------- after-shots list (every captured after-photo, always kept) ----------
+  var afterShotsList = document.getElementById("afterShotsList");
+  function renderAfterShots(){
+    afterShotsList.innerHTML = "";
+    if (!state.afterShots.length){
+      afterShotsList.innerHTML = '<p class="empty" style="padding:10px 0;">아직 촬영한 시공 후 사진이 없어요.</p>';
+      return;
+    }
+    state.afterShots.slice().reverse().forEach(function(s){
+      var row = document.createElement("div");
+      row.className = "pair-card";
+      var date = new Date(s.ts).toLocaleDateString("ko-KR");
+      row.innerHTML =
+        '<img src="'+s.dataUrl+'">' +
+        '<div class="pc-info"><b>'+(s.label || "이름 없음")+'</b><span>'+date+'</span></div>' +
+        '<button class="btn" data-act="dl" data-id="'+s.id+'">저장</button>' +
+        '<button class="btn danger" data-act="del" data-id="'+s.id+'">삭제</button>';
+      afterShotsList.appendChild(row);
+    });
+  }
+  afterShotsList.addEventListener("click", function(e){
+    var btn = e.target.closest("button");
+    if (!btn) return;
+    var id = btn.dataset.id;
+    var s = state.afterShots.find(function(x){ return x.id === id; });
+    if (!s) return;
+    if (btn.dataset.act === "del"){
+      if (confirm("삭제할까요?")){
+        state.afterShots = state.afterShots.filter(function(x){ return x.id !== id; });
+        save(); renderAfterShots();
+      }
+    } else if (btn.dataset.act === "dl"){
+      downloadDataUrl(s.dataUrl, "시공후_" + s.ts + ".jpg");
+    }
+  });
+
   // ---------- pairs list ----------
   var pairsList = document.getElementById("pairsList");
   function renderPairs(){
@@ -761,6 +817,7 @@
 
   // ---------- init ----------
   renderBeforeGallery();
+  renderAfterShots();
 })();
 </script>
 </body>
