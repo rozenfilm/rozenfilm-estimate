@@ -470,6 +470,30 @@
     return label ? ("카메라: " + label) : "";
   }
 
+  // The camera stream's raw frame (video.videoWidth x video.videoHeight) is
+  // not guaranteed to be portrait just because the phone is held portrait —
+  // on some phones/browsers it stays landscape regardless of orientation.
+  // Cropping to the on-screen container's own aspect ratio before saving
+  // makes the saved photo match what's actually shown on screen (portrait
+  // box in, portrait photo out) instead of dumping the raw landscape buffer.
+  function captureFrameFromVideo(video, containerEl, maxDim){
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    var rect = containerEl.getBoundingClientRect();
+    var targetAspect = (rect.width && rect.height) ? (rect.width / rect.height) : (vw / vh);
+    var vr = vw / vh;
+    var sx, sy, sw, sh;
+    if (vr > targetAspect){ sh = vh; sw = vh * targetAspect; sx = (vw - sw)/2; sy = 0; }
+    else { sw = vw; sh = vw / targetAspect; sx = 0; sy = (vh - sh)/2; }
+    var scale = Math.min(1, maxDim / Math.max(sw, sh));
+    var cw = Math.max(1, Math.round(sw*scale)), ch = Math.max(1, Math.round(sh*scale));
+    var c = document.createElement("canvas");
+    c.width = cw; c.height = ch;
+    var ctx = c.getContext("2d");
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
+    return c.toDataURL("image/jpeg", 0.9);
+  }
+
   function getConstraints(){
     var portrait = window.innerHeight >= window.innerWidth;
     var v = {
@@ -570,14 +594,9 @@
   document.getElementById("switchCamBeforeBtn").addEventListener("click", switchCamera);
   document.getElementById("shutterBeforeBtn").addEventListener("click", function(){
     if (currentVideoEl !== videoBefore || !currentStream){ alert("카메라가 켜져 있지 않아요."); return; }
-    var vw = videoBefore.videoWidth, vh = videoBefore.videoHeight;
-    if (!vw || !vh){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
-    var c = document.createElement("canvas");
-    var scale = Math.min(1, MAX_DIM / Math.max(vw, vh));
-    c.width = Math.round(vw*scale); c.height = Math.round(vh*scale);
-    var ctx = c.getContext("2d");
-    ctx.drawImage(videoBefore, 0, 0, c.width, c.height);
-    state.before.push({ id: uid(), dataUrl: c.toDataURL("image/jpeg", 0.85), label: "" });
+    var dataUrl = captureFrameFromVideo(videoBefore, camWrapBefore, MAX_DIM);
+    if (!dataUrl){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
+    state.before.push({ id: uid(), dataUrl: dataUrl, label: "" });
     save(); renderBeforeGallery();
   });
 
@@ -638,18 +657,15 @@
   var resultOverlay = document.getElementById("resultOverlay");
   var resultCanvas = document.getElementById("resultCanvas");
   var pendingAfterDataUrl = null;
+  var camWrap = document.getElementById("camWrap");
 
   shutterBtn.addEventListener("click", function(){
     var b = getSelectedBefore();
     if (!b){ alert("먼저 기준 사진을 선택해 주세요."); return; }
     if (!currentStream){ alert("카메라가 켜져 있지 않아요."); return; }
-    var vw = video.videoWidth, vh = video.videoHeight;
-    if (!vw || !vh){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
-    var c = document.createElement("canvas");
-    c.width = vw; c.height = vh;
-    var ctx = c.getContext("2d");
-    ctx.drawImage(video, 0, 0, vw, vh);
-    pendingAfterDataUrl = c.toDataURL("image/jpeg", 0.9);
+    var dataUrl = captureFrameFromVideo(video, camWrap, MAX_DIM);
+    if (!dataUrl){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
+    pendingAfterDataUrl = dataUrl;
     showResult(b.dataUrl, pendingAfterDataUrl);
   });
 
@@ -669,25 +685,26 @@
     function tryDraw(){
       loaded++;
       if (loaded < 2) return;
-      // use the "before" photo's aspect ratio as the common tile shape,
-      // so both before/after tiles come out exactly the same size
+      // stacked vertically (Before on top, After below) — matches portrait
+      // photos better than side-by-side. Use the "before" photo's aspect
+      // ratio as the common tile shape, so both tiles come out the same size.
       var aspect = imgB.width / imgB.height;
-      var tileH = Math.min(imgB.height, imgA.height, 1400);
-      var tileW = Math.round(tileH * aspect);
+      var tileW = Math.min(imgB.width, imgA.width, 1400);
+      var tileH = Math.round(tileW / aspect);
       var gap = 6;
-      resultCanvas.width = tileW*2 + gap;
-      resultCanvas.height = tileH;
+      resultCanvas.width = tileW;
+      resultCanvas.height = tileH*2 + gap;
       var ctx = resultCanvas.getContext("2d");
       ctx.fillStyle = "#000";
       ctx.fillRect(0,0,resultCanvas.width, resultCanvas.height);
       drawCover(ctx, imgB, 0, 0, tileW, tileH);
-      drawCover(ctx, imgA, tileW+gap, 0, tileW, tileH);
+      drawCover(ctx, imgA, 0, tileH+gap, tileW, tileH);
       ctx.fillStyle = "rgba(0,0,0,.55)";
       ctx.fillRect(8,8,44,20);
-      ctx.fillRect(tileW+gap+8,8,44,20);
+      ctx.fillRect(8, tileH+gap+8, 44, 20);
       ctx.fillStyle = "#fff"; ctx.font = "13px sans-serif";
       ctx.fillText("Before", 12, 23);
-      ctx.fillText("After", tileW+gap+12, 23);
+      ctx.fillText("After", 12, tileH+gap+23);
       resultOverlay.classList.add("show");
     }
     imgB.onload = tryDraw; imgA.onload = tryDraw;
