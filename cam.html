@@ -522,29 +522,41 @@
     showResult(b.dataUrl, pendingAfterDataUrl);
   });
 
+  // draws img into (x,y,w,h) cropped like CSS object-fit:cover, so the
+  // tile is exactly w x h regardless of the source image's own aspect ratio
+  function drawCover(ctx, img, x, y, w, h){
+    var ir = img.width / img.height, tr = w / h;
+    var sx, sy, sw, sh;
+    if (ir > tr){ sh = img.height; sw = sh * tr; sx = (img.width - sw)/2; sy = 0; }
+    else { sw = img.width; sh = sw / tr; sx = 0; sy = (img.height - sh)/2; }
+    ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  }
+
   function showResult(beforeUrl, afterUrl){
     var imgB = new Image(), imgA = new Image();
     var loaded = 0;
     function tryDraw(){
       loaded++;
       if (loaded < 2) return;
-      var h = Math.min(imgB.height, imgA.height, 1400);
-      var wB = imgB.width * (h/imgB.height);
-      var wA = imgA.width * (h/imgA.height);
+      // use the "before" photo's aspect ratio as the common tile shape,
+      // so both before/after tiles come out exactly the same size
+      var aspect = imgB.width / imgB.height;
+      var tileH = Math.min(imgB.height, imgA.height, 1400);
+      var tileW = Math.round(tileH * aspect);
       var gap = 6;
-      resultCanvas.width = wB + wA + gap;
-      resultCanvas.height = h;
+      resultCanvas.width = tileW*2 + gap;
+      resultCanvas.height = tileH;
       var ctx = resultCanvas.getContext("2d");
       ctx.fillStyle = "#000";
       ctx.fillRect(0,0,resultCanvas.width, resultCanvas.height);
-      ctx.drawImage(imgB, 0, 0, wB, h);
-      ctx.drawImage(imgA, wB+gap, 0, wA, h);
+      drawCover(ctx, imgB, 0, 0, tileW, tileH);
+      drawCover(ctx, imgA, tileW+gap, 0, tileW, tileH);
       ctx.fillStyle = "rgba(0,0,0,.55)";
       ctx.fillRect(8,8,44,20);
-      ctx.fillRect(wB+gap+8,8,44,20);
+      ctx.fillRect(tileW+gap+8,8,44,20);
       ctx.fillStyle = "#fff"; ctx.font = "13px sans-serif";
       ctx.fillText("Before", 12, 23);
-      ctx.fillText("After", wB+gap+12, 23);
+      ctx.fillText("After", tileW+gap+12, 23);
       resultOverlay.classList.add("show");
     }
     imgB.onload = tryDraw; imgA.onload = tryDraw;
