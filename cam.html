@@ -203,6 +203,7 @@
       <button class="icon-btn" id="switchCamBeforeBtn" type="button" title="카메라 전환">🔄</button>
       <button class="shutter" id="shutterBeforeBtn" type="button" title="촬영"></button>
       <button class="icon-btn" id="closeCamBeforeBtn" type="button" title="닫기">✕</button>
+      <button class="icon-btn cam-debug-btn" type="button" title="카메라 정보">ℹ️</button>
     </div>
 
     <div class="gallery" id="beforeGallery"></div>
@@ -243,7 +244,7 @@
       <div class="shutter-row">
         <button class="icon-btn" id="switchCamBtn" title="카메라 전환">🔄</button>
         <button class="shutter" id="shutterBtn" title="촬영"></button>
-        <button class="icon-btn" id="dummyBtn" style="visibility:hidden">•</button>
+        <button class="icon-btn cam-debug-btn" type="button" title="카메라 정보">ℹ️</button>
       </div>
     </div>
 
@@ -636,6 +637,29 @@
 
   lensBtns.forEach(function(b){
     b.addEventListener("click", function(){ selectLens(b.dataset.kind); });
+  });
+
+  // diagnostic: shows exactly what this phone/browser exposes, so lens
+  // switching support (or lack of it) can be confirmed instead of guessed
+  function showCameraDebugInfo(){
+    refreshDeviceList().then(function(list){
+      var lines = [];
+      lines.push("감지된 카메라(후면 추정) 수: " + list.length);
+      list.forEach(function(d, i){
+        lines.push((i+1) + ". " + (d.label || "(라벨 없음 - 권한 문제일 수 있음)") + "  [" + guessLensType(d.label) + "]");
+      });
+      var zoomInfo = currentTrackZoomCaps();
+      if (zoomInfo) lines.push("현재 카메라 줌 범위: " + zoomInfo.caps.min + " ~ " + zoomInfo.caps.max);
+      else lines.push("현재 카메라 줌(zoom) 기능: 미지원 또는 확인 불가");
+      if (currentStream){
+        var t = currentStream.getVideoTracks()[0];
+        if (t) lines.push("현재 사용 중: " + (t.label || "(라벨 없음)"));
+      }
+      alert(lines.join("\n"));
+    });
+  }
+  document.querySelectorAll(".cam-debug-btn").forEach(function(b){
+    b.addEventListener("click", showCameraDebugInfo);
   });
 
   // ---------- AFTER tab: camera availability ----------
