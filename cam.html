@@ -102,6 +102,20 @@
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:var(--muted); font-size:13px; text-align:center; padding:30px; line-height:1.6;
   }
+  .cam-label{
+    position:absolute; left:8px; bottom:8px; margin:0; padding:3px 8px; border-radius:8px;
+    background:rgba(0,0,0,.55); color:#cfe0ff; font-size:10px; pointer-events:none; max-width:80%;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .cam-wrap-inline{
+    position:relative; background:#000; overflow:hidden; border-radius:14px;
+    aspect-ratio:3/4; margin-bottom:12px; display:none;
+  }
+  .cam-wrap-inline video{width:100%; height:100%; object-fit:cover; display:block;}
+  .cam-wrap-inline.show{display:block;}
+  .before-shutter-row{display:none; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;}
+  .before-shutter-row.show{display:flex;}
+  .cam-hint{color:var(--muted); font-size:11px; line-height:1.5; margin:-8px 0 12px;}
   .controls{
     flex:0 0 auto; background:var(--panel); border-top:1px solid var(--line);
     padding:10px 12px calc(10px + env(safe-area-inset-bottom));
@@ -171,11 +185,22 @@
   <section class="view active" id="beforeView">
     <p class="hint">시공 전 사진을 여러 장 찍거나 올려두세요. '시공 후' 탭에서 기준 사진으로 선택해 같은 구도로 촬영할 수 있어요.</p>
     <div class="add-row">
-      <label class="btn primary" for="captureInput">📷 사진 촬영</label>
-      <input id="captureInput" type="file" accept="image/*" capture="environment" style="display:none">
-      <label class="btn" for="uploadInput">🖼 앨범에서 추가</label>
+      <button class="btn primary" id="liveCamBeforeBtn" type="button">📷 카메라로 촬영</button>
+      <label class="btn" for="uploadInput">🖼 앨범/기본카메라</label>
       <input id="uploadInput" type="file" accept="image/*" multiple style="display:none">
     </div>
+    <p class="cam-hint">※ '카메라로 촬영'은 시공 후 탭과 동일한 카메라(같은 화각)를 사용해요. '앨범/기본카메라'로 찍으면 폰 기본 카메라 앱이 열리는데, 화각이 조금 다르게 나올 수 있어요.</p>
+
+    <div class="cam-wrap-inline" id="camWrapBefore">
+      <video id="videoBefore" playsinline muted autoplay></video>
+      <p class="cam-label" id="camLabelBefore"></p>
+    </div>
+    <div class="before-shutter-row" id="beforeShutterRow">
+      <button class="icon-btn" id="switchCamBeforeBtn" type="button" title="카메라 전환">🔄</button>
+      <button class="shutter" id="shutterBeforeBtn" type="button" title="촬영"></button>
+      <button class="icon-btn" id="closeCamBeforeBtn" type="button" title="닫기">✕</button>
+    </div>
+
     <div class="gallery" id="beforeGallery"></div>
     <p class="empty" id="beforeEmpty">아직 등록된 시공 전 사진이 없어요.</p>
   </section>
@@ -193,6 +218,7 @@
       <div class="grid-overlay" id="gridOverlay"></div>
       <div class="side-panel" id="sidePanel"><span class="tag">시공 전</span><img id="sideImg"></div>
       <div class="cam-msg" id="camMsg">기준 사진을 선택하면 카메라가 켜져요.</div>
+      <p class="cam-label" id="camLabelAfter"></p>
     </div>
 
     <div class="controls">
@@ -286,10 +312,12 @@
       Object.keys(views).forEach(function(k){ views[k].classList.remove("active"); });
       views[t.dataset.tab].classList.add("active");
       if (t.dataset.tab === "after"){
+        closeBeforeCam();
         renderPicker();
         renderPairs();
       } else {
-        stopCamera();
+        if (currentVideoEl === video) stopCamera();
+        closeBeforeCam();
       }
     });
   });
@@ -341,10 +369,6 @@
       .catch(function(){ alert("사진을 불러오지 못했어요."); });
   }
 
-  document.getElementById("captureInput").addEventListener("change", function(e){
-    if (e.target.files.length) addBeforeFiles(e.target.files);
-    e.target.value = "";
-  });
   document.getElementById("uploadInput").addEventListener("change", function(e){
     if (e.target.files.length) addBeforeFiles(e.target.files);
     e.target.value = "";
@@ -397,57 +421,136 @@
     if (b){ ghost.src = b.dataUrl; side.src = b.dataUrl; }
   }
 
-  // ---------- AFTER tab: camera ----------
+  // ---------- shared camera module (used by BOTH before & after tabs) ----------
+  // Keeping one shared module + a locked deviceId guarantees the exact same
+  // physical lens (same field of view) is used for before and after shots.
   var video = document.getElementById("video");
   var camMsg = document.getElementById("camMsg");
-  var currentStream = null;
-  var facingMode = "environment";
+  var camLabelAfter = document.getElementById("camLabelAfter");
+  var videoBefore = document.getElementById("videoBefore");
+  var camLabelBefore = document.getElementById("camLabelBefore");
 
-  function updateCamAvailability(){
-    if (getSelectedBefore()){
-      camMsg.style.display = "none";
-      startCamera();
-    } else {
-      camMsg.style.display = "flex";
-      camMsg.textContent = "기준 사진을 선택하면 카메라가 켜져요.";
-      stopCamera();
-    }
+  var currentStream = null;
+  var currentVideoEl = null;
+  var facingMode = "environment";
+  var lockedDeviceId = null; // once we know the exact camera device, reuse it everywhere
+
+  function friendlyCamLabel(track){
+    var label = track && track.label ? track.label : "";
+    // trim overly long hardware strings, keep it short
+    if (label.length > 42) label = label.slice(0,42) + "…";
+    return label ? ("카메라: " + label) : "";
   }
 
-  function startCamera(){
-    if (currentStream) return; // already running
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      camMsg.style.display = "flex";
-      camMsg.textContent = "이 브라우저는 카메라 접근을 지원하지 않아요. HTTPS 주소로 접속했는지 확인해 주세요.";
-      return;
-    }
+  function getConstraints(){
     var portrait = window.innerHeight >= window.innerWidth;
-    var constraints = { video: {
-      facingMode: facingMode,
+    var v = {
       width:{ideal: portrait ? 1080 : 1920},
       height:{ideal: portrait ? 1920 : 1080},
       aspectRatio:{ideal: portrait ? 0.75 : 1.333}
-    }, audio:false };
-    navigator.mediaDevices.getUserMedia(constraints).then(function(stream){
+    };
+    if (lockedDeviceId) v.deviceId = { exact: lockedDeviceId };
+    else v.facingMode = facingMode;
+    return { video: v, audio:false };
+  }
+
+  // opts: { videoEl, msgEl, labelEl }
+  function openCamera(opts){
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      if (opts.msgEl){
+        opts.msgEl.style.display = "flex";
+        opts.msgEl.textContent = "이 브라우저는 카메라 접근을 지원하지 않아요. HTTPS 주소로 접속했는지 확인해 주세요.";
+      }
+      return;
+    }
+    if (currentStream && currentVideoEl === opts.videoEl) return; // already open here
+    stopCamera(); // only one camera stream open at a time
+    navigator.mediaDevices.getUserMedia(getConstraints()).then(function(stream){
       currentStream = stream;
-      video.srcObject = stream;
-      camMsg.style.display = "none";
+      currentVideoEl = opts.videoEl;
+      opts.videoEl.srcObject = stream;
+      if (opts.msgEl) opts.msgEl.style.display = "none";
+      var track = stream.getVideoTracks()[0];
+      if (track){
+        if (!lockedDeviceId){
+          var settings = track.getSettings ? track.getSettings() : {};
+          if (settings.deviceId) lockedDeviceId = settings.deviceId;
+        }
+        var lbl = friendlyCamLabel(track);
+        if (camLabelAfter) camLabelAfter.textContent = lbl;
+        if (camLabelBefore) camLabelBefore.textContent = lbl;
+      }
     }).catch(function(err){
-      camMsg.style.display = "flex";
-      camMsg.innerHTML = "카메라를 열 수 없어요.<br>브라우저 카메라 권한을 확인하거나,<br>HTTPS(또는 localhost) 주소로 열어주세요.<br><span style='color:#666'>("+err.name+")</span>";
+      if (opts.msgEl){
+        opts.msgEl.style.display = "flex";
+        opts.msgEl.innerHTML = "카메라를 열 수 없어요.<br>브라우저 카메라 권한을 확인하거나,<br>HTTPS(또는 localhost) 주소로 열어주세요.<br><span style='color:#666'>("+err.name+")</span>";
+      }
     });
   }
   function stopCamera(){
     if (currentStream){
       currentStream.getTracks().forEach(function(t){ t.stop(); });
       currentStream = null;
+      currentVideoEl = null;
       video.srcObject = null;
+      videoBefore.srcObject = null;
     }
   }
-  document.getElementById("switchCamBtn").addEventListener("click", function(){
+  function switchCamera(){
     facingMode = (facingMode === "environment") ? "user" : "environment";
+    lockedDeviceId = null; // let the new facingMode pick a fresh device
+    var wasVideoEl = currentVideoEl;
+    var wasMsgEl = wasVideoEl === videoBefore ? null : camMsg;
     stopCamera();
-    startCamera();
+    if (wasVideoEl === videoBefore) openCamera({ videoEl: videoBefore, msgEl:null });
+    else openCamera({ videoEl: video, msgEl: camMsg });
+  }
+
+  // ---------- AFTER tab: camera availability ----------
+  function updateCamAvailability(){
+    if (getSelectedBefore()){
+      camMsg.style.display = "none";
+      openCamera({ videoEl: video, msgEl: camMsg });
+    } else {
+      camMsg.style.display = "flex";
+      camMsg.textContent = "기준 사진을 선택하면 카메라가 켜져요.";
+      if (currentVideoEl === video) stopCamera();
+    }
+  }
+  document.getElementById("switchCamBtn").addEventListener("click", switchCamera);
+
+  // ---------- BEFORE tab: live camera capture ----------
+  var camWrapBefore = document.getElementById("camWrapBefore");
+  var beforeShutterRow = document.getElementById("beforeShutterRow");
+  var liveCamBeforeBtn = document.getElementById("liveCamBeforeBtn");
+
+  function openBeforeCam(){
+    camWrapBefore.classList.add("show");
+    beforeShutterRow.classList.add("show");
+    openCamera({ videoEl: videoBefore, msgEl:null });
+  }
+  function closeBeforeCam(){
+    camWrapBefore.classList.remove("show");
+    beforeShutterRow.classList.remove("show");
+    if (currentVideoEl === videoBefore) stopCamera();
+  }
+  liveCamBeforeBtn.addEventListener("click", function(){
+    if (camWrapBefore.classList.contains("show")) closeBeforeCam();
+    else openBeforeCam();
+  });
+  document.getElementById("closeCamBeforeBtn").addEventListener("click", closeBeforeCam);
+  document.getElementById("switchCamBeforeBtn").addEventListener("click", switchCamera);
+  document.getElementById("shutterBeforeBtn").addEventListener("click", function(){
+    if (currentVideoEl !== videoBefore || !currentStream){ alert("카메라가 켜져 있지 않아요."); return; }
+    var vw = videoBefore.videoWidth, vh = videoBefore.videoHeight;
+    if (!vw || !vh){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
+    var c = document.createElement("canvas");
+    var scale = Math.min(1, MAX_DIM / Math.max(vw, vh));
+    c.width = Math.round(vw*scale); c.height = Math.round(vh*scale);
+    var ctx = c.getContext("2d");
+    ctx.drawImage(videoBefore, 0, 0, c.width, c.height);
+    state.before.push({ id: uid(), dataUrl: c.toDataURL("image/jpeg", 0.85), label: "" });
+    save(); renderBeforeGallery();
   });
 
   // ---------- AFTER tab: mode toggles ----------
