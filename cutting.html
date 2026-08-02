@@ -941,7 +941,7 @@
         height: Math.ceil(height / 50) * 50,
       }), []);
 
-      const addSurface = useCallback((presetCategory) => {
+      const addSurface = useCallback((presetCategory, shouldScroll = false) => {
         const last = surfaces[surfaces.length - 1] || { width: 0, height: 0, count: 1, label: '', category: '' };
         const adjusted = adjustToCuttingUnit(last.width, last.height);
         setSurfaces(prev => [...prev, {
@@ -953,7 +953,10 @@
         }]);
         if (presetCategory) {
           setCollapsedCats(prev => ({ ...prev, [presetCategory]: false }));
-          setScrollTarget(presetCategory);
+          // 이미 열려있는 그룹에 항목 하나 더 추가하는 경우엔 화면이 그대로 유지되어야
+          // 자연스럽다(사용자가 이미 그 자리를 보고 있으므로). 완전히 새로운 부위를 막
+          // 만든 경우에만 그 부위로 스크롤 이동해서 확인시켜준다.
+          if (shouldScroll) setScrollTarget(presetCategory);
         }
       }, [surfaces, adjustToCuttingUnit]);
 
@@ -1222,6 +1225,7 @@
             width: s.width,
             height: s.height,
             label: s.label,
+            category: (s.category || '').trim() || UNCATEGORIZED,
           }))
         );
 
@@ -1278,7 +1282,7 @@
             layout.push({
               x: row.usedWidth, y: row.y,
               width: w, height: h,
-              rotated: bestRotated, label: item.label,
+              rotated: bestRotated, label: item.label, category: item.category,
               id: layout.length + 1,
               roll: rollIndex,
             });
@@ -1305,7 +1309,7 @@
           layout.push({
             x: 0, y: newY,
             width: w, height: h,
-            rotated, label: item.label,
+            rotated, label: item.label, category: item.category,
             id: layout.length + 1,
             roll: rollIndex,
           });
@@ -1373,7 +1377,8 @@
               ctx.translate(x + Math.min(20, w / 2), y + h - 8);
               ctx.rotate(-Math.PI / 2);
               const rotMark = item.rotated ? ' [회전]' : '';
-              const idText = `#${item.id} (${item.width}x${item.height})${rotMark}`;
+              const categoryText = item.category ? ` ${item.category}` : '';
+              const idText = `#${item.id}${categoryText} (${item.width}x${item.height})${rotMark}`;
               ctx.strokeText(idText, 0, 0);
               ctx.fillText(idText, 0, 0);
               if (item.label) {
@@ -2327,7 +2332,7 @@ service cloud.firestore {
                 <button
                   onClick={() => {
                     const name = window.prompt('새 부위 이름을 입력하세요 (예: 문, 샷시대창, 4쪽붙박이장)');
-                    if (name && name.trim()) addSurface(name.trim());
+                    if (name && name.trim()) addSurface(name.trim(), true);
                   }}
                   className="bg-blue-600 text-white text-sm px-3 py-1 rounded-full"
                 >
@@ -2511,7 +2516,7 @@ service cloud.firestore {
             <button
               onClick={() => {
                 const name = window.prompt('새 부위 이름을 입력하세요 (예: 문, 샷시대창, 4쪽붙박이장)');
-                if (name && name.trim()) addSurface(name.trim());
+                if (name && name.trim()) addSurface(name.trim(), true);
               }}
               className="bg-blue-600 text-white text-sm px-3 py-2 rounded"
             >
@@ -2665,7 +2670,7 @@ service cloud.firestore {
                     <tr key={item.id}>
                       <td>{item.id}</td>
                       <td>{item.roll}</td>
-                      <td>{item.label || '-'}</td>
+                      <td>{item.category ? `[${item.category}] ` : ''}{item.label || '-'}</td>
                       <td>{item.width}</td>
                       <td>{item.height}</td>
                       <td>{item.rotated ? 'O' : ''}</td>
