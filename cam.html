@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>인테리어필름 시공 비교촬영</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1f2430; --line:#2a2f3b;
+    --accent:#4f8cff; --accent2:#2ecc71; --text:#eef1f6; --muted:#93a0b4;
+    --danger:#ff5c5c;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    display:flex; flex-direction:column; height:100dvh; overflow:hidden;
+  }
+  header{
+    padding:10px 14px; text-align:center; border-bottom:1px solid var(--line);
+    background:var(--panel); flex:0 0 auto;
+  }
+  header h1{font-size:15px; margin:0; font-weight:600; letter-spacing:-0.2px;}
+  .tabs{display:flex; flex:0 0 auto; border-bottom:1px solid var(--line); background:var(--panel);}
+  .tab{
+    flex:1; padding:12px 0; text-align:center; font-size:14px; font-weight:600;
+    color:var(--muted); background:none; border:none; cursor:pointer;
+  }
+  .tab.active{color:var(--text); box-shadow: inset 0 -2px 0 var(--accent);}
+  main{flex:1 1 auto; overflow:hidden; display:flex; flex-direction:column; min-height:0;}
+  .view{flex:1 1 auto; overflow:hidden; display:none; flex-direction:column; min-height:0;}
+  .view.active{display:flex;}
+
+  /* ---------- BEFORE TAB ---------- */
+  #beforeView{overflow-y:auto; padding:12px;}
+  .add-row{display:flex; gap:8px; margin-bottom:14px;}
+  .btn{
+    appearance:none; border:none; border-radius:12px; padding:12px 14px;
+    font-size:14px; font-weight:600; cursor:pointer; color:var(--text);
+    background:var(--panel2); border:1px solid var(--line);
+  }
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .btn.ghost{background:transparent;}
+  .btn.danger{color:var(--danger);}
+  .btn:active{filter:brightness(0.9);}
+  .add-row .btn{flex:1;}
+  .hint{color:var(--muted); font-size:12px; line-height:1.5; margin:0 0 12px;}
+  .gallery{display:grid; grid-template-columns:repeat(2,1fr); gap:10px;}
+  .card{
+    background:var(--panel2); border:1px solid var(--line); border-radius:14px;
+    overflow:hidden; position:relative;
+  }
+  .card img{width:100%; aspect-ratio:3/4; object-fit:cover; display:block;}
+  .card .badge{
+    position:absolute; top:6px; left:6px; background:rgba(0,0,0,.55);
+    color:#fff; font-size:11px; padding:3px 7px; border-radius:8px;
+  }
+  .card .del{
+    position:absolute; top:6px; right:6px; width:26px; height:26px; border-radius:50%;
+    background:rgba(0,0,0,.55); color:#fff; border:none; font-size:14px; line-height:1;
+    cursor:pointer;
+  }
+  .card .label{
+    width:100%; border:none; background:var(--panel2); color:var(--text);
+    font-size:12px; padding:7px 8px; outline:none; border-top:1px solid var(--line);
+  }
+  .empty{color:var(--muted); font-size:13px; text-align:center; padding:40px 10px;}
+
+  /* ---------- AFTER TAB ---------- */
+  #afterView{min-height:0;}
+  .picker{padding:10px 12px 4px; flex:0 0 auto;}
+  .picker-label{font-size:12px; color:var(--muted); margin:0 0 8px;}
+  .picker-strip{display:flex; gap:8px; overflow-x:auto; padding-bottom:8px;}
+  .pick-item{
+    flex:0 0 auto; width:58px; height:78px; border-radius:10px; overflow:hidden;
+    border:2px solid var(--line); position:relative; opacity:.65;
+  }
+  .pick-item.selected{border-color:var(--accent2); opacity:1;}
+  .pick-item img{width:100%; height:100%; object-fit:cover; display:block;}
+
+  .cam-wrap{flex:1 1 auto; position:relative; background:#000; min-height:0; overflow:hidden;}
+  #video{width:100%; height:100%; object-fit:cover; display:block; background:#000;}
+  .ghost{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    pointer-events:none; display:none;
+  }
+  .grid-overlay{position:absolute; inset:0; pointer-events:none; display:none;}
+  .grid-overlay.on{display:block;}
+  .grid-overlay div{position:absolute; background:rgba(255,255,255,.35);}
+  .side-panel{
+    position:absolute; right:10px; bottom:120px; width:30%; max-width:130px;
+    border:2px solid var(--accent2); border-radius:10px; overflow:hidden;
+    box-shadow:0 4px 14px rgba(0,0,0,.5); display:none;
+  }
+  .side-panel img{width:100%; display:block;}
+  .side-panel .tag{
+    position:absolute; top:0; left:0; background:var(--accent2); color:#06210f;
+    font-size:10px; font-weight:700; padding:2px 6px; border-bottom-right-radius:8px;
+  }
+  .cam-msg{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); font-size:13px; text-align:center; padding:30px; line-height:1.6;
+  }
+  .controls{
+    flex:0 0 auto; background:var(--panel); border-top:1px solid var(--line);
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  }
+  .mode-row{display:flex; gap:8px; margin-bottom:8px;}
+  .mode-btn{
+    flex:1; padding:9px 0; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel2); color:var(--muted); font-size:12px; font-weight:600; cursor:pointer;
+  }
+  .mode-btn.on{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .opacity-row{display:flex; align-items:center; gap:8px; margin-bottom:10px;}
+  .opacity-row span{font-size:11px; color:var(--muted); width:56px; flex:0 0 auto;}
+  .opacity-row input[type=range]{flex:1;}
+  .shutter-row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .icon-btn{
+    width:44px; height:44px; border-radius:50%; background:var(--panel2);
+    border:1px solid var(--line); color:var(--text); font-size:18px; cursor:pointer;
+  }
+  .shutter{
+    width:68px; height:68px; border-radius:50%; background:#fff; border:4px solid var(--accent);
+    cursor:pointer;
+  }
+  .label-input{
+    width:100%; margin-top:8px; padding:9px 10px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel2); color:var(--text); font-size:13px; outline:none;
+  }
+
+  /* result overlay */
+  #resultOverlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:50; display:none;
+    flex-direction:column; padding:16px; padding-bottom:calc(16px + env(safe-area-inset-bottom));
+  }
+  #resultOverlay.show{display:flex;}
+  #resultOverlay h2{font-size:14px; margin:0 0 10px; text-align:center; color:var(--muted); font-weight:600;}
+  .result-imgwrap{flex:1; min-height:0; display:flex; align-items:center; justify-content:center;}
+  #resultCanvas{max-width:100%; max-height:100%; border-radius:12px;}
+  .result-actions{display:flex; gap:8px; margin-top:14px;}
+  .result-actions .btn{flex:1;}
+
+  /* pairs list */
+  .pairs{padding:10px 12px 16px; overflow-y:auto;}
+  .pairs h3{font-size:12px; color:var(--muted); margin:14px 0 8px; font-weight:600;}
+  .pair-card{
+    display:flex; gap:8px; background:var(--panel2); border:1px solid var(--line);
+    border-radius:12px; padding:8px; margin-bottom:8px; align-items:center;
+  }
+  .pair-card img{width:44px; height:56px; object-fit:cover; border-radius:6px;}
+  .pair-card .pc-info{flex:1; min-width:0;}
+  .pair-card .pc-info b{font-size:13px; display:block;}
+  .pair-card .pc-info span{font-size:11px; color:var(--muted);}
+  .pair-card .btn{padding:8px 10px; font-size:12px;}
+  #afterScroll{overflow-y:auto; flex:0 0 auto; max-height:40dvh; display:none;}
+  #afterScroll.show{display:block;}
+</style>
+</head>
+<body>
+
+<header><h1>인테리어필름 시공 비교촬영</h1></header>
+
+<div class="tabs">
+  <button class="tab active" data-tab="before">시공 전 촬영</button>
+  <button class="tab" data-tab="after">시공 후 촬영</button>
+</div>
+
+<main>
+  <!-- BEFORE -->
+  <section class="view active" id="beforeView">
+    <p class="hint">시공 전 사진을 여러 장 찍거나 올려두세요. '시공 후' 탭에서 기준 사진으로 선택해 같은 구도로 촬영할 수 있어요.</p>
+    <div class="add-row">
+      <label class="btn primary" for="captureInput">📷 사진 촬영</label>
+      <input id="captureInput" type="file" accept="image/*" capture="environment" style="display:none">
+      <label class="btn" for="uploadInput">🖼 앨범에서 추가</label>
+      <input id="uploadInput" type="file" accept="image/*" multiple style="display:none">
+    </div>
+    <div class="gallery" id="beforeGallery"></div>
+    <p class="empty" id="beforeEmpty">아직 등록된 시공 전 사진이 없어요.</p>
+  </section>
+
+  <!-- AFTER -->
+  <section class="view" id="afterView">
+    <div class="picker">
+      <p class="picker-label" id="pickerLabel">기준 사진 선택 (시공 전 탭에서 먼저 등록하세요)</p>
+      <div class="picker-strip" id="pickerStrip"></div>
+    </div>
+
+    <div class="cam-wrap" id="camWrap">
+      <video id="video" playsinline muted autoplay></video>
+      <img class="ghost" id="ghostImg">
+      <div class="grid-overlay" id="gridOverlay"></div>
+      <div class="side-panel" id="sidePanel"><span class="tag">시공 전</span><img id="sideImg"></div>
+      <div class="cam-msg" id="camMsg">기준 사진을 선택하면 카메라가 켜져요.</div>
+    </div>
+
+    <div class="controls">
+      <div class="mode-row">
+        <button class="mode-btn on" id="modeOverlay">겹쳐보기(오버레이)</button>
+        <button class="mode-btn" id="modeSide">옆에 보기</button>
+        <button class="mode-btn" id="modeGrid">격자</button>
+      </div>
+      <div class="opacity-row" id="opacityRow">
+        <span>투명도</span>
+        <input type="range" id="opacitySlider" min="10" max="90" value="45">
+      </div>
+      <input class="label-input" id="afterLabel" placeholder="이 위치 이름 (예: 거실 창문)">
+      <div class="shutter-row">
+        <button class="icon-btn" id="switchCamBtn" title="카메라 전환">🔄</button>
+        <button class="shutter" id="shutterBtn" title="촬영"></button>
+        <button class="icon-btn" id="dummyBtn" style="visibility:hidden">•</button>
+      </div>
+    </div>
+
+    <div class="pairs" id="pairsWrap">
+      <h3>완료된 비교사진</h3>
+      <div id="pairsList"></div>
+    </div>
+  </section>
+</main>
+
+<!-- Result overlay -->
+<div id="resultOverlay">
+  <h2>시공 전 · 후 비교</h2>
+  <div class="result-imgwrap"><canvas id="resultCanvas"></canvas></div>
+  <div class="result-actions">
+    <button class="btn" id="retakeBtn">다시 촬영</button>
+    <button class="btn primary" id="downloadBtn">저장(다운로드)</button>
+    <button class="btn" id="doneBtn">완료</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORAGE_KEY = "filmCompareApp_v1";
+  var MAX_DIM = 1600;
+
+  var state = { before: [], pairs: [] };
+  try {
+    var saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) state = JSON.parse(saved);
+    if (!state.before) state.before = [];
+    if (!state.pairs) state.pairs = [];
+  } catch(e){ state = { before: [], pairs: [] }; }
+
+  function save(){
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch(e){ alert("저장 공간이 부족해요. 오래된 사진을 정리해 주세요."); }
+  }
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+  // ---------- image helpers ----------
+  function fileToResizedDataUrl(file, maxDim){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = function(){
+        var img = new Image();
+        img.onerror = reject;
+        img.onload = function(){
+          var w = img.width, h = img.height;
+          var scale = Math.min(1, maxDim / Math.max(w,h));
+          var cw = Math.round(w*scale), ch = Math.round(h*scale);
+          var canvas = document.createElement("canvas");
+          canvas.width = cw; canvas.height = ch;
+          var ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, cw, ch);
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ---------- tabs ----------
+  var tabs = document.querySelectorAll(".tab");
+  var views = { before: document.getElementById("beforeView"), after: document.getElementById("afterView") };
+  tabs.forEach(function(t){
+    t.addEventListener("click", function(){
+      tabs.forEach(function(x){ x.classList.remove("active"); });
+      t.classList.add("active");
+      Object.keys(views).forEach(function(k){ views[k].classList.remove("active"); });
+      views[t.dataset.tab].classList.add("active");
+      if (t.dataset.tab === "after"){
+        renderPicker();
+        renderPairs();
+      } else {
+        stopCamera();
+      }
+    });
+  });
+
+  // ---------- BEFORE tab ----------
+  var beforeGallery = document.getElementById("beforeGallery");
+  var beforeEmpty = document.getElementById("beforeEmpty");
+
+  function renderBeforeGallery(){
+    beforeGallery.innerHTML = "";
+    beforeEmpty.style.display = state.before.length ? "none" : "block";
+    state.before.slice().reverse().forEach(function(item){
+      var card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML =
+        '<img src="'+item.dataUrl+'">' +
+        '<button class="del" data-id="'+item.id+'">✕</button>' +
+        '<input class="label" data-id="'+item.id+'" value="'+(item.label||"").replace(/"/g,"&quot;")+'" placeholder="이름 입력">';
+      beforeGallery.appendChild(card);
+    });
+  }
+
+  beforeGallery.addEventListener("click", function(e){
+    if (e.target.classList.contains("del")){
+      var id = e.target.dataset.id;
+      if (confirm("이 사진을 삭제할까요?")){
+        state.before = state.before.filter(function(x){ return x.id !== id; });
+        save(); renderBeforeGallery();
+      }
+    }
+  });
+  beforeGallery.addEventListener("change", function(e){
+    if (e.target.classList.contains("label")){
+      var id = e.target.dataset.id;
+      var item = state.before.find(function(x){ return x.id === id; });
+      if (item){ item.label = e.target.value; save(); }
+    }
+  });
+
+  function addBeforeFiles(fileList){
+    var files = Array.prototype.slice.call(fileList);
+    Promise.all(files.map(function(f){ return fileToResizedDataUrl(f, MAX_DIM); }))
+      .then(function(urls){
+        urls.forEach(function(u){
+          state.before.push({ id: uid(), dataUrl: u, label: "" });
+        });
+        save(); renderBeforeGallery();
+      })
+      .catch(function(){ alert("사진을 불러오지 못했어요."); });
+  }
+
+  document.getElementById("captureInput").addEventListener("change", function(e){
+    if (e.target.files.length) addBeforeFiles(e.target.files);
+    e.target.value = "";
+  });
+  document.getElementById("uploadInput").addEventListener("change", function(e){
+    if (e.target.files.length) addBeforeFiles(e.target.files);
+    e.target.value = "";
+  });
+
+  // ---------- AFTER tab: picker ----------
+  var pickerStrip = document.getElementById("pickerStrip");
+  var pickerLabel = document.getElementById("pickerLabel");
+  var selectedBeforeId = null;
+
+  function renderPicker(){
+    pickerStrip.innerHTML = "";
+    if (!state.before.length){
+      pickerLabel.textContent = "기준 사진 선택 (시공 전 탭에서 먼저 등록하세요)";
+      updateCamAvailability();
+      return;
+    }
+    pickerLabel.textContent = "기준 사진 선택";
+    state.before.slice().reverse().forEach(function(item){
+      var d = document.createElement("div");
+      d.className = "pick-item" + (item.id === selectedBeforeId ? " selected" : "");
+      d.dataset.id = item.id;
+      d.innerHTML = '<img src="'+item.dataUrl+'">';
+      pickerStrip.appendChild(d);
+    });
+    if (!selectedBeforeId && state.before.length){
+      selectedBeforeId = state.before[state.before.length-1].id;
+      renderPicker();
+      return;
+    }
+    updateGhost();
+    updateCamAvailability();
+  }
+
+  pickerStrip.addEventListener("click", function(e){
+    var el = e.target.closest(".pick-item");
+    if (!el) return;
+    selectedBeforeId = el.dataset.id;
+    renderPicker();
+  });
+
+  function getSelectedBefore(){
+    return state.before.find(function(x){ return x.id === selectedBeforeId; });
+  }
+
+  function updateGhost(){
+    var b = getSelectedBefore();
+    var ghost = document.getElementById("ghostImg");
+    var side = document.getElementById("sideImg");
+    if (b){ ghost.src = b.dataUrl; side.src = b.dataUrl; }
+  }
+
+  // ---------- AFTER tab: camera ----------
+  var video = document.getElementById("video");
+  var camMsg = document.getElementById("camMsg");
+  var currentStream = null;
+  var facingMode = "environment";
+
+  function updateCamAvailability(){
+    if (getSelectedBefore()){
+      camMsg.style.display = "none";
+      startCamera();
+    } else {
+      camMsg.style.display = "flex";
+      camMsg.textContent = "기준 사진을 선택하면 카메라가 켜져요.";
+      stopCamera();
+    }
+  }
+
+  function startCamera(){
+    if (currentStream) return; // already running
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      camMsg.style.display = "flex";
+      camMsg.textContent = "이 브라우저는 카메라 접근을 지원하지 않아요. HTTPS 주소로 접속했는지 확인해 주세요.";
+      return;
+    }
+    var constraints = { video: { facingMode: facingMode, width:{ideal:1920}, height:{ideal:1440} }, audio:false };
+    navigator.mediaDevices.getUserMedia(constraints).then(function(stream){
+      currentStream = stream;
+      video.srcObject = stream;
+      camMsg.style.display = "none";
+    }).catch(function(err){
+      camMsg.style.display = "flex";
+      camMsg.innerHTML = "카메라를 열 수 없어요.<br>브라우저 카메라 권한을 확인하거나,<br>HTTPS(또는 localhost) 주소로 열어주세요.<br><span style='color:#666'>("+err.name+")</span>";
+    });
+  }
+  function stopCamera(){
+    if (currentStream){
+      currentStream.getTracks().forEach(function(t){ t.stop(); });
+      currentStream = null;
+      video.srcObject = null;
+    }
+  }
+  document.getElementById("switchCamBtn").addEventListener("click", function(){
+    facingMode = (facingMode === "environment") ? "user" : "environment";
+    stopCamera();
+    startCamera();
+  });
+
+  // ---------- AFTER tab: mode toggles ----------
+  var ghostImg = document.getElementById("ghostImg");
+  var sidePanel = document.getElementById("sidePanel");
+  var gridOverlay = document.getElementById("gridOverlay");
+  var opacityRow = document.getElementById("opacityRow");
+  var opacitySlider = document.getElementById("opacitySlider");
+  var modeOverlayBtn = document.getElementById("modeOverlay");
+  var modeSideBtn = document.getElementById("modeSide");
+  var modeGridBtn = document.getElementById("modeGrid");
+
+  var overlayOn = true, sideOn = false, gridOn = false;
+
+  function applyModes(){
+    ghostImg.style.display = overlayOn ? "block" : "none";
+    ghostImg.style.opacity = (opacitySlider.value/100);
+    opacityRow.style.display = overlayOn ? "flex" : "none";
+    sidePanel.style.display = sideOn ? "block" : "none";
+    gridOverlay.classList.toggle("on", gridOn);
+    modeOverlayBtn.classList.toggle("on", overlayOn);
+    modeSideBtn.classList.toggle("on", sideOn);
+    modeGridBtn.classList.toggle("on", gridOn);
+  }
+  modeOverlayBtn.addEventListener("click", function(){
+    overlayOn = !overlayOn;
+    if (overlayOn) sideOn = false;
+    applyModes();
+  });
+  modeSideBtn.addEventListener("click", function(){
+    sideOn = !sideOn;
+    if (sideOn) overlayOn = false;
+    applyModes();
+  });
+  modeGridBtn.addEventListener("click", function(){
+    gridOn = !gridOn;
+    applyModes();
+  });
+  opacitySlider.addEventListener("input", applyModes);
+
+  // build 3x3 grid lines once
+  (function buildGrid(){
+    for (var i=1;i<3;i++){
+      var v = document.createElement("div");
+      v.style.left = (i*100/3)+"%"; v.style.top="0"; v.style.width="1px"; v.style.height="100%";
+      gridOverlay.appendChild(v);
+      var h = document.createElement("div");
+      h.style.top = (i*100/3)+"%"; h.style.left="0"; h.style.height="1px"; h.style.width="100%";
+      gridOverlay.appendChild(h);
+    }
+  })();
+  applyModes();
+
+  // ---------- capture ----------
+  var shutterBtn = document.getElementById("shutterBtn");
+  var afterLabelInput = document.getElementById("afterLabel");
+  var resultOverlay = document.getElementById("resultOverlay");
+  var resultCanvas = document.getElementById("resultCanvas");
+  var pendingAfterDataUrl = null;
+
+  shutterBtn.addEventListener("click", function(){
+    var b = getSelectedBefore();
+    if (!b){ alert("먼저 기준 사진을 선택해 주세요."); return; }
+    if (!currentStream){ alert("카메라가 켜져 있지 않아요."); return; }
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
+    var c = document.createElement("canvas");
+    c.width = vw; c.height = vh;
+    var ctx = c.getContext("2d");
+    ctx.drawImage(video, 0, 0, vw, vh);
+    pendingAfterDataUrl = c.toDataURL("image/jpeg", 0.9);
+    showResult(b.dataUrl, pendingAfterDataUrl);
+  });
+
+  function showResult(beforeUrl, afterUrl){
+    var imgB = new Image(), imgA = new Image();
+    var loaded = 0;
+    function tryDraw(){
+      loaded++;
+      if (loaded < 2) return;
+      var h = Math.min(imgB.height, imgA.height, 1400);
+      var wB = imgB.width * (h/imgB.height);
+      var wA = imgA.width * (h/imgA.height);
+      var gap = 6;
+      resultCanvas.width = wB + wA + gap;
+      resultCanvas.height = h;
+      var ctx = resultCanvas.getContext("2d");
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0,0,resultCanvas.width, resultCanvas.height);
+      ctx.drawImage(imgB, 0, 0, wB, h);
+      ctx.drawImage(imgA, wB+gap, 0, wA, h);
+      ctx.fillStyle = "rgba(0,0,0,.55)";
+      ctx.fillRect(8,8,44,20);
+      ctx.fillRect(wB+gap+8,8,44,20);
+      ctx.fillStyle = "#fff"; ctx.font = "13px sans-serif";
+      ctx.fillText("Before", 12, 23);
+      ctx.fillText("After", wB+gap+12, 23);
+      resultOverlay.classList.add("show");
+    }
+    imgB.onload = tryDraw; imgA.onload = tryDraw;
+    imgB.src = beforeUrl; imgA.src = afterUrl;
+  }
+
+  document.getElementById("retakeBtn").addEventListener("click", function(){
+    resultOverlay.classList.remove("show");
+    pendingAfterDataUrl = null;
+  });
+
+  document.getElementById("downloadBtn").addEventListener("click", function(){
+    var link = document.createElement("a");
+    link.download = "시공비교_" + Date.now() + ".jpg";
+    link.href = resultCanvas.toDataURL("image/jpeg", 0.92);
+    link.click();
+  });
+
+  document.getElementById("doneBtn").addEventListener("click", function(){
+    var b = getSelectedBefore();
+    if (b && pendingAfterDataUrl){
+      state.pairs.push({
+        id: uid(),
+        beforeId: b.id,
+        beforeUrl: b.dataUrl,
+        afterUrl: pendingAfterDataUrl,
+        label: afterLabelInput.value || b.label || "",
+        ts: Date.now()
+      });
+      save();
+      renderPairs();
+    }
+    resultOverlay.classList.remove("show");
+    pendingAfterDataUrl = null;
+    afterLabelInput.value = "";
+  });
+
+  // ---------- pairs list ----------
+  var pairsList = document.getElementById("pairsList");
+  function renderPairs(){
+    pairsList.innerHTML = "";
+    if (!state.pairs.length){
+      pairsList.innerHTML = '<p class="empty" style="padding:10px 0;">아직 완료된 비교사진이 없어요.</p>';
+      return;
+    }
+    state.pairs.slice().reverse().forEach(function(p){
+      var row = document.createElement("div");
+      row.className = "pair-card";
+      var date = new Date(p.ts).toLocaleDateString("ko-KR");
+      row.innerHTML =
+        '<img src="'+p.beforeUrl+'">' +
+        '<img src="'+p.afterUrl+'">' +
+        '<div class="pc-info"><b>'+(p.label || "이름 없음")+'</b><span>'+date+'</span></div>' +
+        '<button class="btn" data-act="dl" data-id="'+p.id+'">저장</button>' +
+        '<button class="btn danger" data-act="del" data-id="'+p.id+'">삭제</button>';
+      pairsList.appendChild(row);
+    });
+  }
+  pairsList.addEventListener("click", function(e){
+    var btn = e.target.closest("button");
+    if (!btn) return;
+    var id = btn.dataset.id;
+    var p = state.pairs.find(function(x){ return x.id === id; });
+    if (!p) return;
+    if (btn.dataset.act === "del"){
+      if (confirm("삭제할까요?")){
+        state.pairs = state.pairs.filter(function(x){ return x.id !== id; });
+        save(); renderPairs();
+      }
+    } else if (btn.dataset.act === "dl"){
+      showResult(p.beforeUrl, p.afterUrl);
+      resultOverlay.classList.add("show");
+      pendingAfterDataUrl = p.afterUrl;
+    }
+  });
+
+  // ---------- init ----------
+  renderBeforeGallery();
+})();
+</script>
+</body>
+</html>
