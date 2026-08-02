@@ -976,17 +976,24 @@
         }
       }, [surfaces, adjustToCuttingUnit]);
 
-      // 인식된 텍스트를 줄 단위로 훑으면서, "숫자 x 숫자 (x 숫자)" 형태면 치수 줄로,
+      // 인식된 텍스트를 줄 단위로 훑으면서, "숫자 [x/곱하기/by] 숫자 (x 숫자)" 형태면 치수 줄로,
       // 그 외의 줄은 새 부위 이름으로 취급한다.
-      // 예: "안방문" (부위 이름) 다음 줄에 "100 x 2400 x 2" (가로 x 세로 x 수량)
+      // 예: "안방문" (부위 이름) 다음 줄에 "100 x 2400 x 2" 또는 "100 곱하기 2400 곱하기 2"
+      // (가로 x 세로 x 수량) — 음성 인식은 "x" 대신 "곱하기"라고 글자로 옮기는 경우가 많아서
+      // 그 표현도 같이 인식하고, "mm", "미리", "개" 같은 단위 글자는 미리 지워서 매칭한다.
       const parseOcrText = (text) => {
-        const dimPattern = /^(\d{2,5})\s*[xX×*]\s*(\d{2,5})(?:\s*[xX×*]\s*(\d{1,3}))?\s*$/;
+        const sep = '(?:[xX×*]|곱하기|by)';
+        const dimPattern = new RegExp(`^(\\d{2,5})\\s*${sep}\\s*(\\d{2,5})(?:\\s*${sep}\\s*(\\d{1,3}))?\\s*$`);
         const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         const rows = [];
         let currentCategory = '';
 
         lines.forEach(line => {
-          const cleaned = line.replace(/[,，]/g, '').replace(/\s+/g, ' ');
+          const cleaned = line
+            .replace(/[,，]/g, '')
+            .replace(/mm|미리|밀리|짜리|개입|개$/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
           const match = cleaned.match(dimPattern);
           if (match) {
             rows.push({
@@ -2794,6 +2801,13 @@ service cloud.firestore {
                     <button onClick={reparseOcrText} className="bg-lime-600 text-white text-sm px-3 py-1.5 rounded mt-1">
                       다시 파싱
                     </button>
+                    {ocrRawText.trim() && ocrParsedRows.length === 0 && (
+                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-300 rounded p-2 mt-2">
+                        ⚠️ 치수로 인식된 줄이 없습니다. 위 텍스트에서 치수 줄이 "100 x 2400 x 2" 또는
+                        "100 곱하기 2400 곱하기 2"처럼 숫자-기호-숫자 형태인지 확인하고, 필요하면 직접 수정한 뒤
+                        "다시 파싱"을 눌러주세요. (인식된 치수가 있어야 그 아래 "시공 면적에 적용" 버튼이 나타납니다.)
+                      </p>
+                    )}
                   </div>
                 )}
 
