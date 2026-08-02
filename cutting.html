@@ -138,9 +138,14 @@
       // 있어서, 인식 결과를 검토·수정한 뒤에 실제로 적용하는 방식으로 만든다.
       const [showOcrImport, setShowOcrImport] = useState(false);
       const [ocrProcessing, setOcrProcessing] = useState(false);
+      const [ocrOriginalFile, setOcrOriginalFile] = useState(null);
+      const [ocrRotation, setOcrRotation] = useState(0); // 0, 90, 180, 270 (시계방향)
       const [ocrImagePreview, setOcrImagePreview] = useState(null);
       const [ocrRawText, setOcrRawText] = useState('');
       const [ocrParsedRows, setOcrParsedRows] = useState([]);
+      const [isVoiceListening, setIsVoiceListening] = useState(false);
+      const voiceRecognitionRef = useRef(null);
+      const ocrTextFileInputRef = useRef(null);
 
       // ---- 샷시 + 롤컷 통합 계산기 (엑셀 롤컷계산기 로직 반영) ----
       // 샷시 틀 사이즈(가로/세로)와 단창/이중창 수량, 걸레받이·몰딩 등 기타 항목을 입력하면,
@@ -999,11 +1004,34 @@
         return rows;
       };
 
-      const handleOcrImageSelect = useCallback(async (event) => {
-        const file = event.target.files[0];
-        if (!file) return;
+      // 캔버스로 이미지를 회전시켜서 Blob으로 반환한다. 손글씨가 옆으로 누워 찍힌 사진을
+      // 바로 세우면 OCR 인식률이 크게 좋아지는 경우가 많다.
+      const rotateImageToBlob = (file, degrees) => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const rad = (degrees * Math.PI) / 180;
+            if (degrees === 90 || degrees === 270) {
+              canvas.width = img.height;
+              canvas.height = img.width;
+            } else {
+              canvas.width = img.width;
+              canvas.height = img.height;
+            }
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(rad);
+            ctx.drawImage(img, -img.width / 2, -img.height / 2);
+            canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('이미지 변환 실패'))), 'image/jpeg', 0.95);
+          };
+          img.onerror = () => reject(new Error('이미지를 불러오지 못했습니다.'));
+          img.src = URL.createObjectURL(file);
+        });
+      };
 
-        setOcrImagePreview(URL.createObjectURL(file));
+      const runOcrOnCurrentImage = useCallback(async (file, rotation) => {
+        if (!file) return;
         setOcrProcessing(true);
         setOcrRawText('');
         setOcrParsedRows([]);
@@ -1011,10 +1039,19 @@
         try {
           if (typeof Tesseract === 'undefined') {
             alert('OCR 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.');
-            setOcrProcessing(false);
             return;
           }
-          const { data } = await Tesseract.recognize(file, 'kor+eng');
+
+          const rotatedBlob = rotation === 0 ? file : await rotateImageToBlob(file, rotation);
+          setOcrImagePreview(URL.createObjectURL(rotatedBlob));
+
+          const worker = await Tesseract.createWorker('kor+eng');
+          // 손글씨로 줄줄이 적은 목록이라, 균일한 텍스트 블록으로 가정하는 모드가
+          // 낱개 문자 인식보다 줄 단위 인식에 더 안정적인 경우가 많다.
+          await worker.setParameters({ tessedit_pageseg_mode: '6' });
+          const { data } = await worker.recognize(rotatedBlob);
+          await worker.terminate();
+
           setOcrRawText(data.text);
           setOcrParsedRows(parseOcrText(data.text));
         } catch (error) {
@@ -1022,13 +1059,125 @@
           alert('사진 인식 중 오류가 발생했습니다: ' + error.message);
         } finally {
           setOcrProcessing(false);
-          event.target.value = '';
         }
       }, []);
+
+      const handleOcrImageSelect = useCallback((event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        setOcrOriginalFile(file);
+        setOcrRotation(0);
+        setOcrImagePreview(URL.createObjectURL(file));
+        event.target.value = '';
+        runOcrOnCurrentImage(file, 0);
+      }, [runOcrOnCurrentImage]);
+
+      const rotateOcrImage = useCallback((delta) => {
+        if (!ocrOriginalFile) return;
+        const newRotation = (ocrRotation + delta + 360) % 360;
+        setOcrRotation(newRotation);
+        runOcrOnCurrentImage(ocrOriginalFile, newRotation);
+      }, [ocrOriginalFile, ocrRotation, runOcrOnCurrentImage]);
 
       const reparseOcrText = useCallback(() => {
         setOcrParsedRows(parseOcrText(ocrRawText));
       }, [ocrRawText]);
+
+      // ---- 음성으로 치수 입력 ----
+      // 브라우저 내장 음성 인식(Web Speech API)을 사용한다. 인식된 문장은 사진 OCR과
+      // 똑같은 텍스트 검토 칸에 이어붙여서, 같은 파싱/검토/적용 흐름을 그대로 재사용한다.
+      // "부위 이름을 말하고, 그다음 가로 곱하기 세로 곱하기 수량"을 순서대로 말하면 된다.
+      const startVoiceInput = useCallback(() => {
+        const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognitionClass) {
+          alert('이 브라우저는 음성 인식을 지원하지 않습니다. 안드로이드 Chrome 브라우저를 사용해주세요.');
+          return;
+        }
+
+        const recognition = new SpeechRecognitionClass();
+        recognition.lang = 'ko-KR';
+        recognition.continuous = true;
+        recognition.interimResults = false;
+
+        recognition.onresult = (event) => {
+          let newText = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+              newText += event.results[i][0].transcript + '\n';
+            }
+          }
+          if (newText) {
+            setOcrRawText(prev => (prev ? prev + '\n' + newText : newText));
+          }
+        };
+
+        recognition.onerror = (event) => {
+          console.error('음성 인식 오류:', event.error);
+          if (event.error !== 'no-speech') {
+            alert('음성 인식 중 오류가 발생했습니다: ' + event.error);
+          }
+        };
+
+        recognition.onend = () => {
+          setIsVoiceListening(false);
+        };
+
+        voiceRecognitionRef.current = recognition;
+        recognition.start();
+        setIsVoiceListening(true);
+      }, []);
+
+      const stopVoiceInput = useCallback(() => {
+        if (voiceRecognitionRef.current) {
+          voiceRecognitionRef.current.stop();
+        }
+        setIsVoiceListening(false);
+        // 음성 인식이 끝나면 지금까지 쌓인 텍스트를 바로 파싱해서 검토 표를 보여준다.
+        setOcrParsedRows(parseOcrText(ocrRawText));
+      }, [ocrRawText]);
+
+      // ---- 인식 텍스트를 JSON 파일로 저장/불러오기 ----
+      // 음성 인식이나 사진 인식을 이 앱이 아닌 다른 상황(예: 폰 기본 받아쓰기 기능)에서
+      // 먼저 해두고, 그 텍스트를 JSON 파일로 저장해뒀다가 나중에 이 앱에서 불러와도 된다.
+      const saveOcrTextAsJson = useCallback(() => {
+        if (!ocrRawText.trim()) {
+          alert('저장할 텍스트가 없습니다.');
+          return;
+        }
+        const payload = {
+          type: 'rosenfilm_dimension_text',
+          text: ocrRawText,
+          savedAt: new Date().toISOString(),
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const dateStr = new Date().toISOString().slice(0, 10);
+        saveAs(blob, `치수입력텍스트_${dateStr}.json`);
+      }, [ocrRawText]);
+
+      const loadOcrTextFromJson = useCallback((event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            const text = data.text || (typeof data === 'string' ? data : '');
+            if (!text) {
+              alert('올바른 치수 텍스트 파일이 아닙니다.');
+              return;
+            }
+            setOcrRawText(text);
+            setOcrParsedRows(parseOcrText(text));
+            setOcrImagePreview(null);
+          } catch (error) {
+            console.error('JSON load error:', error);
+            alert('JSON 파일을 불러오는 중 오류가 발생했습니다.');
+          } finally {
+            event.target.value = '';
+          }
+        };
+        reader.readAsText(file);
+      }, []);
 
       const updateOcrParsedRow = useCallback((index, field, value) => {
         setOcrParsedRows(prev => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
@@ -1062,6 +1211,8 @@
         setOcrRawText('');
         setOcrParsedRows([]);
         setOcrImagePreview(null);
+        setOcrOriginalFile(null);
+        setOcrRotation(0);
       }, [ocrParsedRows, adjustToCuttingUnit]);
 
       const handleInputBlur = useCallback((index, field, value) => {
@@ -2554,7 +2705,7 @@ service cloud.firestore {
 
           <div className="mb-6 border rounded p-3 bg-lime-50">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">사진으로 치수 입력 (OCR)</h2>
+              <h2 className="text-lg font-semibold">치수 빠른 입력 (사진 · 음성 · 텍스트)</h2>
               <button
                 onClick={() => setShowOcrImport(prev => !prev)}
                 className="text-sm text-lime-700 hover:underline"
@@ -2567,33 +2718,77 @@ service cloud.firestore {
               <div className="mt-3">
                 <p className="text-xs text-gray-600 mb-3 leading-relaxed">
                   종이에 손글씨로 "부위 이름"을 쓰고 그 아래에 "가로 x 세로 x 수량"을 줄줄이 적은 걸
-                  사진으로 찍으면 자동으로 인식합니다. 예시:<br />
+                  사진으로 찍거나, 같은 순서로 말하면 자동으로 인식합니다. 예시:<br />
                   <span className="font-mono bg-white px-1 border rounded">안방문</span><br />
                   <span className="font-mono bg-white px-1 border rounded">100 x 2400 x 2</span><br />
                   <span className="font-mono bg-white px-1 border rounded">150 x 900 x 1</span><br />
-                  손글씨 인식이 완벽하지 않을 수 있으니, 아래에서 인식 결과를 확인·수정한 뒤 적용해주세요.
+                  인식이 완벽하지 않을 수 있으니, 아래에서 결과를 확인·수정한 뒤 적용해주세요. 다른 곳에서
+                  미리 받아쓰기한 텍스트가 있다면 JSON 파일로 저장해뒀다가 여기서 불러와도 됩니다.
                 </p>
 
-                <input
-                  type="file" accept="image/*" capture="environment"
-                  onChange={handleOcrImageSelect}
-                  className="mb-2"
-                />
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <input
+                    type="file" accept="image/*" capture="environment"
+                    onChange={handleOcrImageSelect}
+                  />
+                  {!isVoiceListening ? (
+                    <button onClick={startVoiceInput} className="bg-rose-600 text-white text-sm px-3 py-1.5 rounded">
+                      🎤 음성으로 입력 시작
+                    </button>
+                  ) : (
+                    <button onClick={stopVoiceInput} className="bg-rose-800 text-white text-sm px-3 py-1.5 rounded animate-pulse">
+                      ● 듣는 중... (누르면 종료)
+                    </button>
+                  )}
+                  <button onClick={saveOcrTextAsJson} className="bg-gray-500 text-white text-sm px-3 py-1.5 rounded">
+                    텍스트 저장 (JSON)
+                  </button>
+                  <button
+                    onClick={() => ocrTextFileInputRef.current && ocrTextFileInputRef.current.click()}
+                    className="bg-gray-300 text-gray-800 text-sm px-3 py-1.5 rounded"
+                  >
+                    텍스트 불러오기 (JSON)
+                  </button>
+                  <input
+                    type="file" accept=".json" ref={ocrTextFileInputRef}
+                    onChange={loadOcrTextFromJson} className="hidden"
+                  />
+                </div>
 
                 {ocrProcessing && (
                   <p className="text-sm text-lime-700">사진을 인식하는 중입니다... (수 초 걸릴 수 있습니다)</p>
                 )}
 
-                {ocrImagePreview && !ocrProcessing && (
-                  <img src={ocrImagePreview} alt="촬영한 사진" className="max-h-40 border rounded mb-2" />
+                {ocrImagePreview && (
+                  <div className="mb-2">
+                    <img src={ocrImagePreview} alt="촬영한 사진" className="max-h-56 border rounded mb-1" />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => rotateOcrImage(-90)}
+                        disabled={ocrProcessing}
+                        className="bg-gray-500 text-white text-sm px-3 py-1.5 rounded disabled:opacity-50"
+                      >
+                        ↺ 왼쪽으로 90°
+                      </button>
+                      <button
+                        onClick={() => rotateOcrImage(90)}
+                        disabled={ocrProcessing}
+                        className="bg-gray-500 text-white text-sm px-3 py-1.5 rounded disabled:opacity-50"
+                      >
+                        ↻ 오른쪽으로 90°
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">글씨가 옆으로 누워 찍혔다면 회전 버튼으로 바로 세운 뒤 자동으로 다시 인식됩니다.</p>
+                  </div>
                 )}
 
-                {ocrRawText && !ocrProcessing && (
+                {(ocrRawText || isVoiceListening) && !ocrProcessing && (
                   <div className="mb-3">
                     <p className="text-sm font-medium text-gray-700 mb-1">인식된 텍스트 (직접 수정 가능)</p>
                     <textarea
                       value={ocrRawText}
                       onChange={(e) => setOcrRawText(e.target.value)}
+                      placeholder="음성 인식 결과가 여기에 실시간으로 쌓입니다..."
                       className="border p-2 w-full h-32 font-mono text-sm"
                     />
                     <button onClick={reparseOcrText} className="bg-lime-600 text-white text-sm px-3 py-1.5 rounded mt-1">
