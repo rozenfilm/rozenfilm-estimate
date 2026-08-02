@@ -503,13 +503,14 @@
   }
 
   function getConstraints(){
-    var portrait = window.innerHeight >= window.innerWidth;
-    // 9:16 in portrait (matches --photo-ratio), 16:9 in landscape
-    var v = {
-      width:{ideal: portrait ? 1080 : 1920},
-      height:{ideal: portrait ? 1920 : 1080},
-      aspectRatio:{ideal: portrait ? (9/16) : (16/9)}
-    };
+    // Deliberately do NOT request a narrow aspectRatio (e.g. 9:16) from the
+    // camera hardware here — some phones satisfy an unusual requested ratio
+    // by digitally zooming/cropping the sensor, which looks like "stuck on
+    // telephoto". Instead we ask for the sensor's natural wide capture at a
+    // decent resolution and crop it to --photo-ratio ourselves in CSS
+    // (object-fit:cover) and in captureFrameFromVideo(), so the full field
+    // of view is available and no hardware zoom is triggered.
+    var v = { width:{ideal:1920}, height:{ideal:1920} };
     if (lockedDeviceId) v.deviceId = { exact: lockedDeviceId };
     else v.facingMode = facingMode;
     return { video: v, audio:false };
