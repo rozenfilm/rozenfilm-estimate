@@ -68,7 +68,7 @@
   .empty{color:var(--muted); font-size:13px; text-align:center; padding:40px 10px;}
 
   /* ---------- AFTER TAB ---------- */
-  #afterView{min-height:0;}
+  #afterView{min-height:0; overflow-y:auto;}
   .picker{padding:10px 12px 4px; flex:0 0 auto;}
   .picker-label{font-size:12px; color:var(--muted); margin:0 0 8px;}
   .picker-strip{display:flex; gap:8px; overflow-x:auto; padding-bottom:8px;}
@@ -79,7 +79,12 @@
   .pick-item.selected{border-color:var(--accent2); opacity:1;}
   .pick-item img{width:100%; height:100%; object-fit:cover; display:block;}
 
-  .cam-wrap{flex:1 1 auto; position:relative; background:#000; min-height:45dvh; overflow:hidden;}
+  /* same sizing formula as .cam-wrap-inline (before tab): width-driven 3:4 box,
+     so both tabs crop the camera stream to the identical shape/FOV */
+  .cam-wrap{
+    flex:0 0 auto; position:relative; background:#000; overflow:hidden;
+    aspect-ratio:3/4; width:calc(100% - 24px); margin:0 12px 12px;
+  }
   #video{width:100%; height:100%; object-fit:cover; display:block; background:#000;}
   .ghost{
     position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
@@ -195,10 +200,7 @@
       <video id="videoBefore" playsinline muted autoplay></video>
       <p class="cam-label" id="camLabelBefore"></p>
     </div>
-    <div class="mode-row lens-row" id="lensRowBefore" style="display:none;">
-      <button class="mode-btn lens-btn" type="button" data-kind="ultra">초광각</button>
-      <button class="mode-btn lens-btn on" type="button" data-kind="standard">표준</button>
-    </div>
+    <div class="mode-row lens-row" id="lensRowBefore" style="display:none;"></div>
     <div class="before-shutter-row" id="beforeShutterRow">
       <button class="icon-btn" id="switchCamBeforeBtn" type="button" title="카메라 전환">🔄</button>
       <button class="shutter" id="shutterBeforeBtn" type="button" title="촬영"></button>
@@ -227,10 +229,7 @@
     </div>
 
     <div class="controls">
-      <div class="mode-row lens-row" id="lensRowAfter" style="display:none;">
-        <button class="mode-btn lens-btn" type="button" data-kind="ultra">초광각</button>
-        <button class="mode-btn lens-btn on" type="button" data-kind="standard">표준</button>
-      </div>
+      <div class="mode-row lens-row" id="lensRowAfter" style="display:none;"></div>
       <div class="mode-row">
         <button class="mode-btn on" id="modeOverlay">겹쳐보기(오버레이)</button>
         <button class="mode-btn" id="modeSide">옆에 보기</button>
@@ -513,9 +512,9 @@
         if (camLabelBefore) camLabelBefore.textContent = lbl;
       }
       if (deviceList.length === 0){
-        refreshDeviceList().then(evaluateLensAvailability);
+        refreshDeviceList().then(renderLensOptions);
       } else {
-        evaluateLensAvailability();
+        renderLensOptions();
       }
     }).catch(function(err){
       if (opts.msgEl){
@@ -543,12 +542,13 @@
     else openCamera({ videoEl: video, msgEl: camMsg });
   }
 
-  // ---------- lens selection (초광각 / 표준) ----------
-  // Two strategies, tried in order: (1) if the current camera exposes a
-  // hardware "zoom" range starting below 1.0 (common on phones that unify
-  // multiple rear lenses under one deviceId), just adjust zoom. (2) otherwise
-  // look for a separate enumerated camera device whose label hints at being
-  // ultra-wide/standard, and switch the locked deviceId to it.
+  // ---------- lens selection ----------
+  // Two strategies: (1) if the current camera exposes a hardware "zoom" range
+  // starting below 1.0 (phones that unify multiple rear lenses under one
+  // deviceId), offer 초광각/표준 as zoom presets. (2) otherwise, list every
+  // separately-enumerated back camera device as its own selectable button
+  // (labeled by guessed type when confident, "카메라 N" otherwise) so the
+  // user can pick directly rather than relying on a label-matching guess.
   var deviceList = []; // cached back-facing candidate devices (labels only available after permission)
 
   function guessLensType(label){
@@ -567,19 +567,12 @@
     }).catch(function(){ return []; });
   }
 
-  function findDeviceByGuess(kind){
-    var matches = deviceList.filter(function(d){ return guessLensType(d.label) === kind; });
-    return matches[0] || null;
-  }
-
   var lensRows = document.querySelectorAll(".lens-row");
-  var lensBtns = document.querySelectorAll(".lens-btn");
-
   function setLensRowsVisible(visible){
     lensRows.forEach(function(row){ row.style.display = visible ? "flex" : "none"; });
   }
-  function setLensButtonsActive(kind){
-    lensBtns.forEach(function(b){ b.classList.toggle("on", b.dataset.kind === kind); });
+  function markActiveLensBtn(kind){
+    document.querySelectorAll(".lens-btn").forEach(function(b){ b.classList.toggle("on", b.dataset.kind === kind); });
   }
 
   function currentTrackZoomCaps(){
@@ -595,49 +588,55 @@
     return null;
   }
 
-  function evaluateLensAvailability(){
-    var zoomInfo = currentTrackZoomCaps();
-    var hasZoomWide = !!(zoomInfo && zoomInfo.caps.min <= 0.95 && zoomInfo.caps.max > zoomInfo.caps.min);
-    var hasSeparateUltraDevice = !!findDeviceByGuess("ultra") && deviceList.length > 1;
-    setLensRowsVisible(hasZoomWide || hasSeparateUltraDevice);
-  }
-
-  function selectLens(kind){
-    var zoomInfo = currentTrackZoomCaps();
-    if (zoomInfo){
-      if (kind === "ultra" && zoomInfo.caps.min <= 0.95){
-        zoomInfo.track.applyConstraints({ advanced:[{ zoom: zoomInfo.caps.min }] })
-          .then(function(){ setLensButtonsActive("ultra"); })
-          .catch(function(){ alert("초광각으로 전환하지 못했어요."); });
-        return;
-      }
-      if (kind === "standard"){
-        var z = Math.min(Math.max(1, zoomInfo.caps.min), zoomInfo.caps.max);
-        zoomInfo.track.applyConstraints({ advanced:[{ zoom: z }] })
-          .then(function(){ setLensButtonsActive("standard"); })
-          .catch(function(){ alert("표준 화각으로 전환하지 못했어요."); });
-        return;
-      }
-    }
-    var dev = findDeviceByGuess(kind);
-    if (kind === "standard" && !dev){
-      dev = deviceList.filter(function(d){ return guessLensType(d.label) === "standard"; })[0] || deviceList[0];
-    }
-    if (!dev){
-      alert(kind === "ultra" ? "이 기기에서 초광각 카메라를 찾지 못했어요." : "표준 카메라를 찾지 못했어요.");
+  function selectLensOption(opt){
+    if (opt.kind === "zoom-ultra" || opt.kind === "zoom-standard"){
+      var zoomInfo = currentTrackZoomCaps();
+      if (!zoomInfo){ alert("줌 기능을 사용할 수 없어요."); return; }
+      var z = opt.kind === "zoom-ultra" ? zoomInfo.caps.min : Math.min(Math.max(1, zoomInfo.caps.min), zoomInfo.caps.max);
+      zoomInfo.track.applyConstraints({ advanced:[{ zoom: z }] })
+        .then(function(){ markActiveLensBtn(opt.kind); })
+        .catch(function(){ alert("전환하지 못했어요."); });
       return;
     }
-    lockedDeviceId = dev.deviceId;
-    var reopenEl = currentVideoEl || video;
-    var reopenMsg = reopenEl === video ? camMsg : null;
-    stopCamera();
-    openCamera({ videoEl: reopenEl, msgEl: reopenMsg });
-    setLensButtonsActive(kind);
+    if (opt.deviceId){
+      lockedDeviceId = opt.deviceId;
+      var reopenEl = currentVideoEl || video;
+      var reopenMsg = reopenEl === video ? camMsg : null;
+      stopCamera();
+      openCamera({ videoEl: reopenEl, msgEl: reopenMsg });
+      markActiveLensBtn(opt.kind);
+    }
   }
 
-  lensBtns.forEach(function(b){
-    b.addEventListener("click", function(){ selectLens(b.dataset.kind); });
-  });
+  function renderLensOptions(){
+    var zoomInfo = currentTrackZoomCaps();
+    var hasZoomWide = !!(zoomInfo && zoomInfo.caps.min <= 0.95 && zoomInfo.caps.max > zoomInfo.caps.min);
+    var options = [];
+    if (hasZoomWide){
+      options.push({ kind:"zoom-ultra", label:"초광각" });
+      options.push({ kind:"zoom-standard", label:"표준" });
+    } else if (deviceList.length >= 2){
+      var standardCount = deviceList.filter(function(d){ return guessLensType(d.label) === "standard"; }).length;
+      deviceList.forEach(function(d, i){
+        var t = guessLensType(d.label);
+        var label = t === "ultra" ? "초광각" : t === "tele" ? "망원" : (t === "standard" && standardCount === 1 ? "표준" : "카메라 " + (i+1));
+        options.push({ kind:"device:"+d.deviceId, label:label, deviceId:d.deviceId });
+      });
+    }
+    document.querySelectorAll(".lens-row").forEach(function(row){
+      row.innerHTML = "";
+      options.forEach(function(opt){
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "mode-btn lens-btn";
+        btn.dataset.kind = opt.kind;
+        btn.textContent = opt.label;
+        btn.addEventListener("click", function(){ selectLensOption(opt); });
+        row.appendChild(btn);
+      });
+    });
+    setLensRowsVisible(options.length > 0);
+  }
 
   // diagnostic: shows exactly what this phone/browser exposes, so lens
   // switching support (or lack of it) can be confirmed instead of guessed
