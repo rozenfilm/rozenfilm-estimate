@@ -68,7 +68,7 @@
   .empty{color:var(--muted); font-size:13px; text-align:center; padding:40px 10px;}
 
   /* ---------- AFTER TAB ---------- */
-  #afterView{min-height:0;}
+  #afterView{min-height:0; overflow-y:auto;}
   .picker{padding:10px 12px 4px; flex:0 0 auto;}
   .picker-label{font-size:12px; color:var(--muted); margin:0 0 8px;}
   .picker-strip{display:flex; gap:8px; overflow-x:auto; padding-bottom:8px;}
@@ -79,7 +79,15 @@
   .pick-item.selected{border-color:var(--accent2); opacity:1;}
   .pick-item img{width:100%; height:100%; object-fit:cover; display:block;}
 
-  .cam-wrap{flex:1 1 auto; position:relative; background:#000; min-height:45dvh; overflow:hidden;}
+  /* same fixed 3:4 box as .cam-wrap-inline (before tab) — the after camera
+     was cropping more aggressively than before because this box used to
+     stretch to fill whatever leftover space existed on screen, so it ended
+     up a different (narrower) shape than the before box and lost more of
+     the frame. Matching the shape exactly keeps the FOV identical. */
+  .cam-wrap{
+    flex:0 0 auto; position:relative; background:#000; overflow:hidden;
+    aspect-ratio:3/4; width:calc(100% - 24px); margin:0 12px 12px;
+  }
   #video{width:100%; height:100%; object-fit:cover; display:block; background:#000;}
   .ghost{
     position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
@@ -249,6 +257,10 @@
 <!-- Result overlay -->
 <div id="resultOverlay">
   <h2>시공 전 · 후 비교</h2>
+  <div class="mode-row" id="layoutRow" style="flex:0 0 auto; margin-bottom:10px;">
+    <button class="mode-btn on" id="layoutStackBtn" type="button">위/아래로</button>
+    <button class="mode-btn" id="layoutSideBtn" type="button">나란히</button>
+  </div>
   <div class="result-imgwrap"><canvas id="resultCanvas"></canvas></div>
   <div class="result-actions">
     <button class="btn" id="retakeBtn">다시 촬영</button>
@@ -679,37 +691,68 @@
     ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
   }
 
+  var resultLayout = "stack"; // "stack" (위/아래) or "side" (나란히)
+  var lastBeforeUrl = null, lastAfterUrl = null;
+
   function showResult(beforeUrl, afterUrl){
+    lastBeforeUrl = beforeUrl; lastAfterUrl = afterUrl;
     var imgB = new Image(), imgA = new Image();
     var loaded = 0;
     function tryDraw(){
       loaded++;
       if (loaded < 2) return;
-      // stacked vertically (Before on top, After below) — matches portrait
-      // photos better than side-by-side. Use the "before" photo's aspect
-      // ratio as the common tile shape, so both tiles come out the same size.
+      // use the "before" photo's aspect ratio as the common tile shape,
+      // so both tiles come out exactly the same size
       var aspect = imgB.width / imgB.height;
-      var tileW = Math.min(imgB.width, imgA.width, 1400);
-      var tileH = Math.round(tileW / aspect);
       var gap = 6;
-      resultCanvas.width = tileW;
-      resultCanvas.height = tileH*2 + gap;
       var ctx = resultCanvas.getContext("2d");
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0,0,resultCanvas.width, resultCanvas.height);
-      drawCover(ctx, imgB, 0, 0, tileW, tileH);
-      drawCover(ctx, imgA, 0, tileH+gap, tileW, tileH);
-      ctx.fillStyle = "rgba(0,0,0,.55)";
-      ctx.fillRect(8,8,44,20);
-      ctx.fillRect(8, tileH+gap+8, 44, 20);
-      ctx.fillStyle = "#fff"; ctx.font = "13px sans-serif";
-      ctx.fillText("Before", 12, 23);
-      ctx.fillText("After", 12, tileH+gap+23);
+      if (resultLayout === "side"){
+        var tileH = Math.min(imgB.height, imgA.height, 1400);
+        var tileW = Math.round(tileH * aspect);
+        resultCanvas.width = tileW*2 + gap;
+        resultCanvas.height = tileH;
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0,0,resultCanvas.width, resultCanvas.height);
+        drawCover(ctx, imgB, 0, 0, tileW, tileH);
+        drawCover(ctx, imgA, tileW+gap, 0, tileW, tileH);
+        ctx.fillStyle = "rgba(0,0,0,.55)";
+        ctx.fillRect(8,8,44,20);
+        ctx.fillRect(tileW+gap+8,8,44,20);
+        ctx.fillStyle = "#fff"; ctx.font = "13px sans-serif";
+        ctx.fillText("Before", 12, 23);
+        ctx.fillText("After", tileW+gap+12, 23);
+      } else {
+        var tW = Math.min(imgB.width, imgA.width, 1400);
+        var tH = Math.round(tW / aspect);
+        resultCanvas.width = tW;
+        resultCanvas.height = tH*2 + gap;
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0,0,resultCanvas.width, resultCanvas.height);
+        drawCover(ctx, imgB, 0, 0, tW, tH);
+        drawCover(ctx, imgA, 0, tH+gap, tW, tH);
+        ctx.fillStyle = "rgba(0,0,0,.55)";
+        ctx.fillRect(8,8,44,20);
+        ctx.fillRect(8, tH+gap+8, 44, 20);
+        ctx.fillStyle = "#fff"; ctx.font = "13px sans-serif";
+        ctx.fillText("Before", 12, 23);
+        ctx.fillText("After", 12, tH+gap+23);
+      }
       resultOverlay.classList.add("show");
     }
     imgB.onload = tryDraw; imgA.onload = tryDraw;
     imgB.src = beforeUrl; imgA.src = afterUrl;
   }
+
+  var layoutStackBtn = document.getElementById("layoutStackBtn");
+  var layoutSideBtn = document.getElementById("layoutSideBtn");
+  function setResultLayout(mode){
+    resultLayout = mode;
+    layoutStackBtn.classList.toggle("on", mode === "stack");
+    layoutSideBtn.classList.toggle("on", mode === "side");
+    if (lastBeforeUrl && lastAfterUrl) showResult(lastBeforeUrl, lastAfterUrl);
+  }
+  layoutStackBtn.addEventListener("click", function(){ setResultLayout("stack"); });
+  layoutSideBtn.addEventListener("click", function(){ setResultLayout("side"); });
 
   document.getElementById("retakeBtn").addEventListener("click", function(){
     resultOverlay.classList.remove("show");
