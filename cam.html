@@ -9,6 +9,7 @@
     --bg:#0f1115; --panel:#171a21; --panel2:#1f2430; --line:#2a2f3b;
     --accent:#4f8cff; --accent2:#2ecc71; --text:#eef1f6; --muted:#93a0b4;
     --danger:#ff5c5c;
+    --photo-ratio: 9/16; /* longer/taller portrait live view + saved photo shape */
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
@@ -51,7 +52,7 @@
     background:var(--panel2); border:1px solid var(--line); border-radius:14px;
     overflow:hidden; position:relative;
   }
-  .card img{width:100%; aspect-ratio:3/4; object-fit:cover; display:block;}
+  .card img{width:100%; aspect-ratio:var(--photo-ratio); object-fit:cover; display:block;}
   .card .badge{
     position:absolute; top:6px; left:6px; background:rgba(0,0,0,.55);
     color:#fff; font-size:11px; padding:3px 7px; border-radius:8px;
@@ -73,17 +74,17 @@
   .picker-label{font-size:12px; color:var(--muted); margin:0 0 8px;}
   .picker-strip{display:flex; gap:8px; overflow-x:auto; padding-bottom:8px;}
   .pick-item{
-    flex:0 0 auto; width:58px; height:78px; border-radius:10px; overflow:hidden;
+    flex:0 0 auto; width:52px; aspect-ratio:var(--photo-ratio); border-radius:10px; overflow:hidden;
     border:2px solid var(--line); position:relative; opacity:.65;
   }
   .pick-item.selected{border-color:var(--accent2); opacity:1;}
   .pick-item img{width:100%; height:100%; object-fit:cover; display:block;}
 
-  /* same sizing formula as .cam-wrap-inline (before tab): width-driven 3:4 box,
+  /* same sizing formula as .cam-wrap-inline (before tab): width-driven box,
      so both tabs crop the camera stream to the identical shape/FOV */
   .cam-wrap{
     flex:0 0 auto; position:relative; background:#000; overflow:hidden;
-    aspect-ratio:3/4; width:calc(100% - 24px); margin:0 12px 12px;
+    aspect-ratio:var(--photo-ratio); width:calc(100% - 24px); margin:0 12px 12px;
   }
   #video{width:100%; height:100%; object-fit:cover; display:block; background:#000;}
   .ghost{
@@ -114,7 +115,7 @@
   }
   .cam-wrap-inline{
     position:relative; background:#000; overflow:hidden; border-radius:14px;
-    aspect-ratio:3/4; margin-bottom:12px; display:none;
+    aspect-ratio:var(--photo-ratio); margin-bottom:12px; display:none;
   }
   .cam-wrap-inline video{width:100%; height:100%; object-fit:cover; display:block;}
   .cam-wrap-inline.show{display:block;}
@@ -167,7 +168,7 @@
     display:flex; gap:8px; background:var(--panel2); border:1px solid var(--line);
     border-radius:12px; padding:8px; margin-bottom:8px; align-items:center;
   }
-  .pair-card img{width:44px; height:56px; object-fit:cover; border-radius:6px;}
+  .pair-card img{width:40px; aspect-ratio:var(--photo-ratio); object-fit:cover; border-radius:6px;}
   .pair-card .pc-info{flex:1; min-width:0;}
   .pair-card .pc-info b{font-size:13px; display:block;}
   .pair-card .pc-info span{font-size:11px; color:var(--muted);}
@@ -503,10 +504,11 @@
 
   function getConstraints(){
     var portrait = window.innerHeight >= window.innerWidth;
+    // 9:16 in portrait (matches --photo-ratio), 16:9 in landscape
     var v = {
       width:{ideal: portrait ? 1080 : 1920},
       height:{ideal: portrait ? 1920 : 1080},
-      aspectRatio:{ideal: portrait ? 0.75 : 1.333}
+      aspectRatio:{ideal: portrait ? (9/16) : (16/9)}
     };
     if (lockedDeviceId) v.deviceId = { exact: lockedDeviceId };
     else v.facingMode = facingMode;
