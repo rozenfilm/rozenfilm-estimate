@@ -503,15 +503,37 @@
   }
 
   function getConstraints(){
+    // No aspectRatio hint here on purpose: asking the hardware for a
+    // specific ratio (even a mild 3:4) makes some phones satisfy it by
+    // digitally zooming/cropping the sensor instead of just letting us crop
+    // the full frame ourselves. width/height stay as loose "ideal" hints so
+    // the camera still picks a reasonably high, portrait-biased resolution;
+    // the 3:4 box shape is achieved purely by CSS (object-fit:cover) and by
+    // captureFrameFromVideo()'s own crop — no hardware zoom involved.
     var portrait = window.innerHeight >= window.innerWidth;
     var v = {
       width:{ideal: portrait ? 1080 : 1920},
-      height:{ideal: portrait ? 1920 : 1080},
-      aspectRatio:{ideal: portrait ? 0.75 : 1.333}
+      height:{ideal: portrait ? 1920 : 1080}
     };
     if (lockedDeviceId) v.deviceId = { exact: lockedDeviceId };
     else v.facingMode = facingMode;
     return { video: v, audio:false };
+  }
+
+  // Some phones' camera hardware remembers a zoom level applied via
+  // applyConstraints({advanced:[{zoom}]}) across separate getUserMedia
+  // calls/tabs. Explicitly reset zoom to 1x on every new stream so a leftover
+  // zoom from an earlier lens-switch attempt can't linger and look "stuck
+  // on telephoto".
+  function resetZoomIfSupported(track){
+    if (!track || !track.getCapabilities) return;
+    try {
+      var caps = track.getCapabilities();
+      if (caps.zoom && typeof caps.zoom.min === "number"){
+        var z = Math.min(Math.max(1, caps.zoom.min), caps.zoom.max);
+        track.applyConstraints({ advanced:[{ zoom: z }] }).catch(function(){});
+      }
+    } catch(e){}
   }
 
   // opts: { videoEl, msgEl, labelEl }
@@ -532,6 +554,7 @@
       if (opts.msgEl) opts.msgEl.style.display = "none";
       var track = stream.getVideoTracks()[0];
       if (track){
+        resetZoomIfSupported(track);
         if (!lockedDeviceId){
           var settings = track.getSettings ? track.getSettings() : {};
           if (settings.deviceId) lockedDeviceId = settings.deviceId;
