@@ -9,7 +9,7 @@
     --bg:#0f1115; --panel:#171a21; --panel2:#1f2430; --line:#2a2f3b;
     --accent:#4f8cff; --accent2:#2ecc71; --text:#eef1f6; --muted:#93a0b4;
     --danger:#ff5c5c;
-    --photo-ratio: 9/16; /* longer/taller portrait live view + saved photo shape */
+    --thumb-ratio: 3/4; /* just for small gallery thumbnails; the live camera & saved photos use whatever the camera's native FOV is, uncropped */
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
@@ -52,7 +52,7 @@
     background:var(--panel2); border:1px solid var(--line); border-radius:14px;
     overflow:hidden; position:relative;
   }
-  .card img{width:100%; aspect-ratio:var(--photo-ratio); object-fit:cover; display:block;}
+  .card img{width:100%; aspect-ratio:var(--thumb-ratio); object-fit:cover; display:block;}
   .card .badge{
     position:absolute; top:6px; left:6px; background:rgba(0,0,0,.55);
     color:#fff; font-size:11px; padding:3px 7px; border-radius:8px;
@@ -74,21 +74,22 @@
   .picker-label{font-size:12px; color:var(--muted); margin:0 0 8px;}
   .picker-strip{display:flex; gap:8px; overflow-x:auto; padding-bottom:8px;}
   .pick-item{
-    flex:0 0 auto; width:52px; aspect-ratio:var(--photo-ratio); border-radius:10px; overflow:hidden;
+    flex:0 0 auto; width:52px; aspect-ratio:var(--thumb-ratio); border-radius:10px; overflow:hidden;
     border:2px solid var(--line); position:relative; opacity:.65;
   }
   .pick-item.selected{border-color:var(--accent2); opacity:1;}
   .pick-item img{width:100%; height:100%; object-fit:cover; display:block;}
 
-  /* same sizing formula as .cam-wrap-inline (before tab): width-driven box,
-     so both tabs crop the camera stream to the identical shape/FOV */
+  /* Live view shows the camera's native FOV uncropped: the outer box just
+     fills whatever space is available, and the video letterboxes inside it
+     via object-fit:contain instead of being cropped to a fixed shape. */
   .cam-wrap{
-    flex:0 0 auto; position:relative; background:#000; overflow:hidden;
-    aspect-ratio:var(--photo-ratio); width:calc(100% - 24px); margin:0 12px 12px;
+    flex:1 1 auto; position:relative; background:#000; overflow:hidden; min-height:0;
+    display:flex; align-items:center; justify-content:center;
   }
-  #video{width:100%; height:100%; object-fit:cover; display:block; background:#000;}
+  #video{max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; display:block; background:#000;}
   .ghost{
-    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    position:absolute; inset:0; width:100%; height:100%; object-fit:contain;
     pointer-events:none; display:none;
   }
   .grid-overlay{position:absolute; inset:0; pointer-events:none; display:none;}
@@ -115,10 +116,11 @@
   }
   .cam-wrap-inline{
     position:relative; background:#000; overflow:hidden; border-radius:14px;
-    aspect-ratio:var(--photo-ratio); margin-bottom:12px; display:none;
+    height:58vh; margin-bottom:12px; display:none;
+    align-items:center; justify-content:center;
   }
-  .cam-wrap-inline video{width:100%; height:100%; object-fit:cover; display:block;}
-  .cam-wrap-inline.show{display:block;}
+  .cam-wrap-inline video{max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; display:block;}
+  .cam-wrap-inline.show{display:flex;}
   .before-shutter-row{display:none; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;}
   .before-shutter-row.show{display:flex;}
   .cam-hint{color:var(--muted); font-size:11px; line-height:1.5; margin:-8px 0 12px;}
@@ -168,7 +170,7 @@
     display:flex; gap:8px; background:var(--panel2); border:1px solid var(--line);
     border-radius:12px; padding:8px; margin-bottom:8px; align-items:center;
   }
-  .pair-card img{width:40px; aspect-ratio:var(--photo-ratio); object-fit:cover; border-radius:6px;}
+  .pair-card img{width:40px; aspect-ratio:var(--thumb-ratio); object-fit:cover; border-radius:6px;}
   .pair-card .pc-info{flex:1; min-width:0;}
   .pair-card .pc-info b{font-size:13px; display:block;}
   .pair-card .pc-info span{font-size:11px; color:var(--muted);}
@@ -472,26 +474,19 @@
   var facingMode = "environment";
   var lockedDeviceId = null; // once we know the exact camera device, reuse it everywhere
 
-  // Captures exactly what's shown on screen: the camera stream's raw frame
-  // (video.videoWidth x video.videoHeight) is not necessarily the same shape
-  // as the portrait/landscape box the user sees (object-fit:cover crops it).
-  // Cropping to the container's own on-screen aspect ratio before saving is
-  // what makes the saved photo match the orientation the user actually shot in.
-  function captureFrameFromVideo(video, containerEl, maxDim){
+  // Captures the camera's full raw frame exactly as the live view shows it
+  // (object-fit:contain, no cropping) — just downscaled if it's larger than
+  // maxDim. This keeps the saved photo's field of view identical to what
+  // the default camera provides, with no extra cropping/zooming applied.
+  function captureFrameFromVideo(video, maxDim){
     var vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
-    var rect = containerEl.getBoundingClientRect();
-    var targetAspect = (rect.width && rect.height) ? (rect.width / rect.height) : (vw / vh);
-    var vr = vw / vh;
-    var sx, sy, sw, sh;
-    if (vr > targetAspect){ sh = vh; sw = vh * targetAspect; sx = (vw - sw)/2; sy = 0; }
-    else { sw = vw; sh = vw / targetAspect; sx = 0; sy = (vh - sh)/2; }
-    var scale = Math.min(1, maxDim / Math.max(sw, sh));
-    var cw = Math.max(1, Math.round(sw*scale)), ch = Math.max(1, Math.round(sh*scale));
+    var scale = Math.min(1, maxDim / Math.max(vw, vh));
+    var cw = Math.max(1, Math.round(vw*scale)), ch = Math.max(1, Math.round(vh*scale));
     var c = document.createElement("canvas");
     c.width = cw; c.height = ch;
     var ctx = c.getContext("2d");
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
+    ctx.drawImage(video, 0, 0, cw, ch);
     return c.toDataURL("image/jpeg", 0.9);
   }
 
@@ -503,14 +498,17 @@
   }
 
   function getConstraints(){
-    // Deliberately do NOT request a narrow aspectRatio (e.g. 9:16) from the
-    // camera hardware here — some phones satisfy an unusual requested ratio
-    // by digitally zooming/cropping the sensor, which looks like "stuck on
-    // telephoto". Instead we ask for the sensor's natural wide capture at a
-    // decent resolution and crop it to --photo-ratio ourselves in CSS
-    // (object-fit:cover) and in captureFrameFromVideo(), so the full field
-    // of view is available and no hardware zoom is triggered.
-    var v = { width:{ideal:1920}, height:{ideal:1920} };
+    // No aspectRatio constraint on purpose — forcing an unusual ratio (e.g.
+    // 9:16) made some phones satisfy it by digitally zooming/cropping the
+    // sensor ("stuck on telephoto"). width/height are just loose hints
+    // (biased toward portrait when the device is held that way) so the
+    // camera can still pick a sensible native resolution; whatever shape it
+    // returns is shown/saved uncropped via object-fit:contain.
+    var portrait = window.innerHeight >= window.innerWidth;
+    var v = {
+      width:{ideal: portrait ? 1080 : 1920},
+      height:{ideal: portrait ? 1920 : 1080}
+    };
     if (lockedDeviceId) v.deviceId = { exact: lockedDeviceId };
     else v.facingMode = facingMode;
     return { video: v, audio:false };
@@ -728,7 +726,7 @@
   document.getElementById("switchCamBeforeBtn").addEventListener("click", switchCamera);
   document.getElementById("shutterBeforeBtn").addEventListener("click", function(){
     if (currentVideoEl !== videoBefore || !currentStream){ alert("카메라가 켜져 있지 않아요."); return; }
-    var dataUrl = captureFrameFromVideo(videoBefore, camWrapBefore, MAX_DIM);
+    var dataUrl = captureFrameFromVideo(videoBefore, MAX_DIM);
     if (!dataUrl){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
     state.before.push({ id: uid(), dataUrl: dataUrl, label: "" });
     save(); renderBeforeGallery();
@@ -792,12 +790,11 @@
   var resultCanvas = document.getElementById("resultCanvas");
   var pendingAfterDataUrl = null;
 
-  var camWrap = document.getElementById("camWrap");
   shutterBtn.addEventListener("click", function(){
     var b = getSelectedBefore();
     if (!b){ alert("먼저 기준 사진을 선택해 주세요."); return; }
     if (!currentStream){ alert("카메라가 켜져 있지 않아요."); return; }
-    var dataUrl = captureFrameFromVideo(video, camWrap, MAX_DIM);
+    var dataUrl = captureFrameFromVideo(video, MAX_DIM);
     if (!dataUrl){ alert("카메라 준비 중이에요. 잠시 후 다시 시도해 주세요."); return; }
     pendingAfterDataUrl = dataUrl;
     showResult(b.dataUrl, pendingAfterDataUrl);
