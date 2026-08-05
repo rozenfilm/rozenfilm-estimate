@@ -73,7 +73,7 @@
   .sample-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
   .sample-card {
     background: #fff; border: 1.5px solid var(--border); border-radius: 14px;
-    overflow: hidden; cursor: pointer; transition: all .15s;
+    overflow: hidden; cursor: pointer; transition: all .15s; position: relative;
   }
   .sample-card:active { transform: scale(.97); }
   .sample-card:hover { border-color: var(--brand); }
@@ -81,6 +81,17 @@
   .sample-info { padding: 10px 12px 12px; }
   .sample-name { font-size: 13.5px; font-weight: 700; margin-bottom: 2px; }
   .sample-code { font-size: 11px; color: var(--brand); font-weight: 600; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10.5px; font-weight: 800; padding: 4px 9px; border-radius: 999px;
+    letter-spacing: .01em; white-space: nowrap;
+  }
+  .badge-hot { background: #E53E3E; color: #fff; }
+  .badge-popular { background: var(--brand); color: #fff; }
+  .badge-best { background: var(--accent); color: #fff; }
+  .badge-overlay { position: absolute; top: 8px; left: 8px; z-index: 1; }
+  .badge-inline { margin-left: 6px; vertical-align: middle; }
 
   .state-box { text-align: center; padding: 50px 20px; color: var(--muted); font-size: 13.5px; line-height: 1.7; }
   .state-box .big { font-size: 30px; margin-bottom: 10px; display: block; }
@@ -274,6 +285,17 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
+  const LABEL_META = {
+    popular: { text: '인기제품', cls: 'badge-popular' },
+    best:    { text: '베스트셀링', cls: 'badge-best' },
+    hot:     { text: '🔥 HOT', cls: 'badge-hot' }
+  };
+  function badgeHtml(label, extraClass){
+    const meta = LABEL_META[label];
+    if(!meta) return '';
+    return `<span class="badge ${meta.cls} ${extraClass || ''}">${meta.text}</span>`;
+  }
+
   const CATEGORIES = {
     white:    { label: '화이트톤 인테리어' },
     wood:     { label: '우드톤 인테리어' },
@@ -350,6 +372,7 @@
         const card = document.createElement('div');
         card.className = 'sample-card';
         card.innerHTML = `
+          ${badgeHtml(data.label, 'badge-overlay')}
           <img class="sample-thumb" src="${escapeAttr((data.sampleImages && data.sampleImages[0]) || data.sampleImageUrl || '')}" alt="${escapeAttr(data.name || '')}" loading="lazy" decoding="async" />
           <div class="sample-info">
             <div class="sample-name">${escapeHtml(data.name || '이름 없음')}</div>
@@ -380,7 +403,7 @@
 
     body.innerHTML = `
       <img class="detail-hero" id="detail-hero-img" src="${escapeAttr(heroSrc)}" alt="${escapeAttr(sample.name || '')}" />
-      <div class="detail-title">${escapeHtml(sample.name || '이름 없음')}</div>
+      <div class="detail-title">${escapeHtml(sample.name || '이름 없음')}${badgeHtml(sample.label, 'badge-inline')}</div>
       ${sample.code ? `<div class="detail-code">${escapeHtml(sample.code)}</div>` : '<div style="margin-bottom:18px"></div>'}
 
       ${galleryImages.length > 1 ? `

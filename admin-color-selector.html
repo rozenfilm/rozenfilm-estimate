@@ -34,11 +34,21 @@
 
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
-  .field input, .field textarea {
+  .field input, .field textarea, .field select {
     width: 100%; border: 1.5px solid var(--border); border-radius: 10px;
     padding: 12px 14px; font-size: 14px; font-family: inherit; outline: none; transition: border-color .15s;
+    background: #fff; color: var(--text);
   }
-  .field input:focus, .field textarea:focus { border-color: var(--brand); }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--brand); }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10.5px; font-weight: 800; padding: 3px 8px; border-radius: 999px;
+    letter-spacing: .01em; white-space: nowrap;
+  }
+  .badge-hot { background: #FFF5F5; color: #E53E3E; }
+  .badge-popular { background: var(--brand-light); color: var(--brand); }
+  .badge-best { background: #F0FFF4; color: var(--accent); }
 
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -201,6 +211,15 @@
         <label>필름 코드 (선택)</label>
         <input type="text" id="f-code" placeholder="예: PW-1042" />
       </div>
+      <div class="field">
+        <label>라벨 (선택)</label>
+        <select id="f-label">
+          <option value="">없음</option>
+          <option value="popular">인기제품</option>
+          <option value="best">베스트셀링</option>
+          <option value="hot">HOT</option>
+        </select>
+      </div>
     </div>
 
     <div class="modal-section">
@@ -252,6 +271,16 @@
   const storage = firebase.storage();
 
   const CATEGORY_LABEL = { white: '화이트톤', wood: '우드톤', colorful: '컬러풀', gray: '그레이톤', beige: '베이지톤' };
+  const LABEL_META = {
+    popular: { text: '인기제품', cls: 'badge-popular' },
+    best:    { text: '베스트셀링', cls: 'badge-best' },
+    hot:     { text: 'HOT', cls: 'badge-hot' }
+  };
+  function badgeHtml(label){
+    const meta = LABEL_META[label];
+    if(!meta) return '';
+    return `<span class="badge ${meta.cls}">${meta.text}</span>`;
+  }
 
   let currentTab = 'white';
   let items = [];
@@ -330,7 +359,7 @@
       row.innerHTML = `
         <img src="${(item.sampleImages && item.sampleImages[0]) || item.sampleImageUrl || ''}" alt="" />
         <div class="info">
-          <div class="name">${escapeHtml(item.name || '이름 없음')}</div>
+          <div class="name">${escapeHtml(item.name || '이름 없음')} ${badgeHtml(item.label)}</div>
           <div class="meta">${item.code ? `<span class="code">${escapeHtml(item.code)}</span> · ` : ''}대표사진 ${((item.sampleImages||(item.sampleImageUrl?[item.sampleImageUrl]:[])).length)}장 · 시공사진 ${((item.installImages||[]).length)}장 · 링크 ${((item.caseLinks||[]).length)}개</div>
         </div>
         <div class="item-actions">
@@ -377,6 +406,7 @@
     installImages = [];
     document.getElementById('f-name').value = '';
     document.getElementById('f-code').value = '';
+    document.getElementById('f-label').value = '';
     document.getElementById('f-sample-image').value = '';
     document.getElementById('f-install-images').value = '';
     document.getElementById('form-status').textContent = '';
@@ -387,6 +417,7 @@
       document.getElementById('modal-title').textContent = '샘플 수정';
       document.getElementById('f-name').value = item.name || '';
       document.getElementById('f-code').value = item.code || '';
+      document.getElementById('f-label').value = item.label || '';
 
       // sampleImages 배열이 없는 기존(레거시) 문서는 sampleImageUrl 단일값을 자동 변환
       const legacySampleList = Array.isArray(item.sampleImages) && item.sampleImages.length
@@ -559,6 +590,7 @@
     const statusEl = document.getElementById('form-status');
     const name = document.getElementById('f-name').value.trim();
     const code = document.getElementById('f-code').value.trim();
+    const label = document.getElementById('f-label').value;
     const cleanCaseLinks = caseLinks.filter(c => c.url && c.url.trim());
 
     if(!name){
@@ -614,6 +646,7 @@
         category: currentTab,
         name,
         code,
+        label,
         sampleImages: finalSampleUrls,
         installImages: finalInstallUrls,
         caseLinks: cleanCaseLinks,
