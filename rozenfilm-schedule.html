@@ -28,6 +28,7 @@
       display: grid;
       grid-template-columns: repeat(7, 1fr);
       gap: 2px;
+      width: 100%;
     }
     .cal-day {
       background: var(--surface);
@@ -37,6 +38,8 @@
       cursor: pointer;
       transition: box-shadow .12s;
       border: 2px solid transparent;
+      min-width: 0;
+      overflow: hidden;
     }
     .cal-day:hover { box-shadow: 0 0 0 2px var(--brand); }
     .cal-day.today { border-color: var(--brand); }
