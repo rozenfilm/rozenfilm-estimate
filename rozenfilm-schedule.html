@@ -337,7 +337,7 @@
           <div class="text-center text-xs font-bold py-1" style="color:#3182CE">토</div>
         </div>
 
-        <div id="calGrid" class="cal-grid gap-1"></div>
+        <div id="calGrid" class="cal-grid"></div>
 
         <!-- Legend -->
         <div class="flex flex-wrap gap-3 mt-3" style="font-size:11px;color:#718096">
@@ -652,6 +652,8 @@
         style="padding:10px 16px;border:none;background:none;font-size:13px;font-weight:700;cursor:pointer;color:var(--brand);border-bottom:2px solid var(--brand)">📋 현장 정보</button>
       <button onclick="switchSiteTab('workers')" id="siteSubTab-workers"
         style="padding:10px 16px;border:none;background:none;font-size:13px;font-weight:700;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent">👷 필요 인원</button>
+      <button onclick="switchSiteTab('photos')" id="siteSubTab-photos"
+        style="padding:10px 16px;border:none;background:none;font-size:13px;font-weight:700;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent">📷 현장 사진</button>
     </div>
 
     <!-- Info tab -->
@@ -710,6 +712,17 @@
         <div id="siteDayTabs" class="flex flex-wrap gap-1 mb-2"></div>
         <div id="siteWorkerAssignList" class="space-y-1" style="max-height:240px;overflow-y:auto"></div>
       </div>
+    </div>
+
+    <!-- Photos tab -->
+    <div id="siteTabContent-photos" style="padding:20px 24px;display:none" class="space-y-3">
+      <p style="font-size:12px;color:var(--muted)">현장 사진을 등록해두면 나중에 확인하거나 시공자와 공유할 때 유용합니다.</p>
+      <label class="btn-primary" style="display:flex;align-items:center;justify-content:center;cursor:pointer;padding:12px">
+        📷 사진 추가하기
+        <input type="file" id="sitePhotoInput" accept="image/*" multiple capture="environment" class="hidden" onchange="handleSitePhotoUpload(this.files)">
+      </label>
+      <p id="sitePhotoUploadStatus" class="hidden" style="font-size:12px;color:var(--brand)">처리 중...</p>
+      <div id="sitePhotoGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
     </div>
 
     <div style="padding:16px 24px;border-top:1px solid var(--border)" class="flex gap-2">
@@ -776,6 +789,7 @@ let editingSiteId = null;
 let currentSiteSubTab = 'info';
 let selectedSiteDailyAssignments = {}; // { 'YYYY-MM-DD': Set(workerId, ...) } for the site being edited
 let activeSiteAssignDate = null; // Currently selected day tab in the assignment UI
+let sitePhotos = []; // [base64DataUrl, ...] for the site being edited
 
 async function loadSites() {
   const { collection, getDocs } = window._fbFns;
@@ -833,6 +847,9 @@ function openSiteModal(siteId = null) {
 
   activeSiteAssignDate = null;
   renderSiteDayTabs();
+
+  sitePhotos = site?.photos ? [...site.photos] : [];
+  renderSitePhotoGrid();
 
   switchSiteTab('info');
   document.getElementById('siteModal').classList.remove('hidden');
@@ -995,12 +1012,82 @@ function selectSiteColor(c) {
 
 function switchSiteTab(tab) {
   currentSiteSubTab = tab;
-  ['info','workers'].forEach(t => {
+  ['info','workers','photos'].forEach(t => {
     document.getElementById(`siteTabContent-${t}`).style.display = t === tab ? 'block' : 'none';
     const btn = document.getElementById(`siteSubTab-${t}`);
     btn.style.color = t === tab ? 'var(--brand)' : 'var(--muted)';
     btn.style.borderBottomColor = t === tab ? 'var(--brand)' : 'transparent';
   });
+}
+
+// ─── 현장 사진 ───
+
+// 이미지를 캔버스로 리사이즈/압축해서 base64로 반환 (Firestore 문서 용량 제한을 고려)
+function compressImageFile(file, maxDimension = 1000, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDimension) {
+          height = Math.round(height * (maxDimension / width));
+          width = maxDimension;
+        } else if (height > maxDimension) {
+          width = Math.round(width * (maxDimension / height));
+          height = maxDimension;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleSitePhotoUpload(fileList) {
+  const files = Array.from(fileList || []);
+  if (files.length === 0) return;
+
+  const statusEl = document.getElementById('sitePhotoUploadStatus');
+  statusEl.classList.remove('hidden');
+  statusEl.textContent = `처리 중... (0/${files.length})`;
+
+  for (let i = 0; i < files.length; i++) {
+    try {
+      const dataUrl = await compressImageFile(files[i]);
+      sitePhotos.push(dataUrl);
+      statusEl.textContent = `처리 중... (${i + 1}/${files.length})`;
+    } catch (e) {
+      console.error('사진 처리 오류:', e);
+    }
+  }
+
+  statusEl.classList.add('hidden');
+  document.getElementById('sitePhotoInput').value = '';
+  renderSitePhotoGrid();
+}
+
+function removeSitePhoto(idx) {
+  sitePhotos.splice(idx, 1);
+  renderSitePhotoGrid();
+}
+
+function renderSitePhotoGrid() {
+  const grid = document.getElementById('sitePhotoGrid');
+  if (!grid) return;
+  grid.innerHTML = sitePhotos.map((src, idx) => `
+    <div style="position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;background:#F1F5F9">
+      <img src="${src}" style="width:100%;height:100%;object-fit:cover" onclick="window.open('${src.replace(/'/g, "\\'")}', '_blank')">
+      <button onclick="removeSitePhoto(${idx})" style="position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:12px;cursor:pointer;line-height:1">✕</button>
+    </div>
+  `).join('');
 }
 
 function adjustNeededWorkers(delta) {
@@ -1051,8 +1138,16 @@ async function saveSite() {
     id, name, startDate, endDate, address, memo,
     color: selectedSiteColor, neededWorkers, workerMemo,
     dailyAssignments,
-    assignedWorkerIds: unionWorkerIds
+    assignedWorkerIds: unionWorkerIds,
+    photos: sitePhotos
   };
+
+  // Firestore 문서 용량(1MB) 안전장치: 사진이 너무 많으면 저장 전 경고
+  const estimatedSize = JSON.stringify(site).length;
+  if (estimatedSize > 900000) {
+    alert(`사진 용량이 너무 큽니다 (약 ${Math.round(estimatedSize/1024)}KB). 사진 개수를 줄여주세요.`);
+    return;
+  }
 
   try {
     await saveSiteToDb(site);
@@ -1235,6 +1330,16 @@ function openSiteDetailModal(siteId) {
         </div>
       </div>` : `<div style="font-size:13px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">아직 배치된 시공자가 없습니다.</div>`}
     ${site.memo ? `<div style="font-size:13px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"><span style="color:var(--muted)">메모:</span><br>${site.memo}</div>` : ''}
+    ${(site.photos && site.photos.length > 0) ? `
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
+        <span style="font-size:13px;color:var(--muted)">현장 사진 (${site.photos.length}장):</span>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px">
+          ${site.photos.map(src => `
+            <img src="${src}" onclick="window.open('${src.replace(/'/g, "\\'")}', '_blank')"
+              style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer">
+          `).join('')}
+        </div>
+      </div>` : ''}
     ${isAdmin() ? `<div class="flex gap-2 pt-3"><button onclick="closeSiteDetailModal();openSiteModal('${site.id}')" class="btn-primary flex-1">수정</button></div>` : ''}
   `;
   document.getElementById('siteDetailModal').classList.remove('hidden');
@@ -1440,7 +1545,7 @@ function renderMonthCalendar() {
   title.textContent = `${currentYear}년 ${currentMonth + 1}월`;
 
   const grid = document.getElementById('calGrid');
-  grid.className = 'cal-grid gap-1';
+  grid.className = 'cal-grid';
   grid.innerHTML = '';
 
   const today = new Date();
@@ -1480,7 +1585,7 @@ function renderWeekCalendar() {
   }
 
   const grid = document.getElementById('calGrid');
-  grid.className = 'cal-grid gap-1';
+  grid.className = 'cal-grid';
   grid.innerHTML = '';
 
   const today = new Date();
