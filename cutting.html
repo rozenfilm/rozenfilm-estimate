@@ -1247,6 +1247,12 @@
         )));
       }, []);
 
+      const adjustSurfaceCount = useCallback((index, delta) => {
+        setSurfaces(prev => prev.map((s, i) => (
+          i === index ? { ...s, count: Math.max(1, (Number(s.count) || 1) + delta) } : s
+        )));
+      }, []);
+
       // ---- 샷시 입력 행 관리 ----
       const addShashiRow = useCallback(() => {
         setShashiRows(prev => [...prev, { type: '3피스', width: '', height: '', singleQty: '', doubleQty: '', label: '' }]);
@@ -1600,10 +1606,26 @@
         });
       }, [surfaces, filmSize, rotationAllowed]);
 
+      // 같은 부위(카테고리)는 항상 같은 색으로 보이도록, 결과에 등장하는 부위 목록을 기준으로
+      // 색상(hue)을 고르게 나눠 배정한다. 시각화 캔버스와 현장용 시각화 페이지 둘 다 이 함수를 쓴다.
+      const getCategoryColorMap = (layout) => {
+        const categories = [];
+        layout.forEach(item => {
+          const cat = item.category || '미분류';
+          if (!categories.includes(cat)) categories.push(cat);
+        });
+        const map = {};
+        categories.forEach((cat, idx) => {
+          map[cat] = Math.round((idx * 360) / Math.max(1, categories.length));
+        });
+        return map;
+      };
+
       useEffect(() => {
         if (result && result.rollCount > 0) {
           const scale = 0.2;
           const urls = [];
+          const categoryHueMap = getCategoryColorMap(result.layout);
 
           for (let rollNum = 1; rollNum <= result.rollCount; rollNum++) {
             const canvas = canvasRefs.current[rollNum - 1];
@@ -1620,7 +1642,8 @@
             result.layout.filter(item => item.roll === rollNum).forEach(item => {
               const x = item.x * scale, y = item.y * scale, w = item.width * scale, h = item.height * scale;
 
-              ctx.fillStyle = `hsl(${item.id * 30}, 70%, 50%)`;
+              const hue = categoryHueMap[item.category || '미분류'];
+              ctx.fillStyle = `hsl(${hue}, 70%, 50%)`;
               ctx.fillRect(x, y, w, h);
               ctx.strokeStyle = '#000';
               ctx.strokeRect(x, y, w, h);
@@ -1703,6 +1726,7 @@
 
         const scale = 0.3;
         const rollsHtml = [];
+        const categoryHueMap = getCategoryColorMap(result.layout);
         for (let rollNum = 1; rollNum <= result.rollCount; rollNum++) {
           const rollItems = result.layout.filter(it => it.roll === rollNum);
           const rollLength = result.rollUsedLengths[rollNum - 1] || filmSize.length;
@@ -1711,7 +1735,7 @@
 
           const pieces = rollItems.map(item => {
             const px = item.x * scale, py = item.y * scale, pw = item.width * scale, ph = item.height * scale;
-            const hue = item.id * 30;
+            const hue = categoryHueMap[item.category || '미분류'];
             const catText = item.category ? `${item.category} ` : '';
             const labelText = item.label ? ` ${item.label}` : '';
             const rotMark = item.rotated ? ' [회전]' : '';
@@ -3050,11 +3074,28 @@ service cloud.firestore {
                             </button>
                           </div>
                           <input
+                            key={`c-${index}-${surface.count}`}
                             type="text" inputMode="numeric" pattern="[0-9]*"
                             placeholder="수량" defaultValue={surface.count}
                             onBlur={(e) => handleInputBlur(index, 'count', e.target.value)}
-                            className="border p-2 w-20"
+                            className="border p-2 w-16"
                           />
+                          <div className="flex gap-0.5">
+                            <button
+                              onClick={() => adjustSurfaceCount(index, -1)}
+                              className="text-xs bg-gray-200 px-1.5 py-2 rounded hover:bg-gray-300"
+                              title="수량 -1"
+                            >
+                              -1
+                            </button>
+                            <button
+                              onClick={() => adjustSurfaceCount(index, 1)}
+                              className="text-xs bg-gray-200 px-1.5 py-2 rounded hover:bg-gray-300"
+                              title="수량 +1"
+                            >
+                              +1
+                            </button>
+                          </div>
                           <select
                             value={surface.label}
                             onChange={(e) => handleInputBlur(index, 'label', e.target.value)}
