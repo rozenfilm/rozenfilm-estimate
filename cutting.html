@@ -137,6 +137,8 @@
       // 자동으로 인식해서 시공 면적에 넣을 수 있게 한다. 손글씨 인식은 완벽하지 않을 수
       // 있어서, 인식 결과를 검토·수정한 뒤에 실제로 적용하는 방식으로 만든다.
       const [showOcrImport, setShowOcrImport] = useState(false);
+      const [showJobList, setShowJobList] = useState(true);
+      const [showPresetList, setShowPresetList] = useState(true);
       const [ocrProcessing, setOcrProcessing] = useState(false);
       const [ocrOriginalFile, setOcrOriginalFile] = useState(null);
       const [ocrRotation, setOcrRotation] = useState(0); // 0, 90, 180, 270 (시계방향)
@@ -2574,9 +2576,15 @@ service cloud.firestore {
               <button onClick={saveCurrentJob} className="bg-orange-600 text-white p-2 rounded">
                 현재 작업 저장
               </button>
+              <button
+                onClick={() => setShowJobList(prev => !prev)}
+                className="text-sm text-orange-700 hover:underline ml-auto"
+              >
+                {showJobList ? '목록 감추기' : `목록 보기 (${savedJobs.length}개)`}
+              </button>
             </div>
 
-            {savedJobs.length > 0 ? (
+            {showJobList && (savedJobs.length > 0 ? (
               <div className="flex flex-col gap-1">
                 {savedJobs
                   .slice()
@@ -2602,7 +2610,7 @@ service cloud.firestore {
               </div>
             ) : (
               <p className="text-sm text-gray-500">저장된 현장 데이터가 없습니다.</p>
-            )}
+            ))}
             <p className="text-xs text-gray-500 mt-2">
               필름 규격, 여유분, 시공 면적 목록 전체가 현장명으로 저장됩니다. 이 브라우저에만 저장됩니다.
               "현장 데이터 내보내기"로 JSON 파일을 저장해 구글드라이브 등에 올리면, 다른 PC에서 "현장 데이터 불러오기"로 같은 현장 목록을 가져올 수 있습니다. (같은 이름의 현장은 불러온 데이터로 덮어씁니다.)
@@ -2669,7 +2677,16 @@ service cloud.firestore {
               )}
             </div>
 
-            {groupPresets.length > 0 ? (
+            <div className="flex items-center justify-end mb-1">
+              <button
+                onClick={() => setShowPresetList(prev => !prev)}
+                className="text-sm text-teal-700 hover:underline"
+              >
+                {showPresetList ? '목록 감추기' : `목록 보기 (${groupPresets.length}개)`}
+              </button>
+            </div>
+
+            {showPresetList && (groupPresets.length > 0 ? (
               [...presetCategories, { id: null, name: UNCATEGORIZED_PRESET }]
                 .map(category => ({
                   category,
@@ -2703,7 +2720,7 @@ service cloud.firestore {
                 ))
             ) : (
               <p className="text-sm text-gray-500">저장된 부위 프리셋이 없습니다. 아래 시공 면적에서 부위를 만든 뒤, 그 부위 헤더의 "프리셋 저장" 버튼을 눌러 등록하세요.</p>
-            )}
+            ))}
             <p className="text-xs text-gray-500 mt-2">
               프리셋을 클릭하면 그 부위의 모든 항목(가로/세로/수량/라벨)이 통째로 새 부위로 추가됩니다. 브라우저에 저장되어 다음에 열 때도 유지됩니다.
               "프리셋 내보내기"로 JSON 파일을 저장해 구글드라이브 등에 올리면, 다른 PC에서 이 파일을 열고 "프리셋 불러오기"로 같은 목록을 가져올 수 있습니다.
@@ -3038,11 +3055,20 @@ service cloud.firestore {
                             onBlur={(e) => handleInputBlur(index, 'count', e.target.value)}
                             className="border p-2 w-20"
                           />
-                          <input
-                            type="text" placeholder="시공 위치 (예: 문1)" defaultValue={surface.label}
-                            onBlur={(e) => handleInputBlur(index, 'label', e.target.value)}
+                          <select
+                            value={surface.label}
+                            onChange={(e) => handleInputBlur(index, 'label', e.target.value)}
                             className="border p-2 w-32"
-                          />
+                          >
+                            <option value="">시공 위치 선택</option>
+                            <option value="틀 세로">틀 세로</option>
+                            <option value="틀 가로">틀 가로</option>
+                            <option value="알맹이 세로">알맹이 세로</option>
+                            <option value="알맹이 가로">알맹이 가로</option>
+                            <option value="문짝">문짝</option>
+                            <option value="손잡이">손잡이</option>
+                            <option value="선반">선반</option>
+                          </select>
                           <button
                             onClick={() => setSurfaces(surfaces.filter((_, i) => i !== index))}
                             className="bg-red-500 text-white p-2 rounded"
