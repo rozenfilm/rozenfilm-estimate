@@ -373,8 +373,9 @@
         <p class="text-sm mt-0.5" style="color:var(--muted)">시공 항목을 추가하고 견적을 계산하세요</p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
-        <input type="text" id="siteName" class="input-field" placeholder="현장명" style="width:130px">
+        <input type="text" id="siteName" class="input-field" placeholder="현장명" style="width:130px" oninput="scheduleAutoSave()">
         <button onclick="saveEstimate()" class="secondary-btn" style="padding:8px 14px;font-size:13px">☁️ 저장</button>
+        <span id="autoSaveIndicator" class="hidden text-xs" style="color:var(--accent);font-weight:600"></span>
         <span id="userEmail" class="text-xs" style="color:var(--muted)"></span>
         <button id="adminPanelBtn" onclick="toggleAdminPanel()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">👑 사용자 관리</button>
         <button id="priceManageBtn" onclick="openPriceManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">💰 단가 관리</button>
@@ -736,6 +737,9 @@ let lastFilmTotalWithVAT = 0; // 필름 견적 최종금액(VAT포함) - calcula
 let lastFilmTotalExclVAT = 0; // 필름 견적 최종금액(VAT별도) - calculateTotal()에서 갱신됨
 let combinedDiscountAmount = 0; // 필름+도배 통합 진행 시 최종 할인 금액
 let currentPublicEstimateId = null; // "웹으로 보내기" 링크의 공개 견적 ID (재발송 시 같은 링크 재사용)
+let currentEstimateId = null; // 현재 작업 중인 견적의 저장 문서 ID (재저장/자동저장 시 같은 문서에 덮어씀)
+let autoSaveTimer = null; // 자동저장 디바운스 타이머
+let isAutoSaving = false; // 자동저장 중복 실행 방지
 
 // 견적서 하단 상세 설명 (계정별로 편집 가능). 줄 앞에 "##"를 붙이면 굵은 소제목으로 표시됩니다.
 const DEFAULT_ESTIMATE_NOTES = `• 위 견적은 5천여건의 실무경험을 토대로 축적된 데이터를 기반으로 작성되었습니다。
@@ -1212,6 +1216,8 @@ function calculateTotal(showFull = true) {
   if (previewArea) {
     previewArea.innerHTML = buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, displayLaborCost, displayMaterialCost, profit, laborPersonnel, constructionDays, siteName, currentDate, isBasisVisible, isProfitHidden, true);
   }
+
+  scheduleAutoSave();
 }
 
 function buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, laborCost, materialCost, profit, laborPersonnel, constructionDays, siteName, currentDate, showBasis = true, hideProfit = false, clickableNumbers = false) {
@@ -2311,6 +2317,7 @@ async function loadEstimateById(id) {
     snap.forEach(d => { if (d.id === id) data = d.data(); });
     if (data) {
       applyEstimateData(data);
+      currentEstimateId = id; // 이후 저장/자동저장은 이 문서를 덮어씀 (중복 생성 방지)
       closeEstimateArchive();
       showCloudStatus('📂 견적을 불러왔습니다.');
     }
@@ -2332,32 +2339,76 @@ async function deleteEstimateById(id) {
   } catch(e) { alert('삭제 오류: ' + e.message); }
 }
 
-async function saveEstimate() {
+// 실제 Firestore 저장 로직 (수동 저장/자동저장 공용).
+// silent=true면 알림창 없이 조용히 실패/성공 처리 (자동저장용).
+async function persistEstimate({ silent = false } = {}) {
   const siteName = document.getElementById('siteName').value.trim();
-  if (!siteName) { alert('현장명을 입력해주세요.'); return; }
-  if (!window._fbUser) { alert('로그인이 필요합니다.'); return; }
+  if (!siteName) {
+    if (!silent) alert('현장명을 입력해주세요.');
+    return false;
+  }
+  if (!window._fbUser) {
+    if (!silent) alert('로그인이 필요합니다.');
+    return false;
+  }
+  const validItemCount = items.filter(it => it.categoryKey && it.itemKey).length;
+  if (validItemCount === 0) return false; // 빈 견적은 저장하지 않음 (수동/자동 공통)
 
-  const { doc, setDoc, collection } = window._fbFns;
+  const { doc, setDoc } = window._fbFns;
   const db = window._fbDb;
   const uid = window._fbUser.uid;
-  const id = `${Date.now()}`;
+  const id = currentEstimateId || `${Date.now()}`; // 기존 견적이면 같은 문서를 덮어씀 (신규면 새로 생성)
+  const isNew = !currentEstimateId;
   const data = {
     siteName, items, discountAmount, isDiscountEnabled,
     priceAdjustment, catAdjustments,
     laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays, manualLaborPersonnel,
     currentPublicEstimateId,
-    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
+  if (isNew) data.createdAt = new Date().toISOString();
 
   try {
-    await setDoc(doc(db, 'estimates', uid, 'list', id), data);
-    showCloudStatus('☁️ 저장 완료!');
-    loadCloudEstimates();
+    await setDoc(doc(db, 'estimates', uid, 'list', id), data, { merge: true });
+    currentEstimateId = id;
+    return true;
   } catch (e) {
     console.error(e);
-    alert('저장 중 오류가 발생했습니다.');
+    if (!silent) alert('저장 중 오류가 발생했습니다.');
+    return false;
   }
+}
+
+async function saveEstimate() {
+  const ok = await persistEstimate({ silent: false });
+  if (ok) {
+    showCloudStatus('☁️ 저장 완료!');
+    loadCloudEstimates();
+  }
+}
+
+// ── 실시간 자동저장 ──
+// 항목 추가/수정, 가격 조정 등 견적 내용이 바뀔 때마다 calculateTotal()이 호출되는데,
+// 그 타이밍에 맞춰 일정 시간(2.5초) 입력이 없으면 자동으로 조용히 저장합니다.
+function scheduleAutoSave() {
+  if (!window._fbUser) return;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(async () => {
+    if (isAutoSaving) return;
+    isAutoSaving = true;
+    const ok = await persistEstimate({ silent: true });
+    isAutoSaving = false;
+    if (ok) showAutoSaveIndicator();
+  }, 2500);
+}
+
+function showAutoSaveIndicator() {
+  const el = document.getElementById('autoSaveIndicator');
+  if (!el) return;
+  el.textContent = `💾 자동저장됨 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`;
+  el.classList.remove('hidden');
+  clearTimeout(showAutoSaveIndicator._hideTimer);
+  showAutoSaveIndicator._hideTimer = setTimeout(() => el.classList.add('hidden'), 4000);
 }
 
 async function loadCloudEstimates() {
