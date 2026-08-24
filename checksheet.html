@@ -113,13 +113,13 @@ function render() {
     <div class="card">
       <div class="q-num">1</div>
       <div class="q-text">성명 (닉네임 가능)</div>
-      <input type="text" class="text-input" placeholder="이름 또는 닉네임" value="${answers.name}" oninput="setVal('name', this.value)">
+      <input type="text" class="text-input" placeholder="이름 또는 닉네임" value="${answers.name}" oninput="setText('name', this.value)">
     </div>
 
     <div class="card">
       <div class="q-num">2</div>
       <div class="q-text">시공 받으실 현장 주소</div>
-      <input type="text" class="text-input" placeholder="예: 강남 래미안 101동 1502호" value="${answers.address}" oninput="setVal('address', this.value)">
+      <input type="text" class="text-input" placeholder="예: 강남 래미안 101동 1502호" value="${answers.address}" oninput="setText('address', this.value)">
     </div>
 
     <div class="card">
@@ -155,7 +155,7 @@ function render() {
       ${answers.otherWork === 'yes' ? `
         <div class="sub-info">어떤 공정인지 담당자에게 알려주셔서 가능 여부를 확인해주시기 바랍니다.</div>
         <div class="sub-choice-wrap">
-          <textarea class="text-input" placeholder="예: 도배, 마루, 조명 교체 등" oninput="setVal('otherWorkDetail', this.value)">${answers.otherWorkDetail}</textarea>
+          <textarea class="text-input" placeholder="예: 도배, 마루, 조명 교체 등" oninput="setText('otherWorkDetail', this.value)">${answers.otherWorkDetail}</textarea>
         </div>
       ` : ''}
     </div>
@@ -188,7 +188,7 @@ function render() {
       <div class="q-num">10</div>
       <div class="q-text">현관문 시공을 진행하시는 경우, 안 쓰시는 부품이 있으시면 미리 알려주세요</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">(안전고리, 말발굽, 보조키 등)</p>
-      <textarea class="text-input" placeholder="해당 사항 없으면 비워두세요" oninput="setVal('frontDoorParts', this.value)">${answers.frontDoorParts}</textarea>
+      <textarea class="text-input" placeholder="해당 사항 없으면 비워두세요" oninput="setText('frontDoorParts', this.value)">${answers.frontDoorParts}</textarea>
       <button type="button" class="choice-btn ${answers.frontDoorParts === '해당없음' ? 'selected' : ''}" style="width:100%;margin-top:8px" onclick="setVal('frontDoorParts','해당없음')">해당없음</button>
     </div>
 
@@ -236,6 +236,11 @@ function ynNa(key) {
 function setVal(key, val) {
   answers[key] = val;
   render();
+}
+
+// 자유 텍스트 입력용: 화면을 다시 그리지 않고 값만 저장 (입력 중 포커스가 끊기는 것을 방지)
+function setText(key, val) {
+  answers[key] = val;
 }
 
 function renderDone() {
