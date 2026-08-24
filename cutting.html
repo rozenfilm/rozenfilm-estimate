@@ -37,7 +37,18 @@
     const PRESET_CATEGORY_STORAGE_KEY = 'rosenfilm_preset_categories_v1';
     const JOB_STORAGE_KEY = 'rosenfilm_jobs_v1';
     const RESULT_STORAGE_KEY = 'rosenfilm_saved_results_v1';
+    const DRAFT_STORAGE_KEY = 'rosenfilm_draft_v1';
     const UNCATEGORIZED_PRESET = '미분류';
+
+    const loadDraft = () => {
+      try {
+        const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        console.error('임시 저장 데이터 불러오기 오류:', e);
+        return null;
+      }
+    };
 
     const loadGroupPresets = () => {
       try {
@@ -122,9 +133,14 @@
     };
 
     const CuttingOptimizer = () => {
-      const [filmSize, setFilmSize] = useState({ width: 1220, length: 50000 });
-      const [rotationAllowed, setRotationAllowed] = useState(true); // 회전 허용 (필름 규격 옆 전역 설정)
-      const [surfaces, setSurfaces] = useState([
+      // 실수로 새로고침해도 입력 중이던 내용이 사라지지 않도록, 브라우저에 자동 저장해둔
+      // 임시 데이터가 있으면 그걸로 시작 상태를 복원한다.
+      const initialDraft = loadDraft();
+      const [filmSize, setFilmSize] = useState(initialDraft?.filmSize || { width: 1220, length: 50000 });
+      const [rotationAllowed, setRotationAllowed] = useState(
+        initialDraft?.rotationAllowed !== undefined ? initialDraft.rotationAllowed : true
+      ); // 회전 허용 (필름 규격 옆 전역 설정)
+      const [surfaces, setSurfaces] = useState(initialDraft?.surfaces || [
         { width: 0, height: 0, count: 1, label: '', category: '' }
       ]);
       const [result, setResult] = useState(null);
@@ -240,12 +256,23 @@
       }, [scrollTarget, surfaces, collapsedCats]);
 
       // ---- 현장 데이터 + 프리셋 상태 (클라우드 동기화보다 먼저 선언되어야 함) ----
-      const [jobName, setJobName] = useState('');
+      const [jobName, setJobName] = useState(initialDraft?.jobName || '');
       const [savedJobs, setSavedJobs] = useState(loadJobs);
 
       useEffect(() => {
         localStorage.setItem(JOB_STORAGE_KEY, JSON.stringify(savedJobs));
       }, [savedJobs]);
+
+      // 입력 중인 필름 규격/회전 설정/시공 면적/현장명을 실시간으로 브라우저에 임시 저장한다.
+      // 이러면 실수로 새로고침하거나 탭을 닫아도, 다시 열었을 때 입력하던 내용이 그대로
+      // 복원된다("현장명으로 저장"과는 별개로, 저장을 깜빡했을 때를 위한 안전장치다).
+      useEffect(() => {
+        try {
+          localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ filmSize, rotationAllowed, surfaces, jobName }));
+        } catch (e) {
+          console.error('임시 저장 오류:', e);
+        }
+      }, [filmSize, rotationAllowed, surfaces, jobName]);
 
       const [groupPresets, setGroupPresets] = useState(loadGroupPresets);
 
@@ -2903,7 +2930,7 @@ service cloud.firestore {
           </div>
 
           <div className="mb-4">
-            <h2 className="text-lg font-semibold mb-2">시공 면적</h2>
+            <h2 className="text-lg font-semibold mb-2">시공 면적 <span className="text-xs font-normal text-gray-400">(입력 내용은 이 브라우저에 실시간 자동 저장됩니다)</span></h2>
 
             <datalist id="category-options">
               {categoryOrder.filter(c => c !== UNCATEGORIZED).map(c => <option key={c} value={c} />)}
