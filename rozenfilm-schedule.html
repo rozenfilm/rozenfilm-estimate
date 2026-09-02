@@ -451,6 +451,7 @@
                 <th class="border p-2">인력</th><th class="border p-2">총비용</th>
                 <th class="border p-2">견적금액</th><th class="border p-2">이윤</th>
                 <th class="border p-2">이윤율</th>
+                <th class="border p-2">수금현황</th>
               </tr></thead>
               <tbody id="s_salesTableBody"></tbody>
             </table>
@@ -461,8 +462,17 @@
           <input type="hidden" id="s_projectIndex" value="-1">
           <div><label class="block text-sm font-medium text-gray-700">현장명</label>
             <input type="text" id="s_siteName" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required></div>
-          <div><label class="block text-sm font-medium text-gray-700">시공 시작 날짜</label>
-            <input type="date" id="s_constructionDate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required></div>
+          <div><label class="block text-sm font-medium text-gray-700">총 견적 금액 (원)</label>
+            <input type="number" id="s_totalEstimate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required></div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">인력 선택 (일별)</label>
+            <div id="s_daysContainer" class="space-y-4 mt-1"></div>
+            <div class="flex space-x-2 mt-2">
+              <button type="button" id="s_addDay" class="bg-green-500 text-white py-1 px-3 rounded-md hover:bg-green-600">새로운 일자 추가</button>
+              <button type="button" id="s_deleteDay" class="bg-red-500 text-white py-1 px-3 rounded-md opacity-50 cursor-not-allowed" disabled>일자 삭제</button>
+            </div>
+            <div class="mt-2"><span class="font-semibold">총 인건비: </span><span id="s_totalLaborCost" class="font-bold">0 원</span></div>
+          </div>
           <div>
             <label class="block text-sm font-medium text-gray-700">자재 선택</label>
             <div id="s_materialsContainer" class="space-y-4 mt-1"></div>
@@ -474,17 +484,25 @@
             <div id="s_additionalCostsContainer" class="space-y-4 mt-1"></div>
             <div class="mt-2"><span class="font-semibold">총 부대비용: </span><span id="s_additionalCostDisplay" class="font-bold">0 원</span></div>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700">인력 선택 (일별)</label>
-            <div id="s_daysContainer" class="space-y-4 mt-1"></div>
-            <div class="flex space-x-2 mt-2">
-              <button type="button" id="s_addDay" class="bg-green-500 text-white py-1 px-3 rounded-md hover:bg-green-600">새로운 일자 추가</button>
-              <button type="button" id="s_deleteDay" class="bg-red-500 text-white py-1 px-3 rounded-md opacity-50 cursor-not-allowed" disabled>일자 삭제</button>
+          <div class="border-t pt-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">수금 현황</label>
+            <div class="flex gap-2 mb-3">
+              <button type="button" id="s_paymentCompleteBtn" onclick="s_togglePaymentComplete()" class="flex-1 py-2 px-4 rounded-md border-2 text-sm font-semibold border-gray-300 text-gray-500 bg-white">수금 미완료</button>
             </div>
-            <div class="mt-2"><span class="font-semibold">총 인건비: </span><span id="s_totalLaborCost" class="font-bold">0 원</span></div>
+            <label class="block text-sm font-medium text-gray-700">수금 방법</label>
+            <select id="s_paymentMethod" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" onchange="s_onPaymentMethodChange()">
+              <option value="">선택 안 함</option>
+              <option value="카카오">카카오</option>
+              <option value="기업은행">기업은행</option>
+              <option value="현금수금">현금수금</option>
+              <option value="농협">농협</option>
+              <option value="기타">기타</option>
+            </select>
+            <div id="s_paymentMemoWrap" class="mt-2 hidden">
+              <label class="block text-sm font-medium text-gray-700">기타 메모</label>
+              <input type="text" id="s_paymentMemo" placeholder="수금 방법을 적어주세요" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm">
+            </div>
           </div>
-          <div><label class="block text-sm font-medium text-gray-700">총 견적 금액 (원)</label>
-            <input type="number" id="s_totalEstimate" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" required></div>
           <div class="flex space-x-2">
             <button type="submit" id="s_submitButton" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">프로젝트 추가</button>
             <button type="button" id="s_cancelEdit" class="w-full bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 hidden">수정 취소</button>
@@ -2082,6 +2100,7 @@ let s_days = [{ selectedWorkers: new Set(), date: '' }];
 let s_selectedMaterials = [{ material: null, dispatched: 0, returned: 0, meters: 0 }];
 let s_selectedAdditionalCosts = s_additionalCostCategories.map(c => ({ category: c.name, amount: 0 }));
 let s_editingIndex = -1;
+let s_paymentComplete = false; // 수금 완료 여부 (버튼 토글)
 let s_initialized = false;
 
 // ── Firestore save/load ──
@@ -2157,6 +2176,7 @@ function s_init() {
   s_updateSalesTable();
   s_populateCalendarMonthSelector();
   s_populateWorkerTable();
+  s_renderPaymentCompleteBtn();
   s_showTab('stats');
 
   document.getElementById('s_workerForm').addEventListener('submit', (e) => {
@@ -2212,14 +2232,26 @@ async function s_handleProjectSubmit(e) {
   const laborCost = s_calculateLaborCost();
   const materialCost = s_calculateMaterialCost();
   const additionalCost = s_calculateAdditionalCost();
+
+  // 시공 시작 날짜 입력칸이 없어졌으므로, 인력 선택(일별)에 입력된 날짜 중 가장 빠른 날짜를 자동으로 사용
+  // (월별 통계/필터링 기능이 이 값을 기준으로 동작하므로 자동 계산해서 계속 정상 작동하도록 함)
+  const dayDates = s_days.map(d => d.date).filter(d => d && d !== '미지정');
+  const autoConstructionDate = dayDates.length > 0 ? dayDates.sort()[0] : '미지정';
+
+  const paymentMethod = document.getElementById('s_paymentMethod').value;
+  const paymentMemo = document.getElementById('s_paymentMemo').value.trim();
+
   const project = {
     siteName: document.getElementById('s_siteName').value.trim() || '미지정',
-    constructionDate: document.getElementById('s_constructionDate').value || '미지정',
+    constructionDate: autoConstructionDate,
     materials: validMaterials.map(entry => ({ name: entry.material.name, dispatched: entry.dispatched, returned: entry.returned, meters: entry.meters, cost: entry.material.unitPrice * entry.meters })),
     materialCost, additionalCosts: s_selectedAdditionalCosts.filter(c => c.amount > 0).map(c => ({ category: c.category, amount: c.amount })),
     additionalCost, laborCost,
     days: s_days.map(day => ({ date: day.date || '미지정', workers: Array.from(day.selectedWorkers) })),
-    totalEstimate: parseInt(document.getElementById('s_totalEstimate').value) || 0
+    totalEstimate: parseInt(document.getElementById('s_totalEstimate').value) || 0,
+    paymentComplete: s_paymentComplete,
+    paymentMethod: paymentMethod || '',
+    paymentMemo: paymentMethod === '기타' ? paymentMemo : ''
   };
   const idx = parseInt(document.getElementById('s_projectIndex').value);
   if (idx >= 0) s_projects[idx] = project; else s_projects.push(project);
@@ -2228,6 +2260,28 @@ async function s_handleProjectSubmit(e) {
   await s_saveProjects();
   btn.disabled = false; btn.textContent = s_editingIndex >= 0 ? '프로젝트 수정' : '프로젝트 추가';
   s_resetForm(); s_updateSalesTable(); s_populateCalendarMonthSelector();
+}
+
+function s_togglePaymentComplete() {
+  s_paymentComplete = !s_paymentComplete;
+  s_renderPaymentCompleteBtn();
+}
+
+function s_renderPaymentCompleteBtn() {
+  const btn = document.getElementById('s_paymentCompleteBtn');
+  if (!btn) return;
+  if (s_paymentComplete) {
+    btn.textContent = '✅ 수금 완료';
+    btn.className = 'flex-1 py-2 px-4 rounded-md border-2 text-sm font-semibold border-green-500 text-green-700 bg-green-50';
+  } else {
+    btn.textContent = '수금 미완료';
+    btn.className = 'flex-1 py-2 px-4 rounded-md border-2 text-sm font-semibold border-gray-300 text-gray-500 bg-white';
+  }
+}
+
+function s_onPaymentMethodChange() {
+  const method = document.getElementById('s_paymentMethod').value;
+  document.getElementById('s_paymentMemoWrap').classList.toggle('hidden', method !== '기타');
 }
 
 function s_downloadJSON(data, filename) {
@@ -2604,13 +2658,19 @@ function s_populateFormForEdit(idx) {
   s_editingIndex = idx;
   document.getElementById('s_projectIndex').value = idx;
   document.getElementById('s_siteName').value = p.siteName||''
-  document.getElementById('s_constructionDate').value = p.constructionDate||'';
   document.getElementById('s_totalEstimate').value = p.totalEstimate||0;
   s_selectedMaterials = (p.materials||[]).map(m => ({ material: s_materials_sales.find(mat => mat.name === m.name)||null, dispatched: m.dispatched||m.meters||0, returned: m.returned||0, meters: m.meters||0 }));
   s_days = (p.days||[]).map(d => ({ date: d.date||'', selectedWorkers: new Set(d.workers||[]) }));
   s_selectedAdditionalCosts = s_additionalCostCategories.map(c => ({ category: c.name, amount: ((p.additionalCosts||[]).find(ac => ac.category === c.name)||{ amount: 0 }).amount }));
   s_populateMaterials(); s_populateDays(); s_populateAdditionalCosts();
   s_updateMaterialCostDisplay(); s_updateLaborCostDisplay(); s_updateAdditionalCostDisplay();
+
+  s_paymentComplete = !!p.paymentComplete;
+  s_renderPaymentCompleteBtn();
+  document.getElementById('s_paymentMethod').value = p.paymentMethod || '';
+  document.getElementById('s_paymentMemo').value = p.paymentMemo || '';
+  s_onPaymentMethodChange();
+
   document.getElementById('s_submitButton').textContent = '프로젝트 수정';
   document.getElementById('s_cancelEdit').classList.remove('hidden');
   document.getElementById('s_projectContent').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2625,6 +2685,9 @@ function s_resetForm() {
   s_selectedAdditionalCosts = s_additionalCostCategories.map(c => ({ category: c.name, amount: 0 }));
   s_populateDays(); s_populateMaterials(); s_populateAdditionalCosts();
   s_updateMaterialCostDisplay(); s_updateLaborCostDisplay(); s_updateAdditionalCostDisplay();
+  s_paymentComplete = false;
+  s_renderPaymentCompleteBtn();
+  s_onPaymentMethodChange();
   document.getElementById('s_submitButton').textContent = '프로젝트 추가';
   document.getElementById('s_cancelEdit').classList.add('hidden');
 }
@@ -2805,6 +2868,9 @@ function s_updateSalesTable() {
     const totMeters = (p.materials||[]).reduce((s, m) => s + (m.meters||0), 0);
     const workerDisplay = (p.days||[]).length > 0 ? p.days.map((d, di) => { const wn = (d.workers||[]).map(n => { const w = s_workers_sales.find(w => w.name === n); return w ? `${n}(${w.cost.toLocaleString()}원)` : n; }).join(', ')||'없음'; return `Day${di+1}(${d.date||'미지정'}):${wn}`; }).join('; ') : '없음';
     const addDisplay = (p.additionalCosts||[]).filter(c => c.amount > 0).map(c => `${c.category}:${c.amount.toLocaleString()}원`).join(', ')||'없음';
+    const paymentDisplay = p.paymentComplete
+      ? `<span class="text-green-700 font-semibold">✅ 완료${p.paymentMethod ? ` (${p.paymentMethod === '기타' ? (p.paymentMemo || '기타') : p.paymentMethod})` : ''}</span>`
+      : `<span class="text-gray-400">미완료</span>`;
     const row = document.createElement('tr');
     row.innerHTML = `
       <td class="border p-2"><button type="button" class="s_edit_btn bg-indigo-600 text-white py-1 px-2 rounded text-xs hover:bg-indigo-700" data-idx="${origIdx}">${p.siteName||'미지정'}</button></td>
@@ -2817,7 +2883,8 @@ function s_updateSalesTable() {
       <td class="border p-2 text-xs">${tc.toLocaleString()}</td>
       <td class="border p-2 text-xs">${(p.totalEstimate||0).toLocaleString()}</td>
       <td class="border p-2 text-xs">${profit.toLocaleString()}</td>
-      <td class="border p-2 text-xs">${margin.toFixed(2)}% <button type="button" class="s_del_btn bg-red-500 text-white py-1 px-2 rounded text-xs hover:bg-red-600 ml-1" data-idx="${origIdx}">삭제</button></td>
+      <td class="border p-2 text-xs">${margin.toFixed(2)}%</td>
+      <td class="border p-2 text-xs">${paymentDisplay} <button type="button" class="s_del_btn bg-red-500 text-white py-1 px-2 rounded text-xs hover:bg-red-600 ml-1" data-idx="${origIdx}">삭제</button></td>
     `;
     body.appendChild(row);
   });
