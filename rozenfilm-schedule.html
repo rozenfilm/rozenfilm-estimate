@@ -408,16 +408,23 @@
 
       <!-- Sub-tab Navigation -->
       <div class="flex flex-wrap gap-2 mb-6">
-        <button id="s_projectTab" onclick="s_showTab('project')" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">프로젝트 관리</button>
+        <button id="s_projectTab" onclick="s_showTab('project')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">프로젝트 관리</button>
         <button id="s_laborTab" onclick="s_showTab('labor')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">주간 인건비 정산</button>
         <button id="s_calendarTab" onclick="s_showTab('calendar')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">인력 배치 현황</button>
         <button id="s_workerTab" onclick="s_showTab('worker')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">인력 관리</button>
         <button id="s_materialTab" onclick="s_showTab('material')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">자재 관리</button>
-        <button id="s_statsTab" onclick="s_showTab('stats')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">📊 월별 통계</button>
+        <button id="s_statsTab" onclick="s_showTab('stats')" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">📊 월별 통계</button>
       </div>
 
       <!-- Project Management -->
-      <div id="s_projectContent" class="bg-white p-6 rounded-lg shadow-md mb-6">
+      <div id="s_projectContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <div class="bg-green-50 rounded-lg p-3"><p class="text-xs text-gray-500">총 매출</p><p id="s_totalRevenue" class="text-base font-bold text-green-700">0 원</p></div>
+          <div class="bg-blue-50 rounded-lg p-3"><p class="text-xs text-gray-500">총 이윤</p><p id="s_totalProfit" class="text-base font-bold text-blue-700">0 원</p></div>
+          <div class="bg-orange-50 rounded-lg p-3"><p class="text-xs text-gray-500">총 자재비</p><p id="s_totalMaterialCost" class="text-base font-bold text-orange-700">0 원</p></div>
+          <div class="bg-purple-50 rounded-lg p-3"><p class="text-xs text-gray-500">총 인건비</p><p id="s_totalLaborCostSummary" class="text-base font-bold text-purple-700">0 원</p></div>
+          <div class="bg-gray-50 rounded-lg p-3"><p class="text-xs text-gray-500">총 부대비용</p><p id="s_totalAdditionalCost" class="text-base font-bold text-gray-700">0 원</p></div>
+        </div>
         <h2 class="text-xl font-semibold mb-4">프로젝트 추가/수정</h2>
         <form id="s_projectForm" class="space-y-4">
           <input type="hidden" id="s_projectIndex" value="-1">
@@ -473,13 +480,6 @@
               </tr></thead>
               <tbody id="s_salesTableBody"></tbody>
             </table>
-          </div>
-          <div class="mt-4 text-right space-y-1 text-sm">
-            <div><span class="font-semibold">총 매출: </span><span id="s_totalRevenue" class="font-bold">0 원</span></div>
-            <div><span class="font-semibold">총 이윤: </span><span id="s_totalProfit" class="font-bold">0 원</span></div>
-            <div><span class="font-semibold">총 부대비용: </span><span id="s_totalAdditionalCost" class="font-bold">0 원</span></div>
-            <div><span class="font-semibold">총 인건비: </span><span id="s_totalLaborCostSummary" class="font-bold">0 원</span></div>
-            <div><span class="font-semibold">총 자재비: </span><span id="s_totalMaterialCost" class="font-bold">0 원</span></div>
           </div>
         </div>
       </div>
@@ -549,7 +549,7 @@
       </div>
 
       <!-- Monthly Stats -->
-      <div id="s_statsContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+      <div id="s_statsContent" class="bg-white p-6 rounded-lg shadow-md mb-6">
         <h2 class="text-xl font-semibold mb-4">📊 월별 매출 통계</h2>
         <div id="s_statsEmpty" class="hidden text-gray-500 text-sm py-8 text-center">아직 등록된 프로젝트가 없습니다.</div>
         <div id="s_statsBody"></div>
@@ -2148,7 +2148,7 @@ function s_init() {
   s_updateSalesTable();
   s_populateCalendarMonthSelector();
   s_populateWorkerTable();
-  s_showTab('project');
+  s_showTab('stats');
 
   document.getElementById('s_workerForm').addEventListener('submit', (e) => {
     e.preventDefault();
