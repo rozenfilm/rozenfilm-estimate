@@ -425,6 +425,37 @@
           <div class="bg-purple-50 rounded-lg p-3"><p class="text-xs text-gray-500">총 인건비</p><p id="s_totalLaborCostSummary" class="text-base font-bold text-purple-700">0 원</p></div>
           <div class="bg-gray-50 rounded-lg p-3"><p class="text-xs text-gray-500">총 부대비용</p><p id="s_totalAdditionalCost" class="text-base font-bold text-gray-700">0 원</p></div>
         </div>
+        <div class="mt-6">
+          <h2 class="text-xl font-semibold mb-4">매출 기록</h2>
+
+          <div class="flex items-center gap-2 mb-4 bg-indigo-50 rounded-lg p-2 w-fit">
+            <button type="button" onclick="s_changeProjectViewMonth(-1)" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50">◀</button>
+            <span id="s_projectViewMonthLabel" class="text-sm font-bold text-indigo-700 min-w-[110px] text-center"></span>
+            <button type="button" onclick="s_changeProjectViewMonth(1)" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50">▶</button>
+            <button type="button" onclick="s_toggleShowAllProjects()" id="s_showAllProjectsBtn" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 ml-1">전체 보기</button>
+          </div>
+
+          <div class="flex flex-wrap gap-2 mb-4">
+            <button type="button" id="s_exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">모든 데이터 내보내기</button>
+            <button type="button" id="s_importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">JSON 파일 불러오기</button>
+            <input type="file" id="s_fileInput" accept=".json" class="hidden">
+            <select id="s_monthSelector" class="border-gray-300 rounded-md shadow-sm text-sm"><option value="">월 선택</option></select>
+            <button type="button" id="s_exportMonth" class="bg-indigo-600 text-white py-2 px-4 rounded-md opacity-50 cursor-not-allowed text-sm" disabled>월별 내보내기</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse text-sm min-w-max">
+              <thead><tr class="bg-gray-200">
+                <th class="border p-2">현장명</th><th class="border p-2">시공날짜</th>
+                <th class="border p-2">자재</th><th class="border p-2">사용량(m)</th>
+                <th class="border p-2">자재비(원)</th><th class="border p-2">부대비용</th>
+                <th class="border p-2">인력</th><th class="border p-2">총비용</th>
+                <th class="border p-2">견적금액</th><th class="border p-2">이윤</th>
+                <th class="border p-2">이윤율</th>
+              </tr></thead>
+              <tbody id="s_salesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
         <h2 class="text-xl font-semibold mb-4">프로젝트 추가/수정</h2>
         <form id="s_projectForm" class="space-y-4">
           <input type="hidden" id="s_projectIndex" value="-1">
@@ -459,37 +490,6 @@
             <button type="button" id="s_cancelEdit" class="w-full bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 hidden">수정 취소</button>
           </div>
         </form>
-        <div class="mt-6">
-          <h2 class="text-xl font-semibold mb-4">매출 기록</h2>
-
-          <div class="flex items-center gap-2 mb-4 bg-indigo-50 rounded-lg p-2 w-fit">
-            <button type="button" onclick="s_changeProjectViewMonth(-1)" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50">◀</button>
-            <span id="s_projectViewMonthLabel" class="text-sm font-bold text-indigo-700 min-w-[110px] text-center"></span>
-            <button type="button" onclick="s_changeProjectViewMonth(1)" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50">▶</button>
-            <button type="button" onclick="s_toggleShowAllProjects()" id="s_showAllProjectsBtn" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 ml-1">전체 보기</button>
-          </div>
-
-          <div class="flex flex-wrap gap-2 mb-4">
-            <button type="button" id="s_exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">모든 데이터 내보내기</button>
-            <button type="button" id="s_importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">JSON 파일 불러오기</button>
-            <input type="file" id="s_fileInput" accept=".json" class="hidden">
-            <select id="s_monthSelector" class="border-gray-300 rounded-md shadow-sm text-sm"><option value="">월 선택</option></select>
-            <button type="button" id="s_exportMonth" class="bg-indigo-600 text-white py-2 px-4 rounded-md opacity-50 cursor-not-allowed text-sm" disabled>월별 내보내기</button>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="w-full border-collapse text-sm min-w-max">
-              <thead><tr class="bg-gray-200">
-                <th class="border p-2">현장명</th><th class="border p-2">시공날짜</th>
-                <th class="border p-2">자재</th><th class="border p-2">사용량(m)</th>
-                <th class="border p-2">자재비(원)</th><th class="border p-2">부대비용</th>
-                <th class="border p-2">인력</th><th class="border p-2">총비용</th>
-                <th class="border p-2">견적금액</th><th class="border p-2">이윤</th>
-                <th class="border p-2">이윤율</th>
-              </tr></thead>
-              <tbody id="s_salesTableBody"></tbody>
-            </table>
-          </div>
-        </div>
       </div>
 
       <!-- Weekly Labor Cost -->
