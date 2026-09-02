@@ -461,6 +461,14 @@
         </form>
         <div class="mt-6">
           <h2 class="text-xl font-semibold mb-4">매출 기록</h2>
+
+          <div class="flex items-center gap-2 mb-4 bg-indigo-50 rounded-lg p-2 w-fit">
+            <button type="button" onclick="s_changeProjectViewMonth(-1)" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50">◀</button>
+            <span id="s_projectViewMonthLabel" class="text-sm font-bold text-indigo-700 min-w-[110px] text-center"></span>
+            <button type="button" onclick="s_changeProjectViewMonth(1)" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50">▶</button>
+            <button type="button" onclick="s_toggleShowAllProjects()" id="s_showAllProjectsBtn" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 ml-1">전체 보기</button>
+          </div>
+
           <div class="flex flex-wrap gap-2 mb-4">
             <button type="button" id="s_exportAll" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">모든 데이터 내보내기</button>
             <button type="button" id="s_importJson" class="bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 text-sm">JSON 파일 불러오기</button>
@@ -2057,6 +2065,7 @@ function hexToRgba(hex, alpha) {
 // All IDs/vars prefixed with s_ to avoid conflicts with schedule program variables.
 
 let s_projects = [];
+let s_projectViewMonth = new Date().toISOString().slice(0, 7); // 프로젝트 관리 탭에서 보여줄 기준 월 (기본값: 당월). null이면 전체 보기
 let s_workers_sales = [
   { name: '이석현', cost: 250000 }, { name: '강민석', cost: 230000 },
   { name: '육한수', cost: 250000 }, { name: '이명권', cost: 250000 },
@@ -2742,10 +2751,45 @@ function s_renderMonthlyStats() {
   `;
 }
 
+function s_renderProjectViewMonthLabel() {
+  const labelEl = document.getElementById('s_projectViewMonthLabel');
+  const btnEl = document.getElementById('s_showAllProjectsBtn');
+  if (!labelEl) return;
+  if (s_projectViewMonth) {
+    const [y, m] = s_projectViewMonth.split('-');
+    labelEl.textContent = `${y}년 ${parseInt(m)}월`;
+    if (btnEl) { btnEl.textContent = '전체 보기'; btnEl.className = 'bg-white border border-gray-300 rounded-md px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 ml-1'; }
+  } else {
+    labelEl.textContent = '전체 기간';
+    if (btnEl) { btnEl.textContent = '당월만 보기'; btnEl.className = 'bg-indigo-600 border border-indigo-600 rounded-md px-3 py-1.5 text-xs text-white hover:bg-indigo-700 ml-1'; }
+  }
+}
+
+function s_changeProjectViewMonth(delta) {
+  // 전체 보기 상태에서 이동 버튼을 누르면 당월부터 시작
+  if (!s_projectViewMonth) s_projectViewMonth = new Date().toISOString().slice(0, 7);
+  const [y, m] = s_projectViewMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  s_projectViewMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  s_updateSalesTable();
+}
+
+function s_toggleShowAllProjects() {
+  s_projectViewMonth = s_projectViewMonth ? null : new Date().toISOString().slice(0, 7);
+  s_updateSalesTable();
+}
+
 function s_updateSalesTable() {
   const body = document.getElementById('s_salesTableBody'); body.innerHTML = '';
   let totRev = 0, totProfit = 0, totAdd = 0, totLab = 0, totMat = 0;
-  const sorted = [...s_projects].sort((a,b) => {
+
+  const filtered = s_projectViewMonth
+    ? s_projects.filter(p => p.constructionDate && p.constructionDate.startsWith(s_projectViewMonth))
+    : s_projects;
+
+  s_renderProjectViewMonthLabel();
+
+  const sorted = [...filtered].sort((a,b) => {
     const da = a.constructionDate && a.constructionDate !== '미지정' ? new Date(a.constructionDate) : new Date(0);
     const db = b.constructionDate && b.constructionDate !== '미지정' ? new Date(b.constructionDate) : new Date(0);
     return db - da;
