@@ -413,6 +413,7 @@
         <button id="s_calendarTab" onclick="s_showTab('calendar')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">인력 배치 현황</button>
         <button id="s_workerTab" onclick="s_showTab('worker')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">인력 관리</button>
         <button id="s_materialTab" onclick="s_showTab('material')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">자재 관리</button>
+        <button id="s_statsTab" onclick="s_showTab('stats')" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 text-sm">📊 월별 통계</button>
       </div>
 
       <!-- Project Management -->
@@ -545,6 +546,13 @@
         </form>
         <h3 class="text-lg font-medium mt-6">등록된 자재</h3>
         <div id="s_materialTableBody" class="grid gap-2 mt-2" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
+      </div>
+
+      <!-- Monthly Stats -->
+      <div id="s_statsContent" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+        <h2 class="text-xl font-semibold mb-4">📊 월별 매출 통계</h2>
+        <div id="s_statsEmpty" class="hidden text-gray-500 text-sm py-8 text-center">아직 등록된 프로젝트가 없습니다.</div>
+        <div id="s_statsBody"></div>
       </div>
 
     </div>
@@ -2108,7 +2116,7 @@ async function loadSalesProjects() {
 
 // ── Sub-tab ──
 function s_showTab(tab) {
-  ['project','labor','calendar','worker','material'].forEach(t => {
+  ['project','labor','calendar','worker','material','stats'].forEach(t => {
     document.getElementById(`s_${t}Content`).classList.toggle('hidden', t !== tab);
     const btn = document.getElementById(`s_${t}Tab`);
     if (btn) btn.className = t === tab
@@ -2118,6 +2126,7 @@ function s_showTab(tab) {
   if (tab === 'project') { s_populateDays(); s_populateMaterials(); }
   if (tab === 'worker') s_populateWorkerTable();
   if (tab === 'material') s_populateMaterialTable();
+  if (tab === 'stats') s_renderMonthlyStats();
 }
 
 let s_editingWorkerIdx = -1;
@@ -2615,6 +2624,122 @@ function s_deleteProject(idx) {
   if (confirm(`"${s_projects[idx].siteName||'미지정'}" 프로젝트를 삭제할까요?`)) {
     s_projects.splice(idx, 1); s_saveProjects(); s_resetForm(); s_updateSalesTable(); s_populateCalendarMonthSelector();
   }
+}
+
+// ─── 월별 매출 통계 ───
+function s_renderMonthlyStats() {
+  const emptyEl = document.getElementById('s_statsEmpty');
+  const bodyEl = document.getElementById('s_statsBody');
+
+  if (s_projects.length === 0) {
+    emptyEl.classList.remove('hidden');
+    bodyEl.innerHTML = '';
+    return;
+  }
+  emptyEl.classList.add('hidden');
+
+  // 월별 집계 (시공일 기준, '미지정'이거나 날짜 없는 프로젝트는 '날짜 미지정'으로 묶음)
+  const monthMap = {};
+  s_projects.forEach(p => {
+    const monthKey = (p.constructionDate && p.constructionDate !== '미지정')
+      ? p.constructionDate.slice(0, 7)
+      : '날짜 미지정';
+    if (!monthMap[monthKey]) {
+      monthMap[monthKey] = { count: 0, revenue: 0, materialCost: 0, laborCost: 0, additionalCost: 0, totalCost: 0, profit: 0 };
+    }
+    const mc = p.materialCost || 0, lc = p.laborCost || 0, ac = p.additionalCost || 0;
+    const tc = s_calculateTotalCost(mc, lc, ac);
+    const profit = s_calculateProfit(p.totalEstimate, tc);
+    const m = monthMap[monthKey];
+    m.count += 1;
+    m.revenue += p.totalEstimate || 0;
+    m.materialCost += mc;
+    m.laborCost += lc;
+    m.additionalCost += ac;
+    m.totalCost += tc;
+    m.profit += profit;
+  });
+
+  // 최신 월이 먼저 오도록 정렬 ('날짜 미지정'은 맨 뒤로)
+  const months = Object.keys(monthMap).sort((a, b) => {
+    if (a === '날짜 미지정') return 1;
+    if (b === '날짜 미지정') return -1;
+    return b.localeCompare(a);
+  });
+
+  const maxRevenue = Math.max(...months.map(m => monthMap[m].revenue), 1);
+
+  // 전체 합계
+  const grand = months.reduce((acc, m) => {
+    const d = monthMap[m];
+    acc.count += d.count; acc.revenue += d.revenue; acc.materialCost += d.materialCost;
+    acc.laborCost += d.laborCost; acc.additionalCost += d.additionalCost;
+    acc.totalCost += d.totalCost; acc.profit += d.profit;
+    return acc;
+  }, { count: 0, revenue: 0, materialCost: 0, laborCost: 0, additionalCost: 0, totalCost: 0, profit: 0 });
+  const grandMargin = s_calculateProfitMargin(grand.profit, grand.revenue);
+
+  bodyEl.innerHTML = `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div class="bg-indigo-50 rounded-lg p-3"><p class="text-xs text-gray-500">전체 프로젝트</p><p class="text-lg font-bold text-indigo-700">${grand.count}건</p></div>
+      <div class="bg-green-50 rounded-lg p-3"><p class="text-xs text-gray-500">전체 매출</p><p class="text-lg font-bold text-green-700">${grand.revenue.toLocaleString()}원</p></div>
+      <div class="bg-blue-50 rounded-lg p-3"><p class="text-xs text-gray-500">전체 순이익</p><p class="text-lg font-bold text-blue-700">${grand.profit.toLocaleString()}원</p></div>
+      <div class="bg-yellow-50 rounded-lg p-3"><p class="text-xs text-gray-500">평균 마진율</p><p class="text-lg font-bold text-yellow-700">${grandMargin.toFixed(1)}%</p></div>
+    </div>
+
+    <h3 class="text-sm font-semibold text-gray-600 mb-2">월별 매출 추이</h3>
+    <div class="space-y-2 mb-6">
+      ${months.map(m => {
+        const d = monthMap[m];
+        const barPct = Math.max(4, Math.round((d.revenue / maxRevenue) * 100));
+        return `
+        <div class="flex items-center gap-2 text-xs">
+          <span class="w-20 flex-shrink-0 text-gray-600">${m}</span>
+          <div class="flex-1 bg-gray-100 rounded h-6 relative overflow-hidden">
+            <div class="bg-indigo-500 h-6 rounded transition-all" style="width:${barPct}%"></div>
+          </div>
+          <span class="w-28 flex-shrink-0 text-right font-semibold">${d.revenue.toLocaleString()}원</span>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <h3 class="text-sm font-semibold text-gray-600 mb-2">월별 상세 내역</h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs border-collapse">
+        <thead>
+          <tr class="bg-gray-100">
+            <th class="border p-2">월</th>
+            <th class="border p-2">건수</th>
+            <th class="border p-2">매출</th>
+            <th class="border p-2">자재비</th>
+            <th class="border p-2">인건비</th>
+            <th class="border p-2">부대비용</th>
+            <th class="border p-2">총 원가</th>
+            <th class="border p-2">순이익</th>
+            <th class="border p-2">마진율</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${months.map(m => {
+            const d = monthMap[m];
+            const margin = s_calculateProfitMargin(d.profit, d.revenue);
+            return `
+            <tr>
+              <td class="border p-2 font-semibold">${m}</td>
+              <td class="border p-2 text-center">${d.count}</td>
+              <td class="border p-2 text-right">${d.revenue.toLocaleString()}</td>
+              <td class="border p-2 text-right">${d.materialCost.toLocaleString()}</td>
+              <td class="border p-2 text-right">${d.laborCost.toLocaleString()}</td>
+              <td class="border p-2 text-right">${d.additionalCost.toLocaleString()}</td>
+              <td class="border p-2 text-right">${d.totalCost.toLocaleString()}</td>
+              <td class="border p-2 text-right font-semibold ${d.profit >= 0 ? 'text-green-700' : 'text-red-600'}">${d.profit.toLocaleString()}</td>
+              <td class="border p-2 text-right">${margin.toFixed(1)}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function s_updateSalesTable() {
