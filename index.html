@@ -380,6 +380,7 @@
         <button id="adminPanelBtn" onclick="toggleAdminPanel()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">👑 사용자 관리</button>
         <button id="priceManageBtn" onclick="openPriceManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">💰 단가 관리</button>
         <button id="notesManageBtn" onclick="openNotesManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">📝 상세 설명 편집</button>
+        <button onclick="openBizInfoModal()" class="secondary-btn" style="padding:6px 12px;font-size:12px">🏢 사업자정보</button>
         <button onclick="doLogout()" class="danger-btn" style="padding:6px 12px;font-size:12px">로그아웃</button>
       </div>
     </div>
@@ -570,7 +571,7 @@
           <div class="flex items-center justify-between mb-1">
             <p class="text-xs font-semibold" style="color:var(--muted)">💰 기업이윤 항목</p>
             <label class="flex items-center gap-1" style="font-size:12px;cursor:pointer">
-              <input type="checkbox" id="hideProfitToggle" onchange="toggleProfitHidden(this.checked)">
+              <input type="checkbox" id="hideProfitToggle" checked onchange="toggleProfitHidden(this.checked)">
               숨기고 인건비/자재비에 분산
             </label>
           </div>
@@ -777,7 +778,7 @@ let catAdjustments = {}; // per-category adjustment steps
 // ── 견적 근거 커스터마이징 상태 ──
 let laborRatioPct = 65;      // 인건비 비율 (%)
 let materialRatioPct = 25;   // 자재비 비율 (%) → 나머지가 기업이윤 비율
-let isProfitHidden = false;  // 기업이윤 항목 숨김 여부
+let isProfitHidden = true;  // 기업이윤 항목 숨김 여부 (기본값: 숨김)
 let manualConstructionDays = null; // 사용자가 직접 입력한 시공 일자 (null이면 자동 계산)
 let manualLaborPersonnel = null; // 사용자가 직접 입력한 투입 인원 (null이면 자동 계산)
 
@@ -2621,6 +2622,18 @@ function closeNotesManageModal() {
   modal.style.display = 'none';
 }
 
+function openBizInfoModal() {
+  const modal = document.getElementById('bizInfoModal');
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+}
+
+function closeBizInfoModal() {
+  const modal = document.getElementById('bizInfoModal');
+  modal.classList.add('hidden');
+  modal.style.display = 'none';
+}
+
 function resetNotesToDefault() {
   if (!confirm('기본 안내문구로 되돌릴까요?\n(저장 버튼을 눌러야 실제로 반영됩니다)')) return;
   document.getElementById('notesTextarea').value = DEFAULT_ESTIMATE_NOTES;
@@ -3104,6 +3117,23 @@ window.onload = () => {
       <button id="saveNotesBtn" onclick="saveEstimateNotes()" style="flex:1;background:#2563EB;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">저장</button>
       <button onclick="resetNotesToDefault()" style="background:#FEF2F2;color:#EF4444;border:1px solid #FECACA;border-radius:8px;padding:11px 14px;font-size:13px;cursor:pointer">기본값으로</button>
       <button onclick="closeNotesManageModal()" style="background:#F1F5F9;color:#475569;border:none;border-radius:8px;padding:11px 16px;font-size:13px;cursor:pointer">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 사업자정보 모달 ─── -->
+<div id="bizInfoModal" class="hidden" style="position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:18px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:16px;font-weight:800">🏢 사업자정보</h3>
+      <button onclick="closeBizInfoModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8">✕</button>
+    </div>
+    <div style="padding:20px;font-size:14px;line-height:2;color:#1A202C">
+      <p><span style="color:#718096;display:inline-block;width:92px">사업자등록번호</span> 792-39-00545</p>
+      <p><span style="color:#718096;display:inline-block;width:92px;vertical-align:top">사업장 소재지</span> 인천광역시 구월동 호구포로 876번길 8</p>
+      <p><span style="color:#718096;display:inline-block;width:92px">대표자</span> 정헌희</p>
+      <p><span style="color:#718096;display:inline-block;width:92px">업태</span> 소매업</p>
+      <p><span style="color:#718096;display:inline-block;width:92px">업종</span> 벽지, 인테리어필름</p>
     </div>
   </div>
 </div>
