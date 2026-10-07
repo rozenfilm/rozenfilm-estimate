@@ -1672,7 +1672,7 @@ function makeDayCell(date, otherMonth, isToday = false, isWeekView = false) {
   cell.appendChild(numEl);
 
   // Site badges
-  const siteBadgeLimit = isWeekView ? daySites.length : 2;
+  const siteBadgeLimit = daySites.length; // 월간/주간 모두 그날의 모든 현장을 표시
   const showAssignedNames = daySites.length > 1; // 현장이 중복되는 날만 시공자명 표시
   daySites.slice(0, siteBadgeLimit).forEach(site => {
     const badgeWrap = document.createElement('div');
@@ -1686,7 +1686,7 @@ function makeDayCell(date, otherMonth, isToday = false, isWeekView = false) {
     badgeWrap.appendChild(badge);
 
     if (showAssignedNames) {
-      const assignedNames = (site.assignedWorkerIds || [])
+      const assignedNames = getAssignedIdsOnDate(site, dateKey) // 그날 이 현장에 배치된 시공자만 표시
         .map(id => workers.find(w => w.id === id))
         .filter(Boolean);
       if (assignedNames.length > 0) {
