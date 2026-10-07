@@ -96,6 +96,7 @@
       display: flex; align-items: center; justify-content: center;
       padding: 16px;
     }
+    .board-zone.drop-hover { outline: 2px dashed var(--brand); background: #EBF8FF !important; }
     .modal {
       background: var(--surface); border-radius: 16px;
       width: 100%; max-width: 480px;
@@ -599,6 +600,14 @@
     <div style="padding:16px 24px;border-bottom:1px solid var(--border)">
       <p style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:10px">이 날의 일정</p>
       <div id="dayScheduleList"></div>
+    </div>
+
+    <!-- 현장별 인원 배치 보드 (현장이 2개 이상인 날, 드래그로 이동) -->
+    <div id="dayAssignBoardWrap" style="display:none;padding:16px 24px;border-bottom:1px solid var(--border)">
+      <p style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:4px">🔀 현장별 인원 배치</p>
+      <p id="dayAssignBoardHint" style="font-size:11px;color:var(--muted);margin-bottom:10px">시공자를 끌어서 다른 현장(또는 미배치)으로 옮기면 바로 저장됩니다.</p>
+      <div id="dayAssignBoard"></div>
+      <p id="dayAssignBoardStatus" style="display:none;font-size:12px;color:var(--brand);font-weight:700;margin-top:8px">저장 중...</p>
     </div>
 
     <!-- Add new schedule -->
@@ -1803,11 +1812,204 @@ function openDayModal(date) {
   document.getElementById('dayModal').classList.remove('hidden');
 }
 
+// ───────── 현장별 인원 배치 보드 (드래그 앤 드롭) ─────────
+let boardBusy = false;
+let boardDrag = null;
+
+// 특정 날짜에 해당 현장에 배치된 시공자 ID 목록 (구버전 데이터 호환)
+function getAssignedIdsOnDate(site, dateKey) {
+  return site.dailyAssignments ? (site.dailyAssignments[dateKey] || []) : (site.assignedWorkerIds || []);
+}
+
+// 구버전 현장(일자별 배치 정보 없음)을 일자별 구조로 변환
+function materializeDailyAssignments(site) {
+  if (site.dailyAssignments) return;
+  site.dailyAssignments = {};
+  const ids = site.assignedWorkerIds || [];
+  if (ids.length > 0) {
+    getDateRangeList(site.startDate, site.endDate).forEach(d => { site.dailyAssignments[d] = [...ids]; });
+  }
+}
+
+function renderDayAssignBoard(date) {
+  const wrap = document.getElementById('dayAssignBoardWrap');
+  const board = document.getElementById('dayAssignBoard');
+  if (!wrap || !board) return;
+
+  const dateKey = formatDate(date);
+  const daySites = getSitesForDate(dateKey);
+  if (daySites.length < 2) {
+    wrap.style.display = 'none';
+    board.innerHTML = '';
+    return;
+  }
+  wrap.style.display = '';
+
+  const admin = isAdmin();
+  document.getElementById('dayAssignBoardHint').style.display = admin ? '' : 'none';
+
+  const assignedAll = new Set();
+  daySites.forEach(s => getAssignedIdsOnDate(s, dateKey).forEach(id => assignedAll.add(id)));
+  const offIds = new Set((schedules[dateKey] || []).filter(e => e.session === 'off').map(e => e.workerId));
+
+  const chip = (w, siteId) => `
+    <div ${admin ? `onpointerdown="startBoardDrag(event,'${w.id}','${siteId}')"` : ''}
+      style="display:flex;align-items:center;gap:6px;padding:6px 8px;margin-bottom:6px;border-radius:8px;background:#fff;border:1.5px solid ${w.color};font-size:12px;font-weight:700;${admin ? 'cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;' : ''}">
+      <span style="width:9px;height:9px;border-radius:50%;background:${w.color};flex-shrink:0"></span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name}</span>
+      ${offIds.has(w.id) ? '<span style="font-size:10px;color:#DC2626">휴무</span>' : ''}
+    </div>`;
+
+  const siteCols = daySites.map(s => {
+    const ids = getAssignedIdsOnDate(s, dateKey).filter(id => workers.some(w => w.id === id));
+    const chips = ids.map(id => chip(workers.find(w => w.id === id), s.id)).join('');
+    const countLabel = s.neededWorkers > 0 ? `${ids.length}/${s.neededWorkers}명` : `${ids.length}명`;
+    return `
+      <div>
+        <div style="background:${s.color};color:#fff;border-radius:8px 8px 0 0;padding:6px 8px;font-size:12px;font-weight:800;display:flex;justify-content:space-between;gap:4px">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🏗️ ${s.name}</span>
+          <span style="font-weight:600;flex-shrink:0">${countLabel}</span>
+        </div>
+        <div class="board-zone" data-drop-site="${s.id}" style="min-height:64px;padding:8px;border:1.5px solid ${s.color};border-top:none;border-radius:0 0 8px 8px;background:${hexToRgba(s.color, .06)}">
+          ${chips || '<div style="font-size:11px;color:var(--muted);text-align:center;padding:10px 0">여기로 끌어오세요</div>'}
+        </div>
+      </div>`;
+  }).join('');
+
+  const poolWorkers = workers.filter(w => !assignedAll.has(w.id));
+  const poolCol = `
+    <div>
+      <div style="background:#64748B;color:#fff;border-radius:8px 8px 0 0;padding:6px 8px;font-size:12px;font-weight:800">👥 미배치</div>
+      <div class="board-zone" data-drop-site="__pool__" style="min-height:64px;padding:8px;border:1.5px solid #CBD5E1;border-top:none;border-radius:0 0 8px 8px;background:#F8FAFC">
+        ${poolWorkers.map(w => chip(w, '')).join('') || '<div style="font-size:11px;color:var(--muted);text-align:center;padding:10px 0">모두 배치됨</div>'}
+      </div>
+    </div>`;
+
+  board.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">${siteCols}${poolCol}</div>`;
+}
+
+function startBoardDrag(e, workerId, fromSiteId) {
+  if (!isAdmin() || boardBusy) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  e.preventDefault();
+
+  const chipEl = e.currentTarget;
+  const ghost = chipEl.cloneNode(true);
+  ghost.removeAttribute('onpointerdown');
+  ghost.style.cssText += `;position:fixed;z-index:9999;pointer-events:none;width:${chipEl.offsetWidth}px;opacity:.92;box-shadow:0 8px 20px rgba(0,0,0,.28);transform:scale(1.05);margin:0;`;
+  document.body.appendChild(ghost);
+  chipEl.style.opacity = '.35';
+
+  boardDrag = { workerId, fromSiteId, ghost, chipEl, startX: e.clientX, startY: e.clientY, moved: false, hoverZone: null,
+                offX: chipEl.offsetWidth / 2, offY: chipEl.offsetHeight / 2 };
+  moveBoardGhost(e.clientX, e.clientY);
+
+  document.addEventListener('pointermove', onBoardDragMove);
+  document.addEventListener('pointerup', onBoardDragEnd);
+  document.addEventListener('pointercancel', onBoardDragCancel);
+}
+
+function moveBoardGhost(x, y) {
+  if (!boardDrag) return;
+  boardDrag.ghost.style.left = (x - boardDrag.offX) + 'px';
+  boardDrag.ghost.style.top = (y - boardDrag.offY) + 'px';
+}
+
+function onBoardDragMove(e) {
+  if (!boardDrag) return;
+  if (!boardDrag.moved && Math.hypot(e.clientX - boardDrag.startX, e.clientY - boardDrag.startY) > 5) boardDrag.moved = true;
+  moveBoardGhost(e.clientX, e.clientY);
+  const zone = document.elementFromPoint(e.clientX, e.clientY)?.closest('.board-zone') || null;
+  if (zone !== boardDrag.hoverZone) {
+    boardDrag.hoverZone?.classList.remove('drop-hover');
+    zone?.classList.add('drop-hover');
+    boardDrag.hoverZone = zone;
+  }
+}
+
+function cleanupBoardDrag() {
+  document.removeEventListener('pointermove', onBoardDragMove);
+  document.removeEventListener('pointerup', onBoardDragEnd);
+  document.removeEventListener('pointercancel', onBoardDragCancel);
+  if (!boardDrag) return null;
+  boardDrag.ghost.remove();
+  boardDrag.chipEl.style.opacity = '';
+  boardDrag.hoverZone?.classList.remove('drop-hover');
+  const state = boardDrag;
+  boardDrag = null;
+  return state;
+}
+
+function onBoardDragCancel() { cleanupBoardDrag(); }
+
+async function onBoardDragEnd() {
+  const st = cleanupBoardDrag();
+  if (!st || !st.moved || !st.hoverZone) return;
+  const toKey = st.hoverZone.dataset.dropSite;
+  const toSiteId = toKey === '__pool__' ? '' : toKey;
+  if (toSiteId === (st.fromSiteId || '')) return; // 같은 곳에 놓음
+  await moveWorkerOnDate(st.workerId, formatDate(selectedDate), st.fromSiteId || null, toSiteId || null);
+}
+
+// 특정 날짜의 시공자 배치를 한 현장에서 다른 현장(또는 미배치)으로 이동하고 저장/동기화
+async function moveWorkerOnDate(workerId, dateKey, fromSiteId, toSiteId) {
+  if (boardBusy) return;
+  const from = fromSiteId ? sites.find(s => s.id === fromSiteId) : null;
+  const to = toSiteId ? sites.find(s => s.id === toSiteId) : null;
+  const worker = workers.find(w => w.id === workerId);
+  if (!worker || (!from && !to)) return;
+
+  // 휴무로 등록된 시공자를 현장에 배치하려는 경우 확인
+  if (to) {
+    const isOff = (schedules[dateKey] || []).some(e => e.workerId === workerId && e.session === 'off');
+    if (isOff && !confirm(`${worker.name}님은 이 날 휴무로 등록되어 있습니다.\n그래도 "${to.name}" 현장에 배치할까요?`)) return;
+  }
+
+  boardBusy = true;
+  const statusEl = document.getElementById('dayAssignBoardStatus');
+  if (statusEl) statusEl.style.display = '';
+
+  try {
+    const touched = [];
+    if (from) {
+      materializeDailyAssignments(from);
+      const arr = (from.dailyAssignments[dateKey] || []).filter(id => id !== workerId);
+      if (arr.length > 0) from.dailyAssignments[dateKey] = arr; else delete from.dailyAssignments[dateKey];
+      touched.push(from);
+    }
+    if (to) {
+      materializeDailyAssignments(to);
+      const arr = to.dailyAssignments[dateKey] || [];
+      if (!arr.includes(workerId)) arr.push(workerId);
+      to.dailyAssignments[dateKey] = arr;
+      touched.push(to);
+    }
+
+    // 먼저 빼는 쪽(from)을 처리한 뒤 넣는 쪽(to)을 처리 → to 쪽에서 신규 배치 알림 메일 발송
+    for (const s of touched) {
+      s.assignedWorkerIds = [...new Set(Object.values(s.dailyAssignments).flat())];
+      await saveSiteToDb(s);
+      await syncSiteWorkerSchedules(s, s);
+    }
+  } catch (e) {
+    console.error(e);
+    alert('배치 이동 중 오류가 발생했습니다. 최신 데이터를 다시 불러옵니다.');
+    try { await loadSites(); } catch (_) {}
+  } finally {
+    boardBusy = false;
+    if (statusEl) statusEl.style.display = 'none';
+    renderCalendar();
+    renderSiteList();
+    renderDayScheduleList(selectedDate); // 보드도 함께 갱신됨
+  }
+}
+
 function closeDayModal() {
   document.getElementById('dayModal').classList.add('hidden');
 }
 
 function renderDayScheduleList(date) {
+  renderDayAssignBoard(date);
   const dateKey = formatDate(date);
   const entries = schedules[dateKey] || [];
   const container = document.getElementById('dayScheduleList');
