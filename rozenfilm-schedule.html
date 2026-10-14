@@ -30,6 +30,7 @@
       gap: 2px;
       width: 100%;
     }
+    .s_hide_worker .s_col_worker { display: none; }
     .cal-day {
       background: var(--surface);
       border-radius: 8px;
@@ -443,13 +444,14 @@
             <select id="s_monthSelector" class="border-gray-300 rounded-md shadow-sm text-sm"><option value="">월 선택</option></select>
             <button type="button" id="s_exportMonth" class="bg-indigo-600 text-white py-2 px-4 rounded-md opacity-50 cursor-not-allowed text-sm" disabled>월별 내보내기</button>
           </div>
+          <div class="mb-2"><button type="button" id="s_workerColBtn" onclick="s_toggleWorkerCol()" class="bg-white border border-gray-300 rounded-md px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">👷 인력 보기 ▶</button></div>
           <div class="overflow-x-auto">
-            <table class="w-full border-collapse text-sm min-w-max">
+            <table id="s_salesTable" class="w-full border-collapse text-sm min-w-max s_hide_worker">
               <thead><tr class="bg-gray-200">
                 <th class="border p-2">현장명</th><th class="border p-2">시공날짜</th>
                 <th class="border p-2">자재</th><th class="border p-2">사용량(m)</th>
                 <th class="border p-2">자재비(원)</th><th class="border p-2">부대비용</th>
-                <th class="border p-2">인력</th><th class="border p-2">총비용</th>
+                <th class="border p-2 s_col_worker">인력</th><th class="border p-2">총비용</th>
                 <th class="border p-2">견적금액</th><th class="border p-2">이윤</th>
                 <th class="border p-2">이윤율</th>
                 <th class="border p-2">수금현황</th>
@@ -3039,6 +3041,12 @@ function s_changeProjectViewMonth(delta) {
   s_updateSalesTable();
 }
 
+function s_toggleWorkerCol() {
+  const t = document.getElementById('s_salesTable'); if (!t) return;
+  const hidden = t.classList.toggle('s_hide_worker');
+  document.getElementById('s_workerColBtn').textContent = hidden ? '👷 인력 보기 ▶' : '👷 인력 숨기기 ◀';
+}
+
 function s_toggleShowAllProjects() {
   s_projectViewMonth = s_projectViewMonth ? null : new Date().toISOString().slice(0, 7);
   s_updateSalesTable();
@@ -3081,7 +3089,7 @@ function s_updateSalesTable() {
       <td class="border p-2 text-xs">${totMeters.toFixed(1)}</td>
       <td class="border p-2 text-xs">${mc.toLocaleString()}</td>
       <td class="border p-2 text-xs">${addDisplay}</td>
-      <td class="border p-2 text-xs">${workerDisplay}</td>
+      <td class="border p-2 text-xs s_col_worker">${workerDisplay}</td>
       <td class="border p-2 text-xs">${tc.toLocaleString()}</td>
       <td class="border p-2 text-xs">${(p.totalEstimate||0).toLocaleString()}</td>
       <td class="border p-2 text-xs">${profit.toLocaleString()}</td>
