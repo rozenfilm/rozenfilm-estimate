@@ -375,6 +375,7 @@
       <div class="flex items-center gap-2 flex-wrap">
         <input type="text" id="siteName" class="input-field" placeholder="현장명" style="width:130px" oninput="scheduleAutoSave()">
         <button onclick="saveEstimate()" class="secondary-btn" style="padding:8px 14px;font-size:13px">☁️ 저장</button>
+        <button onclick="saveEstimateAsCopy()" class="secondary-btn" style="padding:8px 14px;font-size:13px">📑 복제 저장</button>
         <span id="autoSaveIndicator" class="hidden text-xs" style="color:var(--accent);font-weight:600"></span>
         <span id="userEmail" class="text-xs" style="color:var(--muted)"></span>
         <button id="adminPanelBtn" onclick="toggleAdminPanel()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">👑 사용자 관리</button>
@@ -425,6 +426,21 @@
 
     <div id="combinedSummaryWrap" class="hidden" style="background:#ECFDF5;border:1.5px solid #6EE7B7;border-radius:10px;padding:14px;margin-top:12px">
     </div>
+  </div>
+
+  <!-- 자재 업그레이드 (별도 DB · 필요할 때만 적용) -->
+  <button id="upchargeToggleBtn" onclick="toggleUpchargeSection()" class="secondary-btn w-full" style="padding:10px;font-size:13px">
+    🎨 자재 업그레이드 펼치기 ▾
+  </button>
+  <div id="upchargeSection" class="hidden card p-4" style="border:1.5px solid #F59E0B">
+    <div class="flex items-center justify-between mb-1">
+      <p class="font-semibold text-sm">🎨 자재 업그레이드 단가인상</p>
+      <span id="upchargeSaveStatus" class="text-xs" style="color:var(--accent);font-weight:600"></span>
+    </div>
+    <p style="font-size:11px;color:#94A3B8;margin-bottom:10px">여기 등록한 항목은 계정에 계속 저장됩니다. 새 견적에는 자동 반영되지 않으며, 필요한 항목만 <b>'이 견적에 적용'</b>을 눌러 견적서·최종금액에 합산하세요.</p>
+    <div id="upchargeList"></div>
+    <button type="button" onclick="addUpchargeRow()" style="width:100%;margin-top:4px;background:#FFFBEB;color:#D97706;border:1.5px solid #FDE68A;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">+ 자재 업그레이드 항목 추가</button>
+    <p id="upchargeSummary" style="font-size:12px;font-weight:700;color:#92400E;margin-top:10px;text-align:right"></p>
   </div>
 
   <!-- Admin Panel (hidden, admin only) -->
@@ -723,7 +739,11 @@ let tempLocations = []; // 단가 관리 모달에서 편집 중인 위치 목�
 let addItemFormOpenFor = null; // 현재 "항목추가" 폼이 열려있는 카테고리 키
 let newlyAddedPriceItems = []; // 이번 모달 세션에서 새로 추가된 항목 [{catKey, itemKey, name, unit}]
 let materialUpcharges = []; // 자재 업그레이드 단가인상 목록 [{id, name, meters, priceDiff}]
-let tempMaterialUpcharges = []; // 단가 관리 모달에서 편집 중인 자재 업그레이드 목록
+let materialUpchargeLibrary = []; // 계정별 자재 업그레이드 DB (Firestore에 계속 저장됨) [{id,name,meters,priceDiff}]
+let appliedUpchargeIds = []; // 현재 견적에 '적용'한 업그레이드 id 목록 (새 견적은 항상 빈 상태로 시작)
+function syncAppliedUpcharges() {
+  materialUpcharges = materialUpchargeLibrary.filter(u => appliedUpchargeIds.includes(u.id));
+}
 
 // ───────── 도배 견적 ─────────
 let WALLPAPER_LABOR_RATE = 330000; // 품당 단가 (관리자가 수정 가능)
@@ -1487,10 +1507,12 @@ async function loadPriceOverrides() {
   try {
     const upSnap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'material_upcharges'));
     if (upSnap.exists() && Array.isArray(upSnap.data().list)) {
-      materialUpcharges = upSnap.data().list;
+      materialUpchargeLibrary = upSnap.data().list;
+      syncAppliedUpcharges();
       if (typeof calculateTotal === 'function') calculateTotal();
     }
   } catch(e) { console.error('자재 업그레이드 목록 불러오기 오류:', e); }
+  if (typeof renderUpchargePanel === 'function') renderUpchargePanel();
 }
 window.loadPriceOverrides = loadPriceOverrides;
 
@@ -1499,7 +1521,6 @@ function openPriceManageModal() {
   const body = document.getElementById('priceManageBody');
 
   tempLocations = [...locations];
-  tempMaterialUpcharges = JSON.parse(JSON.stringify(materialUpcharges));
   addItemFormOpenFor = null;
 
   body.innerHTML = `
@@ -1515,18 +1536,10 @@ function openPriceManageModal() {
       </div>
     </div>
 
-    <div style="margin-bottom:22px;padding-bottom:18px;border-bottom:2px solid #F1F5F9">
-      <p style="font-size:13px;font-weight:800;color:#D97706;margin-bottom:8px">🎨 자재 업그레이드 단가인상 관리</p>
-      <p style="font-size:11px;color:#94A3B8;margin-bottom:10px">자재명·예상 미터수·단가차이를 입력하면 예상 인상금액이 자동 계산되어 견적서에 참고 정보로 표시됩니다.</p>
-      <div id="materialUpchargeList"></div>
-      <button type="button" onclick="addMaterialUpchargeRow()" style="width:100%;margin-top:8px;background:#FFFBEB;color:#D97706;border:1.5px solid #FDE68A;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">+ 자재 업그레이드 항목 추가</button>
-    </div>
-
     <div id="priceCategoryRows"></div>
   `;
 
   renderLocationPills();
-  renderMaterialUpchargeList();
   renderPriceCategoryRows();
 
   modal.classList.remove('hidden');
@@ -1622,62 +1635,128 @@ function confirmAddPriceItem(catKey) {
   renderPriceCategoryRows();
 }
 
-// ── 자재 업그레이드 단가인상 관리 ──
-function renderMaterialUpchargeList() {
-  const wrap = document.getElementById('materialUpchargeList');
+// ── 자재 업그레이드 (단가 관리 밖 별도 섹션 · 항상 DB에 저장 · 견적마다 필요할 때만 적용) ──
+let isUpchargeSectionOpen = false;
+let _upSaveTimer = null;
+
+function toggleUpchargeSection() {
+  isUpchargeSectionOpen = !isUpchargeSectionOpen;
+  document.getElementById('upchargeSection').classList.toggle('hidden', !isUpchargeSectionOpen);
+  updateUpchargeToggleLabel();
+  if (isUpchargeSectionOpen) renderUpchargePanel();
+}
+
+function updateUpchargeToggleLabel() {
+  const btn = document.getElementById('upchargeToggleBtn');
+  if (!btn) return;
+  const n = appliedUpchargeIds.length;
+  btn.textContent = `🎨 자재 업그레이드 ${isUpchargeSectionOpen ? '접기 ▴' : '펼치기 ▾'}${n > 0 ? ` · ${n}개 적용중` : ''}`;
+}
+
+function upAmount(u) { return (parseFloat(u.meters) || 0) * (parseFloat(u.priceDiff) || 0); }
+
+function renderUpchargePanel() {
+  updateUpchargeToggleLabel();
+  const wrap = document.getElementById('upchargeList');
   if (!wrap) return;
-
-  if (tempMaterialUpcharges.length === 0) {
-    wrap.innerHTML = '<p style="font-size:12px;color:#94A3B8;padding:8px 0">등록된 자재 업그레이드 항목이 없습니다.</p>';
-    return;
-  }
-
-  wrap.innerHTML = tempMaterialUpcharges.map((row, idx) => {
-    const amount = (parseFloat(row.meters) || 0) * (parseFloat(row.priceDiff) || 0);
-    return `
-      <div style="background:#FFFBEB;border:1.5px solid #FDE68A;border-radius:8px;padding:10px;margin-bottom:8px">
+  if (materialUpchargeLibrary.length === 0) {
+    wrap.innerHTML = '<p style="font-size:12px;color:#94A3B8;padding:8px 0">등록된 자재 업그레이드 항목이 없습니다. 아래 버튼으로 추가하세요.</p>';
+  } else {
+    wrap.innerHTML = materialUpchargeLibrary.map((row, idx) => {
+      const on = appliedUpchargeIds.includes(row.id);
+      return `
+      <div data-up-idx="${idx}" style="background:${on ? '#FEF3C7' : '#FFFBEB'};border:1.5px solid ${on ? '#F59E0B' : '#FDE68A'};border-radius:8px;padding:10px;margin-bottom:8px">
         <div style="display:flex;gap:6px;margin-bottom:6px">
-          <input type="text" placeholder="자재명 (예: 디아망 실크)" value="${row.name || ''}"
-            oninput="editMaterialUpcharge(${idx}, 'name', this.value)"
+          <input type="text" placeholder="자재명 (예: 디아망 실크)" value="${(row.name || '').replace(/"/g,'&quot;')}"
+            oninput="editUpcharge(${idx}, 'name', this.value)"
             style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px">
-          <button type="button" onclick="removeMaterialUpcharge(${idx})" style="width:26px;height:26px;border-radius:50%;border:none;background:#FEF2F2;color:#EF4444;font-size:12px;cursor:pointer;flex-shrink:0">✕</button>
+          <button type="button" onclick="removeUpcharge(${idx})" style="width:26px;height:26px;border-radius:50%;border:none;background:#FEF2F2;color:#EF4444;font-size:12px;cursor:pointer;flex-shrink:0">✕</button>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           <input type="number" placeholder="예상 미터수" value="${row.meters || ''}"
-            oninput="editMaterialUpcharge(${idx}, 'meters', this.value)"
-            style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px;text-align:right">
+            oninput="editUpcharge(${idx}, 'meters', this.value)"
+            style="flex:1;min-width:0;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px;text-align:right">
           <span style="font-size:11px;color:#92400E">m ×</span>
           <input type="number" placeholder="단가차이" value="${row.priceDiff || ''}"
-            oninput="editMaterialUpcharge(${idx}, 'priceDiff', this.value)"
-            style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px;text-align:right">
+            oninput="editUpcharge(${idx}, 'priceDiff', this.value)"
+            style="flex:1;min-width:0;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 10px;font-size:12px;text-align:right">
           <span style="font-size:11px;color:#92400E">원/m</span>
         </div>
-        <p style="font-size:12px;font-weight:700;color:#D97706;margin-top:6px;text-align:right">예상 인상금액: ${amount.toLocaleString('ko-KR')}원</p>
-      </div>
-    `;
-  }).join('');
-}
-
-function addMaterialUpchargeRow() {
-  tempMaterialUpcharges.push({ id: 'up_' + Date.now(), name: '', meters: '', priceDiff: '' });
-  renderMaterialUpchargeList();
-}
-
-function editMaterialUpcharge(idx, field, value) {
-  if (!tempMaterialUpcharges[idx]) return;
-  tempMaterialUpcharges[idx][field] = field === 'name' ? value : value;
-  // 금액만 다시 계산해서 표시 (전체 재렌더링하면 입력 포커스가 끊기므로 최소한만 갱신)
-  const amount = (parseFloat(tempMaterialUpcharges[idx].meters) || 0) * (parseFloat(tempMaterialUpcharges[idx].priceDiff) || 0);
-  const wrap = document.getElementById('materialUpchargeList');
-  if (wrap && wrap.children[idx]) {
-    const amountEl = wrap.children[idx].querySelector('p');
-    if (amountEl) amountEl.textContent = `예상 인상금액: ${amount.toLocaleString('ko-KR')}원`;
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+          <span class="up-amount" style="font-size:12px;font-weight:700;color:#D97706">인상금액: ${upAmount(row).toLocaleString('ko-KR')}원 (VAT 별도)</span>
+          <button type="button" onclick="toggleUpchargeApply(${idx})"
+            style="border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;${on ? 'background:#D97706;color:#fff' : 'background:#fff;color:#D97706;border:1.5px solid #D97706'}">${on ? '✓ 적용중 (해제)' : '이 견적에 적용'}</button>
+        </div>
+      </div>`;
+    }).join('');
   }
+  const total = materialUpcharges.reduce((sum, u) => sum + upAmount(u), 0);
+  const sum = document.getElementById('upchargeSummary');
+  if (sum) sum.textContent = appliedUpchargeIds.length > 0
+    ? `현재 견적에 적용된 인상금액 합계: + ${total.toLocaleString('ko-KR')}원 (VAT 별도)`
+    : '현재 견적에는 자재 업그레이드가 적용되지 않았습니다.';
 }
 
-function removeMaterialUpcharge(idx) {
-  tempMaterialUpcharges.splice(idx, 1);
-  renderMaterialUpchargeList();
+function addUpchargeRow() {
+  materialUpchargeLibrary.push({ id: 'up_' + Date.now(), name: '', meters: '', priceDiff: '' });
+  renderUpchargePanel();
+}
+
+function editUpcharge(idx, field, value) {
+  if (!materialUpchargeLibrary[idx]) return;
+  materialUpchargeLibrary[idx][field] = value;
+  const card = document.querySelector(`#upchargeList [data-up-idx="${idx}"] .up-amount`);
+  if (card) card.textContent = `인상금액: ${upAmount(materialUpchargeLibrary[idx]).toLocaleString('ko-KR')}원 (VAT 별도)`;
+  syncAppliedUpcharges();
+  if (appliedUpchargeIds.includes(materialUpchargeLibrary[idx].id)) calculateTotal();
+  const sum = document.getElementById('upchargeSummary');
+  if (sum && appliedUpchargeIds.length > 0) sum.textContent = `현재 견적에 적용된 인상금액 합계: + ${materialUpcharges.reduce((t,u)=>t+upAmount(u),0).toLocaleString('ko-KR')}원 (VAT 별도)`;
+  scheduleUpchargeSave();
+}
+
+function removeUpcharge(idx) {
+  const row = materialUpchargeLibrary[idx];
+  if (!row) return;
+  if (!confirm(`"${row.name || '이 항목'}"을 DB에서 삭제할까요?`)) return;
+  materialUpchargeLibrary.splice(idx, 1);
+  appliedUpchargeIds = appliedUpchargeIds.filter(id => id !== row.id);
+  syncAppliedUpcharges();
+  renderUpchargePanel();
+  calculateTotal();
+  saveUpchargeLibrary();
+}
+
+function toggleUpchargeApply(idx) {
+  const row = materialUpchargeLibrary[idx];
+  if (!row) return;
+  if (appliedUpchargeIds.includes(row.id)) appliedUpchargeIds = appliedUpchargeIds.filter(id => id !== row.id);
+  else appliedUpchargeIds.push(row.id);
+  syncAppliedUpcharges();
+  renderUpchargePanel();
+  calculateTotal(); // 견적서/합계 즉시 갱신 + 자동저장 연동
+}
+
+function scheduleUpchargeSave() {
+  clearTimeout(_upSaveTimer);
+  _upSaveTimer = setTimeout(saveUpchargeLibrary, 800);
+}
+
+// 업그레이드 DB를 Firestore(계정별)에 저장. 이름 없는 빈 행은 저장하지 않음(화면에는 유지)
+async function saveUpchargeLibrary() {
+  if (!window._fbUser) return;
+  const { doc, setDoc } = window._fbFns;
+  const cleaned = materialUpchargeLibrary
+    .filter(r => (r.name || '').trim())
+    .map(r => ({ id: r.id, name: r.name.trim(), meters: parseFloat(r.meters) || 0, priceDiff: parseFloat(r.priceDiff) || 0 }));
+  try {
+    await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'material_upcharges'), { list: cleaned });
+    const el = document.getElementById('upchargeSaveStatus');
+    if (el) { el.textContent = '💾 저장됨'; clearTimeout(el._t); el._t = setTimeout(() => el.textContent = '', 2000); }
+  } catch (e) {
+    console.error(e);
+    const el = document.getElementById('upchargeSaveStatus');
+    if (el) el.textContent = '⚠️ 저장 실패';
+  }
 }
 
 function renderLocationPills() {
@@ -1765,18 +1844,6 @@ async function savePriceOverrides() {
     const cleanedLocations = [...new Set(tempLocations.map(l => l.trim()).filter(Boolean))];
     await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'locations'), { list: cleanedLocations });
     locations = cleanedLocations;
-
-    // 자재 업그레이드 단가인상 목록 저장 (이름 없는 빈 행 제거)
-    const cleanedUpcharges = tempMaterialUpcharges
-      .filter(row => (row.name || '').trim())
-      .map(row => ({
-        id: row.id,
-        name: row.name.trim(),
-        meters: parseFloat(row.meters) || 0,
-        priceDiff: parseFloat(row.priceDiff) || 0
-      }));
-    await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'material_upcharges'), { list: cleanedUpcharges });
-    materialUpcharges = cleanedUpcharges;
 
     if (typeof renderItems === 'function') renderItems();
     if (typeof calculateTotal === 'function') calculateTotal();
@@ -2371,7 +2438,8 @@ async function persistEstimate({ silent = false } = {}) {
     siteName, items, discountAmount, isDiscountEnabled,
     priceAdjustment, catAdjustments,
     laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays, manualLaborPersonnel,
-    currentPublicEstimateId,
+    currentPublicEstimateId, appliedUpchargeIds,
+    appliedUpchargeSnapshot: materialUpcharges.map(u => ({ id: u.id, name: u.name, meters: u.meters, priceDiff: u.priceDiff })),
     updatedAt: new Date().toISOString()
   };
   if (isNew) data.createdAt = new Date().toISOString();
@@ -2392,6 +2460,31 @@ async function saveEstimate() {
   if (ok) {
     showCloudStatus('☁️ 저장 완료!');
     loadCloudEstimates();
+  }
+}
+
+// 현재 견적을 복제해서 다른 이름의 새 견적으로 저장 (원본은 그대로 유지)
+async function saveEstimateAsCopy() {
+  const input = document.getElementById('siteName');
+  const oldName = input.value.trim();
+  if (!oldName) { alert('현장명을 먼저 입력해주세요.'); return; }
+  if (items.filter(it => it.categoryKey && it.itemKey).length === 0) { alert('저장할 견적 항목이 없습니다.'); return; }
+  const newName = prompt('복제해서 저장할 새 현장명을 입력하세요.', oldName + ' (복사)');
+  if (newName === null) return;
+  const trimmed = newName.trim();
+  if (!trimmed) { alert('현장명을 입력해주세요.'); return; }
+
+  clearTimeout(autoSaveTimer); // 대기 중인 자동저장이 원본을 덮어쓰지 않도록 취소
+  const prevId = currentEstimateId, prevPublic = currentPublicEstimateId;
+  currentEstimateId = null;      // 새 문서로 저장
+  currentPublicEstimateId = null; // 웹 링크도 새로 발급되도록
+  input.value = trimmed;
+  const ok = await persistEstimate({ silent: false });
+  if (ok) {
+    showCloudStatus('📑 "' + trimmed + '" 로 복제 저장했습니다. (이후 작업은 복제본에 저장됩니다)');
+    loadCloudEstimates();
+  } else {
+    currentEstimateId = prevId; currentPublicEstimateId = prevPublic; input.value = oldName;
   }
 }
 
@@ -2499,6 +2592,13 @@ function applyEstimateData(data) {
   manualConstructionDays = data.manualConstructionDays || null;
   manualLaborPersonnel = data.manualLaborPersonnel != null ? data.manualLaborPersonnel : null;
   currentPublicEstimateId = data.currentPublicEstimateId || null;
+  // 저장된 견적에 적용돼 있던 자재 업그레이드 복원 (DB에서 삭제된 항목은 저장 당시 스냅샷으로 복원)
+  appliedUpchargeIds = Array.isArray(data.appliedUpchargeIds) ? [...data.appliedUpchargeIds] : [];
+  (data.appliedUpchargeSnapshot || []).forEach(u => {
+    if (appliedUpchargeIds.includes(u.id) && !materialUpchargeLibrary.some(l => l.id === u.id)) materialUpchargeLibrary.push({ ...u });
+  });
+  syncAppliedUpcharges();
+  renderUpchargePanel();
 
   // 설정 패널 UI 동기화
   const laborInput = document.getElementById('laborRatioInput');
@@ -2570,7 +2670,7 @@ function showCloudStatus(msg) {
 
 function exportToFile() {
   const siteName = document.getElementById('siteName').value.trim() || '미지정';
-  const data = { siteName, items, discountAmount, isDiscountEnabled, priceAdjustment, catAdjustments, laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays };
+  const data = { siteName, items, discountAmount, isDiscountEnabled, priceAdjustment, catAdjustments, laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays, appliedUpchargeIds, appliedUpchargeSnapshot: materialUpcharges };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
