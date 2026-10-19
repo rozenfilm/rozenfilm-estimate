@@ -381,6 +381,7 @@
         <button id="adminPanelBtn" onclick="toggleAdminPanel()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">👑 사용자 관리</button>
         <button id="priceManageBtn" onclick="openPriceManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">💰 단가 관리</button>
         <button id="notesManageBtn" onclick="openNotesManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">📝 상세 설명 편집</button>
+        <button id="discountCtaToggleBtn" onclick="toggleDiscountCta()" class="secondary-btn" style="padding:6px 12px;font-size:12px">🎁 할인확인 버튼 표시</button>
         <button id="bizInfoToggleBtn" onclick="toggleBizInfo()" class="secondary-btn" style="padding:6px 12px;font-size:12px">🏢 사업자정보 표시</button>
         <button onclick="doLogout()" class="danger-btn" style="padding:6px 12px;font-size:12px">로그아웃</button>
       </div>
@@ -781,6 +782,7 @@ const DEFAULT_ESTIMATE_NOTES = `• 위 견적은 5천여건의 실무경험을 
 * 강화마루의 걸레받이가 되어있는 경우 실리콘 마감을 하지 않습니다。`;
 
 let estimateNotesText = DEFAULT_ESTIMATE_NOTES;
+let showDiscountCta = false; // 견적서 하단에 '할인 가능 여부 확인하기' 버튼(웹 링크용)을 노출할지 여부
 let showBizInfo = false; // 사업자정보를 견적서 출력물에 표시할지 여부 (토글)
 let tempEstimateNotesText = '';
 let isWallpaperSectionOpen = false;
@@ -1380,6 +1382,17 @@ function buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, l
           : `<p>${line}</p>`)
         .join('')}
     </div>
+    ${showDiscountCta ? (() => {
+      let baseExcl = discountedTotal;
+      if (typeof wallpaperEstimate !== 'undefined' && wallpaperEstimate.pyeong) {
+        const w2 = calcWallpaperEstimate();
+        if ((lastFilmTotalWithVAT || 0) > 0 && w2.totalWithVAT > 0) baseExcl = Math.max(0, (lastFilmTotalExclVAT || 0) + w2.total - combinedDiscountAmount);
+      }
+      return `<div data-discount-cta="1" data-base-excl="${Math.round(baseExcl)}" style="margin-top:16px;text-align:center">
+      <div data-discount-open="1" style="display:inline-block;background:#059669;color:#fff;font-size:15px;font-weight:800;padding:14px 28px;border-radius:12px;cursor:pointer">🎁 할인 가능 여부 확인하기</div>
+      <p style="font-size:11px;color:#64748b;margin-top:6px">조기 예약 · 시공 후기 작성 시 추가 할인 혜택</p>
+    </div>`;
+    })() : ''}
     ${(typeof showBizInfo !== 'undefined' && showBizInfo) ? `
     <div style="margin-top:12px;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.8">
       <p>사업자등록번호 792-39-00545 &nbsp;|&nbsp; 대표자 정헌희</p>
@@ -2438,7 +2451,7 @@ async function persistEstimate({ silent = false } = {}) {
     siteName, items, discountAmount, isDiscountEnabled,
     priceAdjustment, catAdjustments,
     laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays, manualLaborPersonnel,
-    currentPublicEstimateId, appliedUpchargeIds,
+    currentPublicEstimateId, appliedUpchargeIds, showDiscountCta,
     appliedUpchargeSnapshot: materialUpcharges.map(u => ({ id: u.id, name: u.name, meters: u.meters, priceDiff: u.priceDiff })),
     updatedAt: new Date().toISOString()
   };
@@ -2593,6 +2606,8 @@ function applyEstimateData(data) {
   manualLaborPersonnel = data.manualLaborPersonnel != null ? data.manualLaborPersonnel : null;
   currentPublicEstimateId = data.currentPublicEstimateId || null;
   // 저장된 견적에 적용돼 있던 자재 업그레이드 복원 (DB에서 삭제된 항목은 저장 당시 스냅샷으로 복원)
+  showDiscountCta = !!data.showDiscountCta;
+  { const b = document.getElementById('discountCtaToggleBtn'); if (b) b.textContent = showDiscountCta ? '🎁 할인확인 버튼 숨기기' : '🎁 할인확인 버튼 표시'; }
   appliedUpchargeIds = Array.isArray(data.appliedUpchargeIds) ? [...data.appliedUpchargeIds] : [];
   (data.appliedUpchargeSnapshot || []).forEach(u => {
     if (appliedUpchargeIds.includes(u.id) && !materialUpchargeLibrary.some(l => l.id === u.id)) materialUpchargeLibrary.push({ ...u });
@@ -2729,6 +2744,14 @@ function closeNotesManageModal() {
   modal.style.display = 'none';
 }
 
+function toggleDiscountCta() {
+  showDiscountCta = !showDiscountCta;
+  const btn = document.getElementById('discountCtaToggleBtn');
+  if (btn) btn.textContent = showDiscountCta ? '🎁 할인확인 버튼 숨기기' : '🎁 할인확인 버튼 표시';
+  calculateTotal();
+  scheduleAutoSave();
+}
+
 function toggleBizInfo() {
   showBizInfo = !showBizInfo;
   const btn = document.getElementById('bizInfoToggleBtn');
@@ -2829,8 +2852,13 @@ async function exportToPDF() {
   const area = document.getElementById('pdfRenderArea');
   const siteName = document.getElementById('siteName').value.trim() || '미지정';
   try {
+    // 할인확인 버튼은 웹 링크 전용이므로 PDF에서는 숨김
+    const ctaEls = Array.from(area.querySelectorAll('[data-discount-cta]'));
+    ctaEls.forEach(el => { el.style.display = 'none'; });
     // Render at 2x for sharpness
-    const canvas = await html2canvas(area, { scale: 2, useCORS: true, scrollY: 0 });
+    let canvas;
+    try { canvas = await html2canvas(area, { scale: 2, useCORS: true, scrollY: 0 }); }
+    finally { ctaEls.forEach(el => { el.style.display = ''; }); }
     const imgData = canvas.toDataURL('image/png');
 
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
