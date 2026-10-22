@@ -86,6 +86,7 @@
       const notesBtn = document.getElementById('notesManageBtn');
       if (notesBtn) notesBtn.classList.remove('hidden');
       if (window.loadPriceOverrides) window.loadPriceOverrides();
+      if (window.loadPresets) window.loadPresets();
       if (window.loadWallpaperSettings) window.loadWallpaperSettings();
       if (window.loadEstimateNotes) window.loadEstimateNotes();
     }
@@ -379,6 +380,7 @@
         <span id="autoSaveIndicator" class="hidden text-xs" style="color:var(--accent);font-weight:600"></span>
         <span id="userEmail" class="text-xs" style="color:var(--muted)"></span>
         <button id="adminPanelBtn" onclick="toggleAdminPanel()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">👑 사용자 관리</button>
+        <button id="presetBtn" onclick="openPresetModal()" class="secondary-btn" style="padding:6px 12px;font-size:12px">📋 프리셋</button>
         <button id="priceManageBtn" onclick="openPriceManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">💰 단가 관리</button>
         <button id="notesManageBtn" onclick="openNotesManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">📝 상세 설명 편집</button>
         <button id="discountCtaToggleBtn" onclick="toggleDiscountCta()" class="secondary-btn" style="padding:6px 12px;font-size:12px">🎁 할인확인 버튼 표시</button>
@@ -1646,6 +1648,117 @@ function confirmAddPriceItem(catKey) {
 
   addItemFormOpenFor = null;
   renderPriceCategoryRows();
+}
+
+// ── 견적 프리셋 (자주 쓰는 항목 묶음 저장/불러오기/삭제 · 계정별 DB) ──
+let estimatePresets = []; // [{id, name, items, savedAt}]
+
+async function loadPresets() {
+  if (!window._fbUser) return;
+  try {
+    const { doc, getDoc } = window._fbFns;
+    const snap = await getDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'presets'));
+    if (snap.exists() && Array.isArray(snap.data().list)) estimatePresets = snap.data().list;
+  } catch (e) { console.error('프리셋 불러오기 오류:', e); }
+  renderPresetList();
+}
+window.loadPresets = loadPresets;
+
+async function persistPresets() {
+  const { doc, setDoc } = window._fbFns;
+  await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'presets'), { list: JSON.parse(JSON.stringify(estimatePresets)) });
+}
+
+function openPresetModal() {
+  const m = document.getElementById('presetModal');
+  m.classList.remove('hidden'); m.style.display = 'flex';
+  renderPresetList();
+}
+function closePresetModal() {
+  const m = document.getElementById('presetModal');
+  m.classList.add('hidden'); m.style.display = 'none';
+}
+
+function escAttr(t) { return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+function renderPresetList() {
+  const wrap = document.getElementById('presetList');
+  if (!wrap) return;
+  if (estimatePresets.length === 0) {
+    wrap.innerHTML = '<p style="font-size:12px;color:#94A3B8;padding:8px 0">저장된 프리셋이 없습니다.</p>';
+    return;
+  }
+  wrap.innerHTML = estimatePresets.map((p, i) => {
+    const n = (p.items || []).length;
+    const total = (p.items || []).reduce((sum, it) => {
+      const base = categories[it.categoryKey]?.items[it.itemKey]?.basePrice;
+      return sum + (base ? base * (it.quantity || 1) : 0);
+    }, 0);
+    return `<div style="border:1.5px solid #E2E8F0;border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="min-width:0"><div style="font-size:14px;font-weight:700;word-break:break-all">${escAttr(p.name)}</div>
+          <div style="font-size:11px;color:#94A3B8">항목 ${n}개${total ? ` · 기본단가 기준 약 ${total.toLocaleString('ko-KR')}원` : ''}</div></div>
+        <button type="button" onclick="deletePreset(${i})" style="background:#FEF2F2;color:#EF4444;border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;flex-shrink:0">삭제</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button type="button" onclick="applyPreset(${i}, 'replace')" style="flex:1;background:#2563EB;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">불러오기 (현재 항목 교체)</button>
+        <button type="button" onclick="applyPreset(${i}, 'append')" style="flex:1;background:#EFF6FF;color:#2563EB;border:1.5px solid #BFDBFE;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">현재 견적에 추가</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function savePreset() {
+  if (!window._fbUser) { alert('로그인이 필요합니다.'); return; }
+  const input = document.getElementById('presetNameInput');
+  const name = input.value.trim();
+  const valid = items.filter(it => it.categoryKey && it.itemKey);
+  if (!name) { alert('프리셋 이름을 입력해주세요.'); return; }
+  if (valid.length === 0) { alert('저장할 견적 항목이 없습니다. 항목을 먼저 추가해주세요.'); return; }
+  const idx = estimatePresets.findIndex(p => p.name === name);
+  if (idx >= 0 && !confirm(`"${name}" 프리셋이 이미 있습니다. 덮어쓸까요?`)) return;
+  const preset = {
+    id: idx >= 0 ? estimatePresets[idx].id : 'pr_' + Date.now(),
+    name,
+    items: JSON.parse(JSON.stringify(valid.map(({ id, ...rest }) => rest))),
+    savedAt: new Date().toISOString()
+  };
+  const prev = [...estimatePresets];
+  if (idx >= 0) estimatePresets[idx] = preset; else estimatePresets.push(preset);
+  try {
+    await persistPresets();
+    input.value = '';
+    renderPresetList();
+  } catch (e) {
+    estimatePresets = prev;
+    alert('프리셋 저장 중 오류가 발생했습니다: ' + e.message);
+  }
+}
+
+async function deletePreset(i) {
+  const p = estimatePresets[i];
+  if (!p || !confirm(`"${p.name}" 프리셋을 삭제할까요?`)) return;
+  const prev = [...estimatePresets];
+  estimatePresets.splice(i, 1);
+  try { await persistPresets(); renderPresetList(); }
+  catch (e) { estimatePresets = prev; alert('삭제 중 오류가 발생했습니다: ' + e.message); }
+}
+
+function applyPreset(i, mode) {
+  const p = estimatePresets[i];
+  if (!p) return;
+  const hasItems = items.some(it => it.categoryKey && it.itemKey);
+  if (mode === 'replace' && hasItems && !confirm('현재 작성 중인 항목이 프리셋 내용으로 교체됩니다. 계속할까요?')) return;
+  // 삭제된 단가 항목은 건너뜀 + 새 id 부여
+  const fresh = (p.items || [])
+    .filter(it => categories[it.categoryKey] && categories[it.categoryKey].items[it.itemKey])
+    .map(it => ({ ...JSON.parse(JSON.stringify(it)), id: nextId++ }));
+  if (mode === 'replace') items = fresh; else items = items.concat(fresh);
+  renderItems();
+  calculateTotal();
+  closePresetModal();
+  const skipped = (p.items || []).length - fresh.length;
+  showCloudStatus(`📋 "${p.name}" 프리셋을 ${mode === 'replace' ? '불러왔습니다' : '추가했습니다'}.${skipped ? ` (삭제된 항목 ${skipped}개 제외)` : ''}`);
 }
 
 // ── 자재 업그레이드 (단가 관리 밖 별도 섹션 · 항상 DB에 저장 · 견적마다 필요할 때만 적용) ──
@@ -3195,6 +3308,26 @@ window.onload = () => {
     <!-- List -->
     <div id="archiveList" style="padding:12px 20px;max-height:420px;overflow-y:auto"></div>
 
+  </div>
+</div>
+
+<!-- ─── 견적 프리셋 모달 ─── -->
+<div id="presetModal" class="hidden" style="position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:520px;margin:0 auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:18px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:17px;font-weight:800">📋 견적 프리셋</h3>
+      <button onclick="closePresetModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8">✕</button>
+    </div>
+    <div style="padding:16px 20px">
+      <p style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">현재 견적 항목을 프리셋으로 저장</p>
+      <div style="display:flex;gap:8px;margin-bottom:4px">
+        <input type="text" id="presetNameInput" placeholder="프리셋 이름 (예: 30평대 전체 시공)" style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:9px 10px;font-size:13px" onkeydown="if(event.key==='Enter'){event.preventDefault();savePreset();}">
+        <button type="button" onclick="savePreset()" style="background:#2563EB;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">저장</button>
+      </div>
+      <p style="font-size:11px;color:#94A3B8;margin-bottom:14px">같은 이름으로 저장하면 기존 프리셋을 덮어씁니다. (항목·수량·난이도·위치가 저장되며 현장명·할인은 제외)</p>
+      <p style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">저장된 프리셋</p>
+      <div id="presetList" style="max-height:50vh;overflow-y:auto"></div>
+    </div>
   </div>
 </div>
 
