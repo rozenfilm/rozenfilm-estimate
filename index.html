@@ -380,11 +380,8 @@
         <span id="autoSaveIndicator" class="hidden text-xs" style="color:var(--accent);font-weight:600"></span>
         <span id="userEmail" class="text-xs" style="color:var(--muted)"></span>
         <button id="adminPanelBtn" onclick="toggleAdminPanel()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">👑 사용자 관리</button>
-        <button id="presetBtn" onclick="openPresetModal()" class="secondary-btn" style="padding:6px 12px;font-size:12px">📋 프리셋</button>
         <button id="priceManageBtn" onclick="openPriceManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">💰 단가 관리</button>
         <button id="notesManageBtn" onclick="openNotesManageModal()" class="secondary-btn hidden" style="padding:6px 12px;font-size:12px">📝 상세 설명 편집</button>
-        <button id="discountCtaToggleBtn" onclick="toggleDiscountCta()" class="secondary-btn" style="padding:6px 12px;font-size:12px">🎁 할인확인 버튼 표시</button>
-        <button id="bizInfoToggleBtn" onclick="toggleBizInfo()" class="secondary-btn" style="padding:6px 12px;font-size:12px">🏢 사업자정보 표시</button>
         <button onclick="doLogout()" class="danger-btn" style="padding:6px 12px;font-size:12px">로그아웃</button>
       </div>
     </div>
@@ -446,6 +443,21 @@
     <p id="upchargeSummary" style="font-size:12px;font-weight:700;color:#92400E;margin-top:10px;text-align:right"></p>
   </div>
 
+  <!-- 프리셋 (펼쳐서 관리) -->
+  <button id="presetToggleBtn" onclick="togglePresetSection()" class="secondary-btn w-full" style="padding:10px;font-size:13px">
+    📋 프리셋 펼치기 ▾
+  </button>
+  <div id="presetSection" class="hidden card p-4" style="border:1.5px solid #2563EB">
+    <p style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">현재 견적 항목을 프리셋으로 저장</p>
+    <div style="display:flex;gap:8px;margin-bottom:4px">
+      <input type="text" id="presetNameInput" placeholder="프리셋 이름 (예: 30평대 전체 시공)" style="flex:1;min-width:0;border:1.5px solid #E2E8F0;border-radius:8px;padding:9px 10px;font-size:13px" onkeydown="if(event.key==='Enter'){event.preventDefault();savePreset();}">
+      <button type="button" onclick="savePreset()" style="background:#2563EB;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">저장</button>
+    </div>
+    <p style="font-size:11px;color:#94A3B8;margin-bottom:14px">같은 이름으로 저장하면 기존 프리셋을 덮어씁니다. (항목·수량·난이도·위치가 저장되며 현장명·할인은 제외)</p>
+    <p style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">저장된 프리셋</p>
+    <div id="presetList" style="max-height:50vh;overflow-y:auto"></div>
+  </div>
+
   <!-- Admin Panel (hidden, admin only) -->
   <div id="adminPanel" class="card p-4 hidden">
     <div class="flex items-center justify-between mb-3">
@@ -490,9 +502,6 @@
   <div class="flex gap-2">
     <button id="addItemBtn" onclick="addItem()" class="primary-btn flex-1" style="background:var(--accent);padding:14px">
       + 시공 항목 추가
-    </button>
-    <button onclick="sortItems()" class="primary-btn" style="background:#6B46C1;padding:14px;white-space:nowrap">
-      🔀 항목 정렬
     </button>
   </div>
 
@@ -617,10 +626,11 @@
     </div>
   </div>
 
-  <!-- Calculate Button -->
-  <button onclick="calculateTotal()" class="primary-btn w-full" style="padding:14px">
-    견적 계산하기
-  </button>
+  <!-- 견적서 표시 옵션 -->
+  <div class="flex gap-2">
+    <button id="discountCtaToggleBtn" onclick="toggleDiscountCta()" class="secondary-btn flex-1" style="padding:12px;font-size:13px">🎁 할인확인 버튼 표시</button>
+    <button id="bizInfoToggleBtn" onclick="toggleBizInfo()" class="secondary-btn flex-1" style="padding:12px;font-size:13px">🏢 사업자정보 표시</button>
+  </div>
 
 </div><!-- /left column -->
 
@@ -812,31 +822,14 @@ let manualLaborPersonnel = null; // 사용자가 직접 입력한 투입 인원 
 // 카테고리 정렬 순서
 const CATEGORY_SORT_ORDER = ['문짝류', '샷시류', '몰딩류', '붙박이 가구', '주방 가구', '기타 작업'];
 
-function sortItems() {
-  if (items.length === 0) return;
-
-  // 카테고리 없는 항목은 맨 뒤로
-  items.sort((a, b) => {
-    const catA = a.categoryKey ? (categories[a.categoryKey]?.name || '') : '';
-    const catB = b.categoryKey ? (categories[b.categoryKey]?.name || '') : '';
-    const idxA = CATEGORY_SORT_ORDER.indexOf(catA);
-    const idxB = CATEGORY_SORT_ORDER.indexOf(catB);
-    const orderA = idxA === -1 ? 999 : idxA;
-    const orderB = idxB === -1 ? 999 : idxB;
-    return orderA - orderB;
-  });
-
-  renderItems();
-  calculateTotal();
-
-  // 정렬 완료 시각적 피드백
-  const btn = event?.target;
-  if (btn) {
-    const orig = btn.textContent;
-    btn.textContent = '✅ 정렬 완료';
-    btn.style.background = '#276749';
-    setTimeout(() => { btn.textContent = orig; btn.style.background = '#6B46C1'; }, 1200);
-  }
+// 항상 카테고리 순서(문짝→샷시→몰딩→붙박이→주방→기타)로 자동 정렬. 같은 카테고리 안에서는 입력 순서 유지.
+function autoSortItems() {
+  if (items.length < 2) return;
+  const orderOf = it => {
+    const idx = it.categoryKey ? CATEGORY_SORT_ORDER.indexOf(categories[it.categoryKey]?.name || '') : -1;
+    return idx === -1 ? 999 : idx;
+  };
+  items = items.map((it, i) => ({ it, i })).sort((a, b) => orderOf(a.it) - orderOf(b.it) || a.i - b.i).map(x => x.it);
 }
 
 function addItem() {
@@ -857,6 +850,7 @@ function removeItem(id) {
 }
 
 function renderItems() {
+  autoSortItems();
   const list = document.getElementById('itemList');
   const empty = document.getElementById('emptyState');
 
@@ -1669,14 +1663,12 @@ async function persistPresets() {
   await setDoc(doc(window._fbDb, 'price_settings', window._fbUser.uid, 'data', 'presets'), { list: JSON.parse(JSON.stringify(estimatePresets)) });
 }
 
-function openPresetModal() {
-  const m = document.getElementById('presetModal');
-  m.classList.remove('hidden'); m.style.display = 'flex';
-  renderPresetList();
-}
-function closePresetModal() {
-  const m = document.getElementById('presetModal');
-  m.classList.add('hidden'); m.style.display = 'none';
+let isPresetSectionOpen = false;
+function togglePresetSection(forceOpen) {
+  isPresetSectionOpen = forceOpen !== undefined ? forceOpen : !isPresetSectionOpen;
+  document.getElementById('presetSection').classList.toggle('hidden', !isPresetSectionOpen);
+  document.getElementById('presetToggleBtn').textContent = `📋 프리셋 ${isPresetSectionOpen ? '접기 ▴' : '펼치기 ▾'}`;
+  if (isPresetSectionOpen) renderPresetList();
 }
 
 function escAttr(t) { return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
@@ -1756,7 +1748,7 @@ function applyPreset(i, mode) {
   if (mode === 'replace') items = fresh; else items = items.concat(fresh);
   renderItems();
   calculateTotal();
-  closePresetModal();
+  togglePresetSection(false);
   const skipped = (p.items || []).length - fresh.length;
   showCloudStatus(`📋 "${p.name}" 프리셋을 ${mode === 'replace' ? '불러왔습니다' : '추가했습니다'}.${skipped ? ` (삭제된 항목 ${skipped}개 제외)` : ''}`);
 }
@@ -3144,7 +3136,7 @@ function initCatAdjControls() {
 }
 
 function adjustCat(key, delta) {
-  catAdjustments[key] = Math.max(-10, Math.min(10, (catAdjustments[key] || 0) + delta));
+  catAdjustments[key] = Math.max(-20, Math.min(20, (catAdjustments[key] || 0) + delta)); // 5%씩 ±20단계 = ±100%
   updateCatAdjLabel(key);
   updateTotal();
 }
@@ -3308,26 +3300,6 @@ window.onload = () => {
     <!-- List -->
     <div id="archiveList" style="padding:12px 20px;max-height:420px;overflow-y:auto"></div>
 
-  </div>
-</div>
-
-<!-- ─── 견적 프리셋 모달 ─── -->
-<div id="presetModal" class="hidden" style="position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
-  <div style="background:#fff;border-radius:16px;width:100%;max-width:520px;margin:0 auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
-    <div style="padding:18px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
-      <h3 style="font-size:17px;font-weight:800">📋 견적 프리셋</h3>
-      <button onclick="closePresetModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8">✕</button>
-    </div>
-    <div style="padding:16px 20px">
-      <p style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">현재 견적 항목을 프리셋으로 저장</p>
-      <div style="display:flex;gap:8px;margin-bottom:4px">
-        <input type="text" id="presetNameInput" placeholder="프리셋 이름 (예: 30평대 전체 시공)" style="flex:1;border:1.5px solid #E2E8F0;border-radius:8px;padding:9px 10px;font-size:13px" onkeydown="if(event.key==='Enter'){event.preventDefault();savePreset();}">
-        <button type="button" onclick="savePreset()" style="background:#2563EB;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">저장</button>
-      </div>
-      <p style="font-size:11px;color:#94A3B8;margin-bottom:14px">같은 이름으로 저장하면 기존 프리셋을 덮어씁니다. (항목·수량·난이도·위치가 저장되며 현장명·할인은 제외)</p>
-      <p style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">저장된 프리셋</p>
-      <div id="presetList" style="max-height:50vh;overflow-y:auto"></div>
-    </div>
   </div>
 </div>
 
