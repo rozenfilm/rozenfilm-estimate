@@ -596,6 +596,7 @@
         <h3 id="modalDateTitle" style="font-size:17px;font-weight:800"></h3>
         <button onclick="closeDayModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
       </div>
+      <button id="dayAddSiteBtn" onclick="registerSiteFromDay()" class="btn-primary hidden" style="background:#6B46C1;width:100%;margin-top:12px">🏗️ 이 날짜부터 현장 등록</button>
     </div>
 
     <!-- Existing schedules for the day -->
@@ -766,8 +767,8 @@
     <div id="siteTabContent-photos" style="padding:20px 24px;display:none" class="space-y-3">
       <p style="font-size:12px;color:var(--muted)">현장 사진을 등록해두면 나중에 확인하거나 시공자와 공유할 때 유용합니다.</p>
       <label class="btn-primary" style="display:flex;align-items:center;justify-content:center;cursor:pointer;padding:12px">
-        📷 사진 추가하기
-        <input type="file" id="sitePhotoInput" accept="image/*" multiple capture="environment" class="hidden" onchange="handleSitePhotoUpload(this.files)">
+        🖼️ 갤러리에서 사진 추가 (여러 장 선택 가능)
+        <input type="file" id="sitePhotoInput" accept="image/*" multiple class="hidden" onchange="handleSitePhotoUpload(this.files)">
       </label>
       <p id="sitePhotoUploadStatus" class="hidden" style="font-size:12px;color:var(--brand)">처리 중...</p>
       <div id="sitePhotoGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
@@ -856,14 +857,14 @@ async function deleteSiteFromDb(id) {
   await deleteDoc(doc(window._db, 'schedule_sites', id));
 }
 
-function openSiteModal(siteId = null) {
+function openSiteModal(siteId = null, presetStartDate = null) {
   editingSiteId = siteId;
   const site = siteId ? sites.find(s => s.id === siteId) : null;
 
   document.getElementById('siteModalTitle').textContent = siteId ? '🏗️ 현장 수정' : '🏗️ 현장 등록';
   document.getElementById('siteName').value = site?.name || '';
-  document.getElementById('siteStartDate').value = site?.startDate || '';
-  document.getElementById('siteEndDate').value = site?.endDate || '';
+  document.getElementById('siteStartDate').value = site?.startDate || presetStartDate || '';
+  document.getElementById('siteEndDate').value = site?.endDate || presetStartDate || '';
   document.getElementById('siteAddress').value = site?.address || '';
   document.getElementById('siteMemo').value = site?.memo || '';
   document.getElementById('siteNeededWorkers').value = site?.neededWorkers || 0;
@@ -1503,6 +1504,8 @@ async function loadSchedules() {
     const data = d.data();
     const dateKey = data.date;
     if (!schedules[dateKey]) schedules[dateKey] = [];
+    // 휴무 일정은 본인이 올린 것만 보이고, 관리자만 전체를 볼 수 있음
+    if (data.session === 'off' && !isAdmin() && data.addedBy !== window._user?.uid) return;
     schedules[dateKey].push({ id: d.id, ...data });
   });
 }
@@ -1811,6 +1814,7 @@ function openDayModal(date) {
     workers.map(w => `<option value="${w.id}">${w.name}</option>`).join('');
 
   renderDayScheduleList(date);
+  document.getElementById('dayAddSiteBtn').classList.toggle('hidden', !isAdmin());
   document.getElementById('dayModal').classList.remove('hidden');
 }
 
@@ -2004,6 +2008,14 @@ async function moveWorkerOnDate(workerId, dateKey, fromSiteId, toSiteId) {
     renderSiteList();
     renderDayScheduleList(selectedDate); // 보드도 함께 갱신됨
   }
+}
+
+// 날짜 칸에서 바로 현장 등록: 선택한 날짜를 시작일(종료일 기본값도 동일)로 채워서 현장 등록 창을 엶
+function registerSiteFromDay() {
+  if (!isAdmin() || !selectedDate) return;
+  const dateKey = formatDate(selectedDate);
+  closeDayModal();
+  openSiteModal(null, dateKey);
 }
 
 function closeDayModal() {
