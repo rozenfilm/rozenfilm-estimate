@@ -455,6 +455,7 @@
     </div>
     <p style="font-size:11px;color:#94A3B8;margin-bottom:14px">같은 이름으로 저장하면 기존 프리셋을 덮어씁니다. (항목·수량·난이도·위치가 저장되며 현장명·할인은 제외)</p>
     <p style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">저장된 프리셋</p>
+    <p id="presetApplyStatus" class="hidden" style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px"></p>
     <div id="presetList" style="max-height:50vh;overflow-y:auto"></div>
   </div>
 
@@ -826,14 +827,15 @@ let manualLaborPersonnel = null; // 사용자가 직접 입력한 투입 인원 
 // 카테고리 정렬 순서
 const CATEGORY_SORT_ORDER = ['문짝류', '샷시류', '몰딩류', '붙박이 가구', '주방 가구', '기타 작업'];
 
-// 항상 카테고리 순서(문짝→샷시→몰딩→붙박이→주방→기타)로 자동 정렬. 같은 카테고리 안에서는 입력 순서 유지.
-function autoSortItems() {
-  if (items.length < 2) return;
+// 견적서 출력용 정렬: 입력 목록(items)은 입력한 순서 그대로 두고,
+// 미리보기·PDF·웹 링크에는 카테고리 순서(문짝→샷시→몰딩→붙박이→주방→기타)로 정리해서 보여줌.
+// 같은 카테고리 안에서는 입력 순서 유지.
+function sortForOutput(list) {
   const orderOf = it => {
     const idx = it.categoryKey ? CATEGORY_SORT_ORDER.indexOf(categories[it.categoryKey]?.name || '') : -1;
     return idx === -1 ? 999 : idx;
   };
-  items = items.map((it, i) => ({ it, i })).sort((a, b) => orderOf(a.it) - orderOf(b.it) || a.i - b.i).map(x => x.it);
+  return list.map((it, i) => ({ it, i })).sort((a, b) => orderOf(a.it) - orderOf(b.it) || a.i - b.i).map(x => x.it);
 }
 
 function addItem() {
@@ -854,7 +856,6 @@ function removeItem(id) {
 }
 
 function renderItems() {
-  autoSortItems();
   const list = document.getElementById('itemList');
   const empty = document.getElementById('emptyState');
 
@@ -865,10 +866,14 @@ function renderItems() {
   }
   empty.classList.add('hidden');
 
+  // 카드의 번호는 견적서(미리보기)에 표시되는 항목 번호와 동일하게 표시
+  _outNo = {};
+  sortForOutput(items.filter(it => it.categoryKey && it.itemKey)).forEach((it, i) => { _outNo[it.id] = i + 1; });
   list.innerHTML = items.map((item, idx) => renderItemCard(item, idx)).join('');
   // Re-attach event listeners via inline handlers (already in HTML)
 }
 
+let _outNo = {};
 function renderItemCard(item, idx) {
   const catInfo = item.categoryKey ? categories[item.categoryKey] : null;
   const itemInfo = (catInfo && item.itemKey) ? catInfo.items[item.itemKey] : null;
@@ -879,7 +884,7 @@ function renderItemCard(item, idx) {
     <!-- Card header -->
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
-        <span class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:var(--brand)">${idx + 1}</span>
+        <span class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:var(--brand)">${_outNo[item.id] || '·'}</span>
         <span class="font-semibold text-sm">${catInfo ? catInfo.pictogram + ' ' + catInfo.name : '항목 선택 필요'}</span>
         ${itemInfo ? `<span class="badge">${itemInfo.name}</span>` : ''}
       </div>
@@ -1113,7 +1118,7 @@ function calculateTotal(showFull = true) {
   let laborCost = 0, materialCost = 0;
   const computed = [];
 
-  validItems.forEach((item, idx) => {
+  sortForOutput(validItems).forEach((item, idx) => {
     const cat = categories[item.categoryKey];
     const info = cat.items[item.itemKey];
     const multiplier = getDifficultyMultiplier(item.difficulty);
@@ -1286,7 +1291,7 @@ function buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, l
           const ck = it.categoryKey;
           if (ck !== lastCk) {
             rows += `<tr style="background:#EFF6FF">
-              <td colspan="5" style="border:1px solid #bfdbfe;padding:7px 10px;font-weight:700;color:#1D4ED8">${ct[ck].name}</td>
+              <td colspan="5" style="border:1px solid #bfdbfe;padding:7px 10px;font-weight:700;color:#1D4ED8">${ct[ck].name}${clickableNumbers ? ` <button type="button" onclick="saveCategoryAsPreset('${ck}')" style="margin-left:8px;background:#fff;color:#2563EB;border:1px solid #BFDBFE;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer">📋 프리셋 저장</button>` : ''}</td>
               <td style="border:1px solid #bfdbfe;padding:7px 10px;text-align:right;font-weight:700;color:#1D4ED8">${ct[ck].total.toLocaleString('ko-KR')}</td>
             </tr>`;
             lastCk = ck;
@@ -1731,6 +1736,36 @@ async function savePreset() {
   }
 }
 
+// 미리보기의 대분류 옆 버튼: 해당 대분류에 속한 항목 전체를 프리셋으로 저장
+async function saveCategoryAsPreset(catKey) {
+  if (!window._fbUser) { alert('로그인이 필요합니다.'); return; }
+  const cat = categories[catKey];
+  const catItems = items.filter(it => it.categoryKey === catKey && it.itemKey);
+  if (!cat || catItems.length === 0) { alert('저장할 항목이 없습니다.'); return; }
+  const input = prompt(`"${cat.name}" 항목 ${catItems.length}개를 프리셋으로 저장합니다.\n프리셋 이름을 입력하세요.`, `${cat.name} 세트`);
+  if (input === null) return;
+  const name = input.trim();
+  if (!name) { alert('프리셋 이름을 입력해주세요.'); return; }
+  const idx = estimatePresets.findIndex(p => p.name === name);
+  if (idx >= 0 && !confirm(`"${name}" 프리셋이 이미 있습니다. 덮어쓸까요?`)) return;
+  const preset = {
+    id: idx >= 0 ? estimatePresets[idx].id : 'pr_' + Date.now(),
+    name,
+    items: JSON.parse(JSON.stringify(catItems.map(({ id, ...rest }) => rest))),
+    savedAt: new Date().toISOString()
+  };
+  const prev = [...estimatePresets];
+  if (idx >= 0) estimatePresets[idx] = preset; else estimatePresets.push(preset);
+  try {
+    await persistPresets();
+    renderPresetList();
+    showCloudStatus(`📋 "${name}" 프리셋으로 저장했습니다. (${catItems.length}개 항목)`);
+  } catch (e) {
+    estimatePresets = prev;
+    alert('프리셋 저장 중 오류가 발생했습니다: ' + e.message);
+  }
+}
+
 async function deletePreset(i) {
   const p = estimatePresets[i];
   if (!p || !confirm(`"${p.name}" 프리셋을 삭제할까요?`)) return;
@@ -1752,8 +1787,14 @@ function applyPreset(i, mode) {
   if (mode === 'replace') items = fresh; else items = items.concat(fresh);
   renderItems();
   calculateTotal();
-  togglePresetSection(false);
+  // 여러 프리셋을 연달아 추가할 수 있도록 프리셋 창은 열어둠 (접기 버튼으로 직접 닫기)
   const skipped = (p.items || []).length - fresh.length;
+  const st = document.getElementById('presetApplyStatus');
+  if (st) {
+    st.textContent = `✅ "${p.name}" ${mode === 'replace' ? '불러옴' : '추가됨'} · 현재 항목 ${items.filter(it => it.categoryKey && it.itemKey).length}개`;
+    st.classList.remove('hidden');
+    clearTimeout(st._t); st._t = setTimeout(() => st.classList.add('hidden'), 3000);
+  }
   showCloudStatus(`📋 "${p.name}" 프리셋을 ${mode === 'replace' ? '불러왔습니다' : '추가했습니다'}.${skipped ? ` (삭제된 항목 ${skipped}개 제외)` : ''}`);
 }
 
