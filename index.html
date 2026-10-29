@@ -376,6 +376,8 @@
       <div class="flex items-center gap-2 flex-wrap">
         <input type="text" id="siteName" class="input-field" placeholder="현장명" style="width:130px" oninput="scheduleAutoSave()">
         <button onclick="saveEstimate()" class="secondary-btn" style="padding:8px 14px;font-size:13px">☁️ 저장</button>
+        <button id="undoBtn" onclick="undoEstimate()" class="secondary-btn" style="padding:8px 12px;font-size:13px" title="되돌리기 (Ctrl+Z)" disabled>↩️ 되돌리기</button>
+        <button id="redoBtn" onclick="redoEstimate()" class="secondary-btn" style="padding:8px 12px;font-size:13px" title="다시실행 (Ctrl+Y)" disabled>↪️ 다시실행</button>
         <button onclick="saveEstimateAsCopy()" class="secondary-btn" style="padding:8px 14px;font-size:13px">📑 복제 저장</button>
         <span id="autoSaveIndicator" class="hidden text-xs" style="color:var(--accent);font-weight:600"></span>
         <span id="userEmail" class="text-xs" style="color:var(--muted)"></span>
@@ -809,6 +811,11 @@ let tempWallpaperTypes = {};
 const difficultyLabels = ['매우 쉬움','쉬움','보통-','보통','보통+','어려움-','어려움','어려움+','매우 어려움','최고 난이도'];
 
 let items = [];
+
+// ── 되돌리기 / 다시실행 (견적 내용 변경 이력) ──
+let undoStack = [], redoStack = [], undoCurrent = null;
+let _undoRestoring = false, _undoTimer = null, _undoPending = false;
+const UNDO_LIMIT = 50;
 let nextId = 1;
 let isDiscountEnabled = false;
 let discountAmount = 0;
@@ -826,6 +833,91 @@ let manualLaborPersonnel = null; // 사용자가 직접 입력한 투입 인원 
 
 // 카테고리 정렬 순서
 const CATEGORY_SORT_ORDER = ['문짝류', '샷시류', '몰딩류', '붙박이 가구', '주방 가구', '기타 작업'];
+
+// ── 되돌리기 / 다시실행 구현 ──
+function captureUndoState() {
+  return JSON.stringify({
+    items, discountAmount, isDiscountEnabled, priceAdjustment, catAdjustments,
+    laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays, manualLaborPersonnel,
+    appliedUpchargeIds
+  });
+}
+
+// 변경이 생길 때마다 호출 → 0.5초간 추가 입력이 없으면 이력에 한 단계로 기록 (수량 타이핑이 여러 단계로 쪼개지지 않음)
+function recordUndoState() {
+  if (_undoRestoring) return;
+  _undoPending = true;
+  clearTimeout(_undoTimer);
+  _undoTimer = setTimeout(commitUndoState, 500);
+}
+
+function commitUndoState() {
+  clearTimeout(_undoTimer);
+  _undoPending = false;
+  if (_undoRestoring) return;
+  const snap = captureUndoState();
+  if (snap === undoCurrent) return;
+  if (undoCurrent !== null) {
+    undoStack.push(undoCurrent);
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack = [];
+  }
+  undoCurrent = snap;
+  updateUndoButtons();
+}
+
+function updateUndoButtons() {
+  const u = document.getElementById('undoBtn'), r = document.getElementById('redoBtn');
+  if (u) u.disabled = undoStack.length === 0;
+  if (r) r.disabled = redoStack.length === 0;
+}
+
+function applyUndoSnapshot(json) {
+  _undoRestoring = true;
+  try {
+    const st = JSON.parse(json);
+    applyEstimateData({
+      ...st,
+      siteName: document.getElementById('siteName').value,
+      currentPublicEstimateId,
+      showDiscountCta
+    });
+    if (!st.isDiscountEnabled) {
+      const dt = document.getElementById('discountToggle');
+      if (dt && dt.checked) { dt.checked = false; toggleDiscount(); }
+    }
+  } finally {
+    _undoRestoring = false;
+  }
+  updateUndoButtons();
+}
+
+function undoEstimate() {
+  if (_undoPending) commitUndoState();
+  if (undoStack.length === 0) return;
+  redoStack.push(undoCurrent);
+  undoCurrent = undoStack.pop();
+  applyUndoSnapshot(undoCurrent);
+}
+
+function redoEstimate() {
+  if (_undoPending) commitUndoState();
+  if (redoStack.length === 0) return;
+  undoStack.push(undoCurrent);
+  undoCurrent = redoStack.pop();
+  applyUndoSnapshot(undoCurrent);
+}
+
+// 입력칸(글자/숫자 입력 중)이 아닐 때만 Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) 단축키 사용
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoEstimate(); }
+  else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redoEstimate(); }
+});
+commitUndoState(); // 초기(빈 견적) 상태를 기준점으로 기록
 
 // 견적서 출력용 정렬: 입력 목록(items)은 입력한 순서 그대로 두고,
 // 미리보기·PDF·웹 링크에는 카테고리 순서(문짝→샷시→몰딩→붙박이→주방→기타)로 정리해서 보여줌.
@@ -856,6 +948,7 @@ function removeItem(id) {
 }
 
 function renderItems() {
+  recordUndoState();
   const list = document.getElementById('itemList');
   const empty = document.getElementById('emptyState');
 
@@ -1098,6 +1191,7 @@ function jumpToItem(id) {
 }
 
 function calculateTotal(showFull = true) {
+  recordUndoState();
   const validItems = items.filter(it =>
     it.categoryKey && it.itemKey &&
     categories[it.categoryKey] &&
