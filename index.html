@@ -483,6 +483,10 @@
       </label>
       <button onclick="exportToFile()" class="secondary-btn" style="padding:8px 14px;font-size:13px">📤 내보내기</button>
     </div>
+    <div class="flex gap-2 mt-3">
+      <input type="text" id="linkImportInput" placeholder="보냈던 견적서 링크를 붙여넣기" class="input-field" style="flex:1;min-width:0;font-size:13px" onkeydown="if(event.key==='Enter'){event.preventDefault();importEstimateFromLink();}">
+      <button id="linkImportBtn" onclick="importEstimateFromLink()" class="secondary-btn" style="padding:8px 14px;font-size:13px;white-space:nowrap">🔗 링크로 불러오기</button>
+    </div>
     <p id="cloudSaveStatus" class="text-xs mt-2 hidden" style="color:var(--accent)"></p>
   </div>
 
@@ -2573,6 +2577,57 @@ async function persistEstimate({ silent = false } = {}) {
   }
 }
 
+// 보냈던 웹 견적서 링크(또는 링크 안의 id)를 붙여넣어 견적을 불러와 이어서 편집
+async function importEstimateFromLink() {
+  if (!window._fbUser) { alert('로그인이 필요합니다.'); return; }
+  const input = document.getElementById('linkImportInput');
+  const raw = input.value.trim();
+  if (!raw) { alert('견적서 링크를 붙여넣어주세요.'); return; }
+
+  let pid = null;
+  try { pid = new URL(raw).searchParams.get('id'); } catch (e) { /* URL 형식이 아니면 id 자체로 간주 */ }
+  if (!pid) { const m = raw.match(/[?&]id=([A-Za-z0-9_-]+)/); pid = m ? m[1] : (/^[A-Za-z0-9_-]{8,}$/.test(raw) ? raw : null); }
+  if (!pid) { alert('링크에서 견적서 ID를 찾을 수 없습니다. 링크 전체를 다시 붙여넣어주세요.'); return; }
+
+  if (items.some(it => it.categoryKey && it.itemKey) && !confirm('현재 작성 중인 견적이 불러온 견적으로 교체됩니다. 계속할까요?')) return;
+
+  const btn = document.getElementById('linkImportBtn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '불러오는 중...';
+  try {
+    const { doc, getDoc, collection, getDocs } = window._fbFns;
+    const db = window._fbDb, uid = window._fbUser.uid;
+
+    // 내 보관함에서 이 링크와 연결된 견적 문서 찾기 (있으면 같은 문서에 이어서 저장됨)
+    let linkedId = null, linkedData = null;
+    const snap = await getDocs(collection(db, 'estimates', uid, 'list'));
+    snap.forEach(d => { if (d.data().currentPublicEstimateId === pid) { linkedId = d.id; linkedData = d.data(); } });
+
+    let data = null;
+    const pub = await getDoc(doc(db, 'public_estimates', pid));
+    if (pub.exists() && pub.data().estimateData) data = pub.data().estimateData;
+    else if (linkedData) data = linkedData; // 예전에 보낸 링크: 보관함에 저장된 원본 사용
+
+    if (!data) {
+      alert(pub.exists()
+        ? '이 링크는 예전 방식으로 만들어져 편집용 원본 데이터가 없고, 내 견적 보관함에서도 찾을 수 없습니다.\n보관함에서 해당 견적을 직접 불러와주세요.'
+        : '견적서를 찾을 수 없습니다. 링크를 확인해주세요.');
+      return;
+    }
+
+    applyEstimateData(data);
+    currentPublicEstimateId = pid;     // 다시 "웹으로 보내기" 하면 같은 링크가 갱신됨
+    currentEstimateId = linkedId;      // 보관함 문서가 있으면 이어서 저장, 없으면 새 문서로 저장
+    input.value = '';
+    showCloudStatus('🔗 링크의 견적을 불러왔습니다. 수정 후 "웹으로 보내기"를 누르면 같은 링크에 반영됩니다.');
+  } catch (e) {
+    console.error(e);
+    alert('불러오기 중 오류가 발생했습니다: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
 async function saveEstimate() {
   const ok = await persistEstimate({ silent: false });
   if (ok) {
@@ -2915,6 +2970,13 @@ async function shareEstimateAsWebLink() {
     await setDoc(doc(window._fbDb, 'public_estimates', currentPublicEstimateId), {
       html,
       siteName,
+      // 링크로 다시 불러와 편집할 수 있도록 견적 원본 데이터도 함께 저장
+      estimateData: JSON.parse(JSON.stringify({
+        siteName, items, discountAmount, isDiscountEnabled, priceAdjustment, catAdjustments,
+        laborRatioPct, materialRatioPct, isProfitHidden, manualConstructionDays, manualLaborPersonnel,
+        appliedUpchargeIds, showDiscountCta,
+        appliedUpchargeSnapshot: materialUpcharges.map(u => ({ id: u.id, name: u.name, meters: u.meters, priceDiff: u.priceDiff }))
+      })),
       updatedAt: new Date().toISOString(),
       createdBy: window._fbUser.uid
     }, { merge: true });
