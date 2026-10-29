@@ -402,8 +402,30 @@
     <label class="section-label">평수</label>
     <input type="number" id="wallpaperPyeongInput" min="0" step="0.1" placeholder="예: 34" class="input-field w-full mb-3" oninput="onWallpaperPyeongInput()">
 
-    <label class="section-label">벽지 종류</label>
-    <div id="wallpaperTypeButtons" class="flex flex-wrap gap-2 mb-4"></div>
+    <div id="wallpaperSingleTypeWrap">
+      <label class="section-label">벽지 종류</label>
+      <div id="wallpaperTypeButtons" class="flex flex-wrap gap-2 mb-4"></div>
+    </div>
+
+    <div style="border-top:1px dashed #DDD6FE;padding-top:12px;margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#7C3AED;cursor:pointer">
+        <input type="checkbox" id="wallpaperSplitToggle" onchange="onWallpaperSplitToggle()"> 🛋️ 거실 / 🚪 방 벽지를 따로 설정
+      </label>
+      <div id="wallpaperSplitBody" class="hidden" style="margin-top:10px">
+        <label class="section-label" style="margin-bottom:2px">자재 소모량 비율 (롤 기준)</label>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px">
+          <span>거실</span>
+          <input type="number" id="wallpaperLivingPctInput" min="0" max="100" step="1" class="input-field" style="width:80px;font-size:13px;padding:7px 10px;text-align:right" oninput="onWallpaperLivingPctInput()">
+          <span>%</span>
+          <span style="color:#94A3B8">/</span>
+          <span>방 <strong id="wallpaperRoomPctLabel">60</strong>%</span>
+        </div>
+        <label class="section-label" style="margin-bottom:4px">🛋️ 거실 벽지</label>
+        <div id="wallpaperLivingTypeButtons" class="flex flex-wrap gap-2 mb-3"></div>
+        <label class="section-label" style="margin-bottom:4px">🚪 방 벽지</label>
+        <div id="wallpaperRoomTypeButtons" class="flex flex-wrap gap-2 mb-2"></div>
+      </div>
+    </div>
 
     <div style="border-top:1px dashed #DDD6FE;padding-top:12px;margin-bottom:4px">
       <p style="font-size:12px;font-weight:700;color:#7C3AED;margin-bottom:8px">✂️ 부분시공인 경우 직접 수정</p>
@@ -773,7 +795,8 @@ let WALLPAPER_TYPES = {
   primo:   { name: '프리모(실크프리미엄)', price: 60000 },
   diamant: { name: '디아망(실크 하이엔드)', price: 75000 }
 };
-let wallpaperEstimate = { pyeong: 0, typeKey: 'artbook', manualPum: null, manualRolls: null, description: '' };
+let wallpaperEstimate = { pyeong: 0, typeKey: 'artbook', manualPum: null, manualRolls: null, description: '',
+  splitMode: false, livingPct: 40, livingTypeKey: 'artbook', roomTypeKey: 'artbook' }; // splitMode: 거실/방 자재 따로 설정
 let lastFilmTotalWithVAT = 0; // 필름 견적 최종금액(VAT포함) - calculateTotal()에서 갱신됨
 let lastFilmTotalExclVAT = 0; // 필름 견적 최종금액(VAT별도) - calculateTotal()에서 갱신됨
 let combinedDiscountAmount = 0; // 필름+도배 통합 진행 시 최종 할인 금액
@@ -1433,7 +1456,7 @@ function buildPDFContent(computed, total, disc, discountedTotal, totalWithVAT, l
         <div style="font-size:12px;color:#4C1D95;line-height:1.9">
           <p>평수: ${w.pyeong}평 → 도배평수(× 2.5): ${w.wallpaperPyeong.toLocaleString('ko-KR')}평</p>
           <p>인건비: ${w.pum}품${w.isPumManual ? '(직접입력)' : '(도배평수 ÷ 15, 반올림)'} × ${WALLPAPER_LABOR_RATE.toLocaleString('ko-KR')}원 = ${w.laborCost.toLocaleString('ko-KR')}원</p>
-          <p>자재비: ${w.rolls}롤${w.isRollsManual ? '(직접입력)' : '(도배평수 ÷ 5, 올림)'} × ${w.typeName} ${w.unitPrice.toLocaleString('ko-KR')}원 = ${w.materialCost.toLocaleString('ko-KR')}원</p>
+          ${wpMaterialLinesHTML(w, false)}
           ${w.description.trim() ? `<p>시공부위: ${w.description.trim()}</p>` : ''}
         </div>
         <p style="font-size:15px;font-weight:800;color:#7C3AED;margin-top:8px">도배 견적 합계: ${w.total.toLocaleString('ko-KR')}원(${w.totalWithVAT.toLocaleString('ko-KR')}원) <span style="font-size:11px;font-weight:400">부가세 별도(부가세포함)</span></p>
@@ -2132,6 +2155,7 @@ function toggleWallpaperSection() {
   btn.textContent = isWallpaperSectionOpen ? '🧻 도배 견적 접기 ▴' : '🧻 도배 견적 펼치기 ▾';
   if (isWallpaperSectionOpen) {
     renderWallpaperTypeButtons();
+    syncWallpaperSplitUI();
     updateWallpaperEstimate();
     const manageBtn = document.getElementById('wallpaperManageBtn');
     if (manageBtn && window._fbUser) {
@@ -2140,24 +2164,77 @@ function toggleWallpaperSection() {
   }
 }
 
-function renderWallpaperTypeButtons() {
-  const wrap = document.getElementById('wallpaperTypeButtons');
-  wrap.innerHTML = Object.keys(WALLPAPER_TYPES).map(key => {
+function wpTypeButtonsHTML(selectedKey, handler) {
+  return Object.keys(WALLPAPER_TYPES).map(key => {
     const t = WALLPAPER_TYPES[key];
-    const selected = wallpaperEstimate.typeKey === key;
+    const selected = selectedKey === key;
     return `
-      <button type="button" onclick="selectWallpaperType('${key}')"
-        style="border:1.5px solid ${selected ? '#8B5CF6' : '#E2E8F0'};background:${selected ? '#F5F3FF' : '#fff'};color:${selected ? '#7C3AED' : '#334155'};border-radius:10px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;text-align:left">
+      <button type="button" onclick="${handler}('${key}')"
+        style="border:1.5px solid ${selected ? '#8B5CF6' : '#E2E8F0'};background:${selected ? '#F5F3FF' : '#fff'};color:${selected ? '#7C3AED' : '#334155'};border-radius:10px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;text-align:center">
         ${t.name}<br><span style="font-weight:400;color:#94A3B8">${t.price.toLocaleString('ko-KR')}원/롤</span>
       </button>
     `;
   }).join('');
 }
 
+function renderWallpaperTypeButtons() {
+  document.getElementById('wallpaperTypeButtons').innerHTML = wpTypeButtonsHTML(wallpaperEstimate.typeKey, 'selectWallpaperType');
+  const lv = document.getElementById('wallpaperLivingTypeButtons');
+  const rm = document.getElementById('wallpaperRoomTypeButtons');
+  if (lv) lv.innerHTML = wpTypeButtonsHTML(wallpaperEstimate.livingTypeKey, 'selectWallpaperLivingType');
+  if (rm) rm.innerHTML = wpTypeButtonsHTML(wallpaperEstimate.roomTypeKey, 'selectWallpaperRoomType');
+}
+
 function selectWallpaperType(key) {
   wallpaperEstimate.typeKey = key;
   renderWallpaperTypeButtons();
   updateWallpaperEstimate();
+}
+
+function selectWallpaperLivingType(key) {
+  wallpaperEstimate.livingTypeKey = key;
+  renderWallpaperTypeButtons();
+  updateWallpaperEstimate();
+}
+
+function selectWallpaperRoomType(key) {
+  wallpaperEstimate.roomTypeKey = key;
+  renderWallpaperTypeButtons();
+  updateWallpaperEstimate();
+}
+
+function onWallpaperSplitToggle() {
+  const on = document.getElementById('wallpaperSplitToggle').checked;
+  wallpaperEstimate.splitMode = on;
+  if (on) {
+    // 처음 켤 때는 현재 선택된 벽지를 거실/방 기본값으로
+    if (!WALLPAPER_TYPES[wallpaperEstimate.livingTypeKey]) wallpaperEstimate.livingTypeKey = wallpaperEstimate.typeKey;
+    if (!WALLPAPER_TYPES[wallpaperEstimate.roomTypeKey]) wallpaperEstimate.roomTypeKey = wallpaperEstimate.typeKey;
+    if (wallpaperEstimate.livingTypeKey === wallpaperEstimate.roomTypeKey) {
+      wallpaperEstimate.livingTypeKey = wallpaperEstimate.typeKey;
+      wallpaperEstimate.roomTypeKey = wallpaperEstimate.typeKey;
+    }
+  }
+  syncWallpaperSplitUI();
+  renderWallpaperTypeButtons();
+  updateWallpaperEstimate();
+}
+
+function onWallpaperLivingPctInput() {
+  const el = document.getElementById('wallpaperLivingPctInput');
+  wallpaperEstimate.livingPct = Math.min(100, Math.max(0, parseFloat(el.value) || 0));
+  document.getElementById('wallpaperRoomPctLabel').textContent = +(100 - wallpaperEstimate.livingPct).toFixed(1);
+  updateWallpaperEstimate();
+}
+
+function syncWallpaperSplitUI() {
+  const on = !!wallpaperEstimate.splitMode;
+  document.getElementById('wallpaperSplitToggle').checked = on;
+  document.getElementById('wallpaperSplitBody').classList.toggle('hidden', !on);
+  document.getElementById('wallpaperSingleTypeWrap').classList.toggle('hidden', on);
+  const inp = document.getElementById('wallpaperLivingPctInput');
+  if (inp && document.activeElement !== inp) inp.value = wallpaperEstimate.livingPct;
+  document.getElementById('wallpaperRoomPctLabel').textContent = +(100 - wallpaperEstimate.livingPct).toFixed(1);
 }
 
 function onWallpaperPyeongInput() {
@@ -2194,6 +2271,26 @@ function onWallpaperDescriptionInput() {
   updateWallpaperEstimate();
 }
 
+// 자재비 설명 HTML (단일 벽지 / 거실·방 분리 공통)
+function wpMaterialLinesHTML(r, forBreakdown) {
+  const won = n => n.toLocaleString('ko-KR');
+  const rollsNote = r.isRollsManual ? '(직접입력)' : '(도배평수 ÷ 5, 올림)';
+  if (!r.split) {
+    return forBreakdown
+      ? `<p>롤수 ${r.isRollsManual ? '<span style="color:#DC2626">(직접입력)</span>' : '(도배평수 ÷ 5, 올림)'}: <strong>${r.rolls}롤</strong></p>
+    <p>벽지: <strong>${r.typeName}</strong> (${won(r.unitPrice)}원/롤)</p>
+    <p>자재비 (${r.rolls}롤 × ${won(r.unitPrice)}원): <strong>${won(r.materialCost)}원</strong></p>`
+      : `<p>자재비: ${r.rolls}롤${rollsNote} × ${r.typeName} ${won(r.unitPrice)}원 = ${won(r.materialCost)}원</p>`;
+  }
+  const zl = r.zones.map(z => forBreakdown
+    ? `<p>${z.label === '거실' ? '🛋️' : '🚪'} ${z.label} (${z.pct}%): <strong>${z.rolls}롤</strong> × ${z.typeName} ${won(z.unitPrice)}원 = <strong>${won(z.cost)}원</strong></p>`
+    : `<p style="padding-left:10px">· ${z.label}(${z.pct}%): ${z.rolls}롤 × ${z.typeName} ${won(z.unitPrice)}원 = ${won(z.cost)}원</p>`).join('');
+  return forBreakdown
+    ? `<p>롤수 ${r.isRollsManual ? '<span style="color:#DC2626">(직접입력)</span>' : '(도배평수 ÷ 5, 올림)'}: <strong>${r.rolls}롤</strong> → 거실/방 비율로 배분</p>${zl}
+    <p>자재비 합계: <strong>${won(r.materialCost)}원</strong></p>`
+    : `<p>자재비: 총 ${r.rolls}롤${rollsNote} 거실/방 분리 적용</p>${zl}<p>자재비 합계 = ${won(r.materialCost)}원</p>`;
+}
+
 function calcWallpaperEstimate() {
   const pyeong = wallpaperEstimate.pyeong || 0;
   const wallpaperPyeong = pyeong * 2.5;
@@ -2205,12 +2302,28 @@ function calcWallpaperEstimate() {
   const rolls = isRollsManual ? wallpaperEstimate.manualRolls : autoRolls;
   const laborCost = pum * WALLPAPER_LABOR_RATE;
   const type = WALLPAPER_TYPES[wallpaperEstimate.typeKey] || { name: '', price: 0 };
-  const materialCost = rolls * type.price;
+  // 거실/방 따로 설정: 전체 롤수를 거실 비율대로 나누고(반올림), 나머지는 방
+  const split = !!wallpaperEstimate.splitMode;
+  let zones = null, materialCost;
+  if (split) {
+    const livingPct = Math.min(100, Math.max(0, wallpaperEstimate.livingPct || 0));
+    const livingRolls = Math.round(rolls * livingPct / 100);
+    const roomRolls = rolls - livingRolls;
+    const lt = WALLPAPER_TYPES[wallpaperEstimate.livingTypeKey] || { name: '(미선택)', price: 0 };
+    const rt = WALLPAPER_TYPES[wallpaperEstimate.roomTypeKey] || { name: '(미선택)', price: 0 };
+    zones = [
+      { label: '거실', pct: livingPct, rolls: livingRolls, typeName: lt.name, unitPrice: lt.price, cost: livingRolls * lt.price },
+      { label: '방', pct: +(100 - livingPct).toFixed(1), rolls: roomRolls, typeName: rt.name, unitPrice: rt.price, cost: roomRolls * rt.price }
+    ];
+    materialCost = zones[0].cost + zones[1].cost;
+  } else {
+    materialCost = rolls * type.price;
+  }
   const total = laborCost + materialCost;
   const totalWithVAT = Math.round(total * 1.1);
   return {
     pyeong, wallpaperPyeong, pum, laborCost, rolls, materialCost, total, totalWithVAT,
-    typeName: type.name, unitPrice: type.price,
+    typeName: type.name, unitPrice: type.price, split, zones,
     isPumManual, isRollsManual,
     description: wallpaperEstimate.description || ''
   };
@@ -2230,9 +2343,7 @@ function updateWallpaperEstimate() {
     <p>품수 ${r.isPumManual ? '<span style="color:#DC2626">(직접입력)</span>' : '(도배평수 ÷ 15, 반올림)'}: <strong>${r.pum}품</strong></p>
     <p>인건비 (${r.pum}품 × ${WALLPAPER_LABOR_RATE.toLocaleString('ko-KR')}원): <strong>${r.laborCost.toLocaleString('ko-KR')}원</strong></p>
     <div style="height:1px;background:#DDD6FE;margin:8px 0"></div>
-    <p>롤수 ${r.isRollsManual ? '<span style="color:#DC2626">(직접입력)</span>' : '(도배평수 ÷ 5, 올림)'}: <strong>${r.rolls}롤</strong></p>
-    <p>벽지: <strong>${r.typeName}</strong> (${r.unitPrice.toLocaleString('ko-KR')}원/롤)</p>
-    <p>자재비 (${r.rolls}롤 × ${r.unitPrice.toLocaleString('ko-KR')}원): <strong>${r.materialCost.toLocaleString('ko-KR')}원</strong></p>
+    ${wpMaterialLinesHTML(r, true)}
     <div style="height:1px;background:#DDD6FE;margin:8px 0"></div>
     <p style="font-size:15px;font-weight:800;color:#7C3AED">도배 견적 합계: ${r.total.toLocaleString('ko-KR')}원(${r.totalWithVAT.toLocaleString('ko-KR')}원) <span style="font-size:12px;font-weight:400;color:#7C3AED">부가세 별도(부가세포함)</span></p>
     ${r.description.trim() ? `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #DDD6FE"><p style="color:#7C3AED;font-weight:700">시공부위:</p><p>${r.description.trim()}</p></div>` : ''}
@@ -2412,6 +2523,9 @@ async function saveWallpaperSettings() {
     if (!WALLPAPER_TYPES[wallpaperEstimate.typeKey]) {
       wallpaperEstimate.typeKey = Object.keys(WALLPAPER_TYPES)[0] || '';
     }
+    ['livingTypeKey', 'roomTypeKey'].forEach(k => {
+      if (!WALLPAPER_TYPES[wallpaperEstimate[k]]) wallpaperEstimate[k] = wallpaperEstimate.typeKey;
+    });
     renderWallpaperTypeButtons();
     updateWallpaperEstimate();
     closeWallpaperManageModal();
