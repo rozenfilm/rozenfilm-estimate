@@ -642,6 +642,10 @@
           <input type="text" id="scheduleMemo" class="input mt-1" placeholder="예: 문짝 5개, 오전만 가능">
         </div>
         </div>
+        <div id="scheduleOffReasonWrap" style="display:none">
+          <label style="font-size:12px;font-weight:600;color:var(--muted)">휴무 사유 <span style="font-weight:400">(본인과 운영자만 볼 수 있어요)</span></label>
+          <input type="text" id="scheduleOffReason" class="input mt-1" maxlength="100" placeholder="예: 병원 진료, 가족 행사">
+        </div>
         <div class="flex gap-2 pt-2">
           <button onclick="addSchedule()" class="btn-primary flex-1">일정 추가</button>
           <button onclick="shareKakao()" style="background:#FEE500;color:#3A1D1D;border:none;border-radius:8px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer">카카오 공유</button>
@@ -1389,9 +1393,114 @@ function openSiteDetailModal(siteId) {
           `).join('')}
         </div>
       </div>` : ''}
+    <div id="siteCommentsWrap" style="margin-top:8px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">💬 현장 댓글 <span id="siteCommentsExpenseTotal" style="font-weight:600;color:#C05621;font-size:12px"></span></div>
+      <div id="siteCommentList"><p style="font-size:12px;color:var(--muted)">불러오는 중...</p></div>
+      <div style="margin-top:10px;background:var(--bg);border-radius:10px;padding:10px">
+        <textarea id="siteCommentText" class="input" rows="2" maxlength="500" placeholder="특이사항 / 지출 내용 (예: 점심 식대, 자재 추가 구입, 고객 요청사항)"></textarea>
+        <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+          <input type="number" id="siteCommentExpense" class="input" min="0" inputmode="numeric" placeholder="지출 비용(원) · 선택" style="flex:1;min-width:0">
+          <button onclick="addSiteComment()" id="siteCommentBtn" class="btn-primary" style="white-space:nowrap">댓글 등록</button>
+        </div>
+      </div>
+    </div>
     ${isAdmin() ? `<div class="flex gap-2 pt-3"><button onclick="closeSiteDetailModal();openSiteModal('${site.id}')" class="btn-primary flex-1">수정</button></div>` : ''}
   `;
   document.getElementById('siteDetailModal').classList.remove('hidden');
+  loadSiteComments(site.id);
+}
+
+// ─── 현장 댓글 (schedule_sites/{siteId}/comments) ───
+let currentCommentSiteId = null;
+let siteComments = [];
+
+function escHtml(t) {
+  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function loadSiteComments(siteId) {
+  currentCommentSiteId = siteId;
+  siteComments = [];
+  try {
+    const { collection, getDocs } = window._fbFns;
+    const snap = await getDocs(collection(window._db, 'schedule_sites', siteId, 'comments'));
+    snap.forEach(d => siteComments.push({ id: d.id, ...d.data() }));
+    siteComments.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    renderSiteComments();
+  } catch (e) {
+    console.error('댓글 불러오기 오류:', e);
+    const el = document.getElementById('siteCommentList');
+    if (el) el.innerHTML = '<p style="font-size:12px;color:#C53030">댓글을 불러올 수 없습니다. (Firestore 규칙에 댓글 경로 허용이 필요합니다)</p>';
+  }
+}
+
+function renderSiteComments() {
+  const el = document.getElementById('siteCommentList');
+  if (!el) return;
+  const totalEl = document.getElementById('siteCommentsExpenseTotal');
+  const total = siteComments.reduce((sum, c) => sum + (c.expense || 0), 0);
+  if (totalEl) totalEl.textContent = total > 0 ? `· 지출 합계 ${total.toLocaleString('ko-KR')}원` : '';
+  if (siteComments.length === 0) {
+    el.innerHTML = '<p style="font-size:12px;color:var(--muted)">아직 댓글이 없습니다.</p>';
+    return;
+  }
+  el.innerHTML = siteComments.map(c => {
+    const canDelete = isAdmin() || c.authorUid === window._user?.uid;
+    const t = c.createdAt ? new Date(c.createdAt) : null;
+    const when = t ? `${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : '';
+    return `<div style="background:var(--bg);border-radius:8px;padding:8px 10px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+        <span style="font-size:12px;font-weight:700">${escHtml(c.authorName || '익명')} <span style="font-weight:400;color:var(--muted)">${when}</span></span>
+        ${canDelete ? `<button onclick="deleteSiteComment('${c.id}')" style="background:#FFF5F5;border:none;color:#C53030;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">삭제</button>` : ''}
+      </div>
+      ${c.text ? `<div style="font-size:13px;margin-top:3px;white-space:pre-wrap;word-break:break-all">${escHtml(c.text)}</div>` : ''}
+      ${c.expense > 0 ? `<div style="font-size:12px;font-weight:700;color:#C05621;margin-top:3px">💸 지출 ${c.expense.toLocaleString('ko-KR')}원</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function addSiteComment() {
+  if (!currentCommentSiteId || !window._user) return;
+  const text = document.getElementById('siteCommentText').value.trim();
+  const expense = Math.max(0, Math.round(parseFloat(document.getElementById('siteCommentExpense').value) || 0));
+  if (!text && !expense) { alert('내용이나 지출 비용을 입력해주세요.'); return; }
+
+  const btn = document.getElementById('siteCommentBtn');
+  btn.disabled = true;
+  const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const u = window._user;
+  const comment = {
+    text, expense,
+    authorUid: u.uid,
+    authorName: u.displayName || (u.email ? u.email.split('@')[0] : '익명'),
+    createdAt: new Date().toISOString()
+  };
+  try {
+    const { doc, setDoc } = window._fbFns;
+    await setDoc(doc(window._db, 'schedule_sites', currentCommentSiteId, 'comments', id), comment);
+    siteComments.push({ id, ...comment });
+    document.getElementById('siteCommentText').value = '';
+    document.getElementById('siteCommentExpense').value = '';
+    renderSiteComments();
+  } catch (e) {
+    console.error(e);
+    alert('댓글 등록 중 오류가 발생했습니다. (Firestore 규칙에 댓글 경로 허용이 필요합니다)');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteSiteComment(id) {
+  if (!confirm('이 댓글을 삭제할까요?')) return;
+  try {
+    const { doc, deleteDoc } = window._fbFns;
+    await deleteDoc(doc(window._db, 'schedule_sites', currentCommentSiteId, 'comments', id));
+    siteComments = siteComments.filter(c => c.id !== id);
+    renderSiteComments();
+  } catch (e) {
+    console.error(e);
+    alert('삭제 중 오류가 발생했습니다.');
+  }
 }
 
 function closeSiteDetailModal() {
@@ -1506,7 +1615,10 @@ async function loadSchedules() {
     if (!schedules[dateKey]) schedules[dateKey] = [];
     // 휴무 일정은 본인이 올린 것만 보이고, 관리자만 전체를 볼 수 있음
     if (data.session === 'off' && !isAdmin() && data.addedBy !== window._user?.uid) return;
-    schedules[dateKey].push({ id: d.id, ...data });
+    const entryData = { id: d.id, ...data };
+    // 휴무 사유는 본인과 운영자만 볼 수 있음 (그 외 사용자에게는 데이터에서도 제거)
+    if (entryData.reason && !isAdmin() && entryData.addedBy !== window._user?.uid) delete entryData.reason;
+    schedules[dateKey].push(entryData);
   });
 }
 
@@ -1800,6 +1912,9 @@ function openDayModal(date) {
   selectedSession = null;
   document.getElementById('scheduleLocation').value = '';
   document.getElementById('scheduleMemo').value = '';
+  document.getElementById('scheduleOffReason').value = '';
+  document.getElementById('scheduleOffReasonWrap').style.display = 'none';
+  document.getElementById('scheduleExtraFields').style.display = '';
   ['am','pm','full','off'].forEach(s => {
     document.getElementById(`btn-${s}`).className = 'session-btn';
   });
@@ -2047,6 +2162,7 @@ function renderDayScheduleList(date) {
         </div>
         ${entry.location ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">📍 ${entry.location}</div>` : ''}
         ${entry.memo ? `<div style="font-size:11px;color:var(--muted)">📝 ${entry.memo}</div>` : ''}
+        ${(entry.session === 'off' && entry.reason && (isAdmin() || entry.addedBy === window._user?.uid)) ? `<div style="font-size:11px;color:#C53030">🔒 휴무 사유: ${entry.reason}</div>` : ''}
       </div>
       ${canDelete ? `<button onclick="removeSchedule('${entry.id}','${dateKey}')" style="background:#FFF5F5;border:none;color:#C53030;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">삭제</button>` : ''}
     </div>`;
@@ -2061,12 +2177,15 @@ function selectSession(s) {
   // Hide location/memo fields for off-day (not needed)
   const extraFields = document.getElementById('scheduleExtraFields');
   if (extraFields) extraFields.style.display = s === 'off' ? 'none' : '';
+  const offWrap = document.getElementById('scheduleOffReasonWrap');
+  if (offWrap) offWrap.style.display = s === 'off' ? '' : 'none';
 }
 
 async function addSchedule() {
   const workerId = document.getElementById('scheduleWorker').value;
   const location = document.getElementById('scheduleLocation').value.trim();
   const memo = document.getElementById('scheduleMemo').value.trim();
+  const offReason = document.getElementById('scheduleOffReason').value.trim();
 
   if (!workerId) { alert('시공자를 선택해주세요.'); return; }
   if (!selectedSession) { alert('근무 시간을 선택해주세요.'); return; }
@@ -2075,6 +2194,7 @@ async function addSchedule() {
   const dateKey = formatDate(selectedDate);
   const id = `${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
   const entry = { id, workerId, date: dateKey, session: selectedSession, location, memo, addedBy: window._user?.uid };
+  if (selectedSession === 'off' && offReason) entry.reason = offReason; // 휴무 사유 (본인·운영자에게만 표시됨)
 
   try {
     await saveScheduleToDb(entry);
@@ -2087,6 +2207,9 @@ async function addSchedule() {
     document.getElementById('scheduleWorker').value = '';
     document.getElementById('scheduleLocation').value = '';
     document.getElementById('scheduleMemo').value = '';
+    document.getElementById('scheduleOffReason').value = '';
+    document.getElementById('scheduleOffReasonWrap').style.display = 'none';
+    document.getElementById('scheduleExtraFields').style.display = '';
     selectedSession = null;
     ['am','pm','full','off'].forEach(s => document.getElementById(`btn-${s}`).className = 'session-btn');
   } catch(e) { alert('저장 중 오류가 발생했습니다.'); console.error(e); }
