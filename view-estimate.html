@@ -141,6 +141,7 @@
     { label: '셀인 카페 후기', pct: 2 },
     { label: '로젠필름 홈페이지에 후기 작성', pct: 1 }
   ];
+  const DC_PAYBACK_MAX = 200000; // 후기 페이백 최대 한도(원)
   let dcSel1 = null, dcSel2 = [], dcBase = 0;
   const fmt = n => Math.round(n).toLocaleString('ko-KR');
 
@@ -155,7 +156,7 @@
       <div class="dc-q"><p class="qt">질문 1. 원하시는 시공 시기가 어떻게 되시나요?</p>
         <p class="qd">조기 예약 시 할인 가능합니다.</p><div id="dcQ1"></div></div>
       <div class="dc-q"><p class="qt">질문 2. 시공 후기 작성 페이백 할인</p>
-        <p class="qd">시공 후기를 작성하시고 링크 혹은 캡처 사진을 보내주시면 페이백 형태로 할인 가능합니다. <b>(중복 선택 가능)</b></p><div id="dcQ2"></div></div>
+        <p class="qd">시공 후기를 작성하시고 링크 혹은 캡처 사진을 보내주시면 페이백 형태로 할인 가능합니다. <b>(중복 선택 가능 · 페이백은 최대 20만원까지)</b></p><div id="dcQ2"></div></div>
       <div class="dc-result" id="dcResult"></div>
       <div class="dc-actions">
         <button class="dc-kakao" id="dcSend">💬 선택 내용 카톡으로 보내기</button>
@@ -175,9 +176,11 @@
     const p2 = dcSel2.reduce((s, i) => s + DC_Q2[i].pct, 0);
     const disc = Math.round(dcBase * p1 / 100);        // 조기 예약 할인 (견적에서 차감)
     const discounted = dcBase - disc;                  // 할인된 최종 견적 금액
-    const payback = Math.round(dcBase * p2 / 100);     // 후기 페이백 (후기 작성 후 환급)
+    const paybackRaw = Math.round(dcBase * p2 / 100);
+    const payback = Math.min(paybackRaw, DC_PAYBACK_MAX); // 후기 페이백 (후기 작성 후 환급, 최대 20만원)
+    const capped = paybackRaw > DC_PAYBACK_MAX;
     const real = discounted - payback;                 // 실질 부담 금액
-    return { p1, p2, disc, discounted, payback, real };
+    return { p1, p2, disc, discounted, payback, capped, real };
   }
 
   function dcRender() {
@@ -195,7 +198,7 @@
       <div>현재 견적(부가세 별도): ${fmt(dcBase)}원</div>
       ${c.p1 ? `<div>조기 예약 할인 ${c.p1}%: − ${fmt(c.disc)}원</div>` : ''}
       <div class="big">할인된 최종 견적 금액: ${both(c.discounted)}</div>
-      ${c.p2 ? `<div style="margin-top:6px">후기 작성 페이백 ${c.p2}% <span style="font-size:11px">(후기 확인 후 환급)</span>: − ${fmt(c.payback)}원</div>` : ''}
+      ${c.p2 ? `<div style="margin-top:6px">후기 작성 페이백 ${c.p2}% <span style="font-size:11px">(후기 확인 후 환급)</span>: − ${fmt(c.payback)}원${c.capped ? ' <span style="font-size:11px;color:#B45309">(최대 20만원 적용)</span>' : ''}</div>` : ''}
       <div style="border-top:1.5px dashed #6EE7B7;margin-top:8px;padding-top:8px">
         <div style="font-size:12px">최종 견적 ${fmt(c.discounted)}원 − 페이백 ${fmt(c.payback)}원</div>
         <div class="big" style="font-size:19px">💰 실질 부담 금액: ${both(c.real)}</div>
