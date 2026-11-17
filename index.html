@@ -532,6 +532,9 @@
     <button id="addItemBtn" onclick="addItem()" class="primary-btn flex-1" style="background:var(--accent);padding:14px">
       + 시공 항목 추가
     </button>
+    <button id="addDoorSetBtn" onclick="addDoorSet()" class="primary-btn" style="background:#2563EB;padding:14px;white-space:nowrap">
+      🚪+문틀 세트
+    </button>
   </div>
 
   <!-- Total Summary -->
@@ -964,6 +967,43 @@ function addItem() {
   }, 50);
 }
 
+// 문짝 + 문틀 세트: 두 항목을 한 번에 만들고 pairId로 연결.
+// 수량·난이도·위치는 한쪽을 바꾸면 짝 항목에도 자동 동기화됨 (견적서에는 문짝/문틀이 각각 한 줄씩 표시)
+function addDoorSet() {
+  const pairId = 'set_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const doorId = nextId++;
+  const frameId = nextId++;
+  items.push({ id: doorId, categoryKey: 'doors', itemKey: 'door', quantity: 1, difficulty: 1, locations: [], pairId });
+  items.push({ id: frameId, categoryKey: 'doors', itemKey: 'door_frame', quantity: 1, difficulty: 1, locations: [], pairId });
+  renderItems();
+  updateTotal();
+  setTimeout(() => {
+    const el = document.getElementById(`item-card-${doorId}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 50);
+}
+
+// 세트로 연결된 짝 항목에 수량/난이도/위치를 복사
+function syncPair(item) {
+  if (!item || !item.pairId) return;
+  items.forEach(o => {
+    if (o !== item && o.pairId === item.pairId) {
+      o.quantity = item.quantity;
+      o.difficulty = item.difficulty;
+      o.locations = [...(item.locations || [])];
+    }
+  });
+}
+
+function unlinkPair(id) {
+  const item = items.find(it => it.id === id);
+  if (!item || !item.pairId) return;
+  const pid = item.pairId;
+  items.forEach(o => { if (o.pairId === pid) delete o.pairId; });
+  renderItems();
+  updateTotal();
+}
+
 function removeItem(id) {
   items = items.filter(it => it.id !== id);
   renderItems();
@@ -1003,6 +1043,7 @@ function renderItemCard(item, idx) {
         <span class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:var(--brand)">${_outNo[item.id] || '·'}</span>
         <span class="font-semibold text-sm">${catInfo ? catInfo.pictogram + ' ' + catInfo.name : '항목 선택 필요'}</span>
         ${itemInfo ? `<span class="badge">${itemInfo.name}</span>` : ''}
+        ${item.pairId ? `<span class="badge" style="background:#DBEAFE;color:#1D4ED8" title="문짝+문틀 세트: 수량·난이도·위치가 함께 변경됩니다">🔗 세트</span><button onclick="unlinkPair(${item.id})" style="background:none;border:none;color:#94A3B8;font-size:11px;text-decoration:underline;cursor:pointer">연결 해제</button>` : ''}
       </div>
       <div class="flex items-center gap-2">
         ${subtotal > 0 ? `<span class="subtotal-pill">${subtotal.toLocaleString('ko-KR')} 원</span>` : ''}
@@ -1105,6 +1146,7 @@ function adjustQty(id, delta) {
   const item = items.find(it => it.id === id);
   if (!item) return;
   item.quantity = Math.max(1, item.quantity + delta);
+  syncPair(item);
   renderItems();
   updateTotal();
 }
@@ -1114,6 +1156,7 @@ function setQty(id, val) {
   if (!item) return;
   const n = parseInt(val);
   item.quantity = isNaN(n) || n < 1 ? 1 : n;
+  if (item.pairId) { syncPair(item); renderItems(); }
   updateTotal();
 }
 
@@ -1121,6 +1164,7 @@ function setDifficulty(id, lvl) {
   const item = items.find(it => it.id === id);
   if (!item) return;
   item.difficulty = lvl;
+  syncPair(item);
   renderItems();
   updateTotal();
 }
@@ -1135,6 +1179,7 @@ function toggleLocation(id, loc) {
   } else {
     item.locations.push(loc);
   }
+  syncPair(item);
   renderItems();
   updateTotal();
 }
@@ -1901,6 +1946,14 @@ function applyPreset(i, mode) {
   const fresh = (p.items || [])
     .filter(it => categories[it.categoryKey] && categories[it.categoryKey].items[it.itemKey])
     .map(it => ({ ...JSON.parse(JSON.stringify(it)), id: nextId++ }));
+  // 세트(pairId)는 불러올 때마다 새 값으로 바꿔서 이미 있는 세트와 섞이지 않게 함
+  const pairMap = {};
+  fresh.forEach(it => {
+    if (it.pairId) {
+      if (!pairMap[it.pairId]) pairMap[it.pairId] = 'set_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      it.pairId = pairMap[it.pairId];
+    }
+  });
   if (mode === 'replace') items = fresh; else items = items.concat(fresh);
   renderItems();
   calculateTotal();
