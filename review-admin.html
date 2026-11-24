@@ -87,8 +87,36 @@
   .photos{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
   .photos img{
     width:74px;height:74px;object-fit:cover;border-radius:8px;cursor:pointer;
-    border:1px solid var(--line);
+    border:1px solid var(--line);display:block;
   }
+  /* 관리자 사진 편집 */
+  .ph{position:relative;width:74px;height:74px;}
+  .ph .ph-del, .ph .ph-main{
+    position:absolute;border:none;cursor:pointer;font-family:inherit;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .ph .ph-del{
+    top:3px;right:3px;width:20px;height:20px;border-radius:50%;
+    background:rgba(26,34,51,.72);color:#fff;font-size:11px;
+  }
+  .ph .ph-main{
+    left:3px;bottom:3px;padding:2px 6px;border-radius:5px;
+    background:rgba(26,34,51,.72);color:#fff;font-size:10px;font-weight:700;
+  }
+  .ph .ph-badge{
+    position:absolute;left:3px;bottom:3px;padding:2px 6px;border-radius:5px;
+    background:var(--gold);color:#fff;font-size:10px;font-weight:700;pointer-events:none;
+  }
+  .ph-add{
+    width:74px;height:74px;border-radius:8px;border:1.5px dashed #C5CCDA;background:var(--paper);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    color:var(--navy);font-size:11px;font-weight:700;cursor:pointer;
+  }
+  .ph-add .plus{font-size:22px;line-height:1;}
+  .ph-add.disabled{opacity:.45;cursor:not-allowed;}
+  .ph-status{font-size:12px;font-weight:700;color:var(--navy);margin:-4px 0 12px;}
+  .ph-status.err{color:var(--danger);}
+  input.ph-file{display:none;}
   .actions{display:flex;gap:8px;}
   .actions button{
     flex:1;padding:10px;border:none;border-radius:8px;font-size:13px;font-weight:700;
@@ -255,7 +283,7 @@
           <div class="stars-static">${'★'.repeat(r.rating||0)}${'☆'.repeat(5-(r.rating||0))}</div>
         </div>
         <div class="content">${escapeHtml(r.content || '')}</div>
-        ${r.photos && r.photos.length ? `<div class="photos">${r.photos.map(u => `<img src="${u}" data-full="${u}" />`).join('')}</div>` : ''}
+        ${renderPhotos(r)}
         <div class="actions">
           ${currentTab !== 'approved' ? `<button class="btn-approve" data-action="approve">게시 승인</button>` : ''}
           ${currentTab !== 'rejected' ? `<button class="btn-reject" data-action="reject">거절</button>` : ''}
@@ -264,6 +292,191 @@
         </div>
       </div>
     `).join('');
+  }
+
+  // ===== 관리자 사진 편집 =====
+  const MAX_PHOTOS = 10;
+  const MAX_BYTES = 4.5 * 1024 * 1024; // Storage 규칙 5MB보다 여유 있게
+  const photoStatus = {}; // 후기 id -> { text, err } (실시간 갱신으로 목록이 다시 그려져도 상태 유지)
+
+  function renderPhotos(r) {
+    const photos = r.photos || [];
+    const st = photoStatus[r.id];
+    const busy = st && !st.err;
+    const full = photos.length >= MAX_PHOTOS;
+    return `
+      <div class="photos">
+        ${photos.map((u, i) => `
+          <div class="ph">
+            <img src="${escapeHtml(u)}" data-full="${escapeHtml(u)}" />
+            <button type="button" class="ph-del" data-action="photo-del" data-idx="${i}" title="사진 삭제">✕</button>
+            ${i === 0
+              ? `<span class="ph-badge">대표</span>`
+              : `<button type="button" class="ph-main" data-action="photo-main" data-idx="${i}" title="대표 사진으로">대표로</button>`}
+          </div>`).join('')}
+        <label class="ph-add${busy || full ? ' disabled' : ''}" title="${full ? `최대 ${MAX_PHOTOS}장` : '사진 추가'}">
+          <span class="plus">＋</span><span>${full ? '최대' : '사진 추가'}</span>
+          <input type="file" class="ph-file" accept="image/*,.heic,.heif" multiple ${busy || full ? 'disabled' : ''} />
+        </label>
+      </div>
+      ${st ? `<div class="ph-status${st.err ? ' err' : ''}">${escapeHtml(st.text)}</div>` : ''}`;
+  }
+
+  function setPhotoStatus(id, text, err = false, clearAfter = 0) {
+    if (text) photoStatus[id] = { text, err }; else delete photoStatus[id];
+    renderList();
+    if (clearAfter) setTimeout(() => {
+      if (photoStatus[id] && photoStatus[id].text === text) { delete photoStatus[id]; renderList(); }
+    }, clearAfter);
+  }
+
+  // ---- 이미지 불러오기 / HEIC 변환 / 리사이즈 (고객 작성 페이지와 같은 방식) ----
+  function loadImage(file) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => resolve({ img, url });
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  const HEIC2ANY_URL = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js';
+  let heicLibPromise = null;
+  function loadHeicLib() {
+    if (window.heic2any) return Promise.resolve(window.heic2any);
+    if (!heicLibPromise) {
+      heicLibPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = HEIC2ANY_URL;
+        s.onload = () => window.heic2any ? resolve(window.heic2any) : reject(new Error('heic2any missing'));
+        s.onerror = () => { heicLibPromise = null; reject(new Error('heic2any load failed')); };
+        document.head.appendChild(s);
+      });
+    }
+    return heicLibPromise;
+  }
+  function isHeic(file) {
+    const t = (file.type || '').toLowerCase();
+    return t.includes('heic') || t.includes('heif') || /\.(heic|heif)$/i.test(file.name || '');
+  }
+  async function heicToJpeg(file) {
+    try {
+      const heic2any = await loadHeicLib();
+      const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+      return Array.isArray(out) ? out[0] : out;
+    } catch (err) {
+      console.error('HEIC 변환 실패', err);
+      return null;
+    }
+  }
+
+  function canvasToBlob(canvas, quality) {
+    return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', quality));
+  }
+
+  async function resizeImage(file, maxDim = 1600) {
+    let loaded = await loadImage(file);
+    if (!loaded && isHeic(file)) {
+      const jpeg = await heicToJpeg(file);
+      if (jpeg) loaded = await loadImage(jpeg);
+    }
+    if (!loaded) return null;
+    const { img, url } = loaded;
+    try {
+      const steps = [[maxDim, 0.82], [maxDim, 0.7], [1280, 0.7], [1024, 0.65]];
+      for (const [dim, quality] of steps) {
+        let w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) return null;
+        const scale = Math.min(1, dim / Math.max(w, h));
+        w = Math.round(w * scale); h = Math.round(h * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        const blob = await canvasToBlob(canvas, quality);
+        if (blob && blob.size <= MAX_BYTES) return blob;
+      }
+      return null;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // ---- 사진 추가 ----
+  document.getElementById('list').addEventListener('change', async (e) => {
+    const input = e.target.closest('input.ph-file');
+    if (!input) return;
+    const card = input.closest('.card');
+    const id = card.dataset.id;
+    const rev = allReviews.find(r => r.id === id);
+    const room = MAX_PHOTOS - ((rev && rev.photos) ? rev.photos.length : 0);
+    const files = [...input.files];
+    input.value = '';
+    if (!files.length || room <= 0) return;
+    const picked = files.slice(0, room);
+    const skipped = files.length - picked.length;
+
+    const newUrls = [];
+    let failed = 0;
+    try {
+      for (let i = 0; i < picked.length; i++) {
+        setPhotoStatus(id, `사진 처리 중... (${i + 1}/${picked.length})`);
+        const blob = await resizeImage(picked[i]);
+        if (!blob) { failed++; continue; }
+        const ref = storage.ref(`reviews/${id}/admin_${Date.now()}_${i}.jpg`);
+        await ref.put(blob, { contentType: 'image/jpeg' });
+        newUrls.push(await ref.getDownloadURL());
+      }
+      if (newUrls.length) {
+        await db.collection('reviews').doc(id).update({
+          photos: firebase.firestore.FieldValue.arrayUnion(...newUrls)
+        });
+      }
+      const notes = [];
+      if (newUrls.length) notes.push(`${newUrls.length}장 추가됨`);
+      if (failed) notes.push(`${failed}장은 불러오지 못함`);
+      if (skipped) notes.push(`${skipped}장은 최대 ${MAX_PHOTOS}장 초과로 제외`);
+      setPhotoStatus(id, notes.join(' · ') || '추가된 사진이 없습니다', !newUrls.length, 3000);
+    } catch (err) {
+      console.error(err);
+      // 업로드는 됐는데 문서 저장이 실패한 경우, 고아 파일 정리
+      for (const u of newUrls) { try { await storage.refFromURL(u).delete(); } catch (_) {} }
+      setPhotoStatus(id, '사진 추가 중 오류가 발생했습니다: ' + (err.code || err.message), true, 6000);
+    }
+  });
+
+  async function deletePhoto(id, idx) {
+    const rev = allReviews.find(r => r.id === id);
+    if (!rev || !rev.photos || !rev.photos[idx]) return;
+    if (!confirm('이 사진을 삭제할까요? 되돌릴 수 없습니다.')) return;
+    const url = rev.photos[idx];
+    try {
+      await db.collection('reviews').doc(id).update({
+        photos: firebase.firestore.FieldValue.arrayRemove(url)
+      });
+      try { await storage.refFromURL(url).delete(); } catch (_) {}
+      setPhotoStatus(id, '사진 삭제됨', false, 2000);
+    } catch (err) {
+      console.error(err);
+      setPhotoStatus(id, '사진 삭제 중 오류: ' + (err.code || err.message), true, 6000);
+    }
+  }
+
+  async function makeMainPhoto(id, idx) {
+    const rev = allReviews.find(r => r.id === id);
+    if (!rev || !rev.photos || !rev.photos[idx]) return;
+    const photos = [...rev.photos];
+    const [picked] = photos.splice(idx, 1);
+    photos.unshift(picked);
+    try {
+      await db.collection('reviews').doc(id).update({ photos });
+    } catch (err) {
+      console.error(err);
+      setPhotoStatus(id, '대표 사진 변경 중 오류: ' + (err.code || err.message), true, 6000);
+    }
   }
 
   function escapeHtml(str) {
@@ -284,6 +497,9 @@
     const card = btn.closest('.card');
     const id = card.dataset.id;
     const action = btn.dataset.action;
+
+    if (action === 'photo-del') { await deletePhoto(id, parseInt(btn.dataset.idx, 10)); return; }
+    if (action === 'photo-main') { await makeMainPhoto(id, parseInt(btn.dataset.idx, 10)); return; }
 
     if (action === 'save-date') {
       const input = card.querySelector('[data-date-input]');
