@@ -117,6 +117,28 @@
   .ph-status{font-size:12px;font-weight:700;color:var(--navy);margin:-4px 0 12px;}
   .ph-status.err{color:var(--danger);}
   input.ph-file{display:none;}
+
+  /* 후기 내용 수정 */
+  .btn-edit{background:#EEF2F8;color:var(--navy-dark);}
+  .card.editing{border-color:var(--navy);box-shadow:0 0 0 3px rgba(43,108,176,.12);}
+  .edit-form{display:flex;flex-direction:column;gap:12px;margin-bottom:14px;}
+  .edit-row{display:flex;gap:10px;flex-wrap:wrap;}
+  .edit-row > .ef{flex:1;min-width:160px;}
+  .ef label{display:block;font-size:12px;font-weight:700;color:#7A8299;margin-bottom:5px;}
+  .ef input, .ef select, .ef textarea{
+    width:100%;border:1.5px solid var(--line);border-radius:8px;padding:9px 11px;
+    font-size:13.5px;font-family:inherit;color:var(--ink);background:var(--paper);
+  }
+  .ef input:focus, .ef select:focus, .ef textarea:focus{outline:none;border-color:var(--navy);background:#fff;}
+  .ef textarea{min-height:140px;resize:vertical;line-height:1.6;}
+  .ef .counter{font-size:11px;color:#9AA2B6;text-align:right;margin-top:3px;}
+  .edit-stars{display:flex;gap:4px;}
+  .edit-stars span{font-size:24px;line-height:1;cursor:pointer;color:#D8DCE3;user-select:none;}
+  .edit-stars span.on{color:var(--gold);}
+  .edit-err{color:var(--danger);font-size:12.5px;font-weight:700;}
+  .btn-save{background:var(--navy);color:#fff;}
+  .btn-cancel{background:#F1F2F5;color:#7A8299;}
+  .edit-saved{font-size:12px;font-weight:700;color:var(--ok);margin:-4px 0 10px;}
   .actions{display:flex;gap:8px;}
   .actions button{
     flex:1;padding:10px;border:none;border-radius:8px;font-size:13px;font-weight:700;
@@ -268,8 +290,9 @@
       list.innerHTML = `<div class="empty">해당하는 후기가 없습니다.</div>`;
       return;
     }
-    list.innerHTML = items.map(r => `
+    list.innerHTML = items.map(r => editDrafts[r.id] ? renderEditCard(r) : `
       <div class="card" data-id="${r.id}">
+        ${editSaved[r.id] ? `<div class="edit-saved">✓ 수정 내용이 저장되었습니다</div>` : ''}
         <div class="card-top">
           <div class="who-block">
             <div class="name">${escapeHtml(r.name || '익명')} <span class="tag">${escapeHtml(r.location || '')}</span></div>
@@ -285,6 +308,7 @@
         <div class="content">${escapeHtml(r.content || '')}</div>
         ${renderPhotos(r)}
         <div class="actions">
+          <button class="btn-edit" data-action="edit">수정</button>
           ${currentTab !== 'approved' ? `<button class="btn-approve" data-action="approve">게시 승인</button>` : ''}
           ${currentTab !== 'rejected' ? `<button class="btn-reject" data-action="reject">거절</button>` : ''}
           ${currentTab !== 'pending' ? `<button class="btn-reject" data-action="pending">대기로</button>` : ''}
@@ -293,6 +317,124 @@
       </div>
     `).join('');
   }
+
+  // ===== 후기 내용 수정 =====
+  // 실시간 갱신으로 목록이 다시 그려져도 입력 중인 내용이 사라지지 않도록 초안을 따로 보관
+  const editDrafts = {};   // 후기 id -> { name, location, category, rating, content, err, saving }
+  const editSaved = {};    // 후기 id -> true (저장 직후 잠깐 표시)
+  const CATEGORIES = ['전체 시공', '부분 가구 시공', '거주중 시공', '보수작업', '주방가구리폼'];
+  const CONTENT_MAX = 800;
+
+  function renderEditCard(r) {
+    const d = editDrafts[r.id];
+    const cats = CATEGORIES.includes(d.category) || !d.category ? CATEGORIES : [d.category, ...CATEGORIES];
+    return `
+      <div class="card editing" data-id="${r.id}">
+        <div class="edit-form">
+          <div class="edit-row">
+            <div class="ef">
+              <label>성함 (또는 닉네임)</label>
+              <input type="text" data-ef="name" maxlength="30" value="${escapeHtml(d.name)}" />
+            </div>
+            <div class="ef">
+              <label>시공 지역 / 아파트명</label>
+              <input type="text" data-ef="location" maxlength="40" value="${escapeHtml(d.location)}" />
+            </div>
+          </div>
+          <div class="edit-row">
+            <div class="ef">
+              <label>시공 종류</label>
+              <select data-ef="category">
+                <option value="">선택 안 함</option>
+                ${cats.map(c => `<option value="${escapeHtml(c)}" ${c === d.category ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="ef">
+              <label>만족도</label>
+              <div class="edit-stars">
+                ${[1,2,3,4,5].map(v => `<span data-star="${v}" class="${v <= d.rating ? 'on' : ''}">★</span>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="ef">
+            <label>후기 내용</label>
+            <textarea data-ef="content" maxlength="${CONTENT_MAX}">${escapeHtml(d.content)}</textarea>
+            <div class="counter" data-counter>${d.content.length} / ${CONTENT_MAX}</div>
+          </div>
+          ${d.err ? `<div class="edit-err">${escapeHtml(d.err)}</div>` : ''}
+        </div>
+        ${renderPhotos(r)}
+        <div class="actions">
+          <button class="btn-save" data-action="edit-save" ${d.saving ? 'disabled' : ''}>${d.saving ? '저장 중...' : '저장'}</button>
+          <button class="btn-cancel" data-action="edit-cancel" ${d.saving ? 'disabled' : ''}>취소</button>
+        </div>
+      </div>`;
+  }
+
+  function startEdit(id) {
+    const r = allReviews.find(x => x.id === id);
+    if (!r) return;
+    editDrafts[id] = {
+      name: r.name || '', location: r.location || '', category: r.category || '',
+      rating: r.rating || 0, content: r.content || '', err: '', saving: false
+    };
+    delete editSaved[id];
+    renderList();
+    const ta = document.querySelector(`.card[data-id="${id}"] [data-ef="name"]`);
+    if (ta) ta.focus();
+  }
+
+  function cancelEdit(id) {
+    const d = editDrafts[id];
+    const r = allReviews.find(x => x.id === id);
+    const changed = d && r && (d.name !== (r.name || '') || d.location !== (r.location || '') ||
+      d.category !== (r.category || '') || d.rating !== (r.rating || 0) || d.content !== (r.content || ''));
+    if (changed && !confirm('수정한 내용을 저장하지 않고 닫을까요?')) return;
+    delete editDrafts[id];
+    renderList();
+  }
+
+  async function saveEdit(id) {
+    const d = editDrafts[id];
+    if (!d || d.saving) return;
+    const name = d.name.trim(), location = d.location.trim(), content = d.content.trim();
+    if (!name || !location || !content || !d.rating) {
+      d.err = '성함, 시공 지역, 만족도, 후기 내용은 비워둘 수 없습니다.';
+      renderList();
+      return;
+    }
+    d.err = ''; d.saving = true;
+    renderList();
+    try {
+      await db.collection('reviews').doc(id).update({
+        name, location, category: d.category, rating: d.rating, content,
+        editedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      delete editDrafts[id];
+      editSaved[id] = true;
+      renderList();
+      setTimeout(() => { delete editSaved[id]; renderList(); }, 2000);
+    } catch (err) {
+      console.error(err);
+      d.saving = false;
+      d.err = '저장 중 오류가 발생했습니다: ' + (err.code || err.message);
+      renderList();
+    }
+  }
+
+  // 입력할 때마다 초안 갱신 (목록을 다시 그리지 않아 커서가 튀지 않음)
+  document.getElementById('list').addEventListener('input', (e) => {
+    const el = e.target.closest('[data-ef]');
+    if (!el) return;
+    const id = el.closest('.card').dataset.id;
+    const d = editDrafts[id];
+    if (!d) return;
+    d[el.dataset.ef] = el.value;
+    if (el.dataset.ef === 'content') {
+      const c = el.closest('.card').querySelector('[data-counter]');
+      if (c) c.textContent = `${el.value.length} / ${CONTENT_MAX}`;
+    }
+  });
 
   // ===== 관리자 사진 편집 =====
   const MAX_PHOTOS = 10;
@@ -492,12 +634,25 @@
       document.getElementById('lightbox').style.display = 'flex';
       return;
     }
+    const star = e.target.closest('.edit-stars [data-star]');
+    if (star) {
+      const sid = star.closest('.card').dataset.id;
+      if (editDrafts[sid]) {
+        editDrafts[sid].rating = parseInt(star.dataset.star, 10);
+        star.parentElement.querySelectorAll('[data-star]').forEach(s =>
+          s.classList.toggle('on', parseInt(s.dataset.star, 10) <= editDrafts[sid].rating));
+      }
+      return;
+    }
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const card = btn.closest('.card');
     const id = card.dataset.id;
     const action = btn.dataset.action;
 
+    if (action === 'edit') { startEdit(id); return; }
+    if (action === 'edit-cancel') { cancelEdit(id); return; }
+    if (action === 'edit-save') { await saveEdit(id); return; }
     if (action === 'photo-del') { await deletePhoto(id, parseInt(btn.dataset.idx, 10)); return; }
     if (action === 'photo-main') { await makeMainPhoto(id, parseInt(btn.dataset.idx, 10)); return; }
 
