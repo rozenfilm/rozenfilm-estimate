@@ -484,6 +484,17 @@
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700">부대비용</label>
+            <div class="mt-1 mb-3 p-3 rounded-lg border border-amber-300 bg-amber-50">
+              <p class="text-sm font-semibold text-amber-800 mb-2">🍚 식대 자동 계산 <span class="font-normal text-xs text-amber-700">(투입 인원 × 인당 식비)</span></p>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-sm text-gray-700">인당</span>
+                <button type="button" onclick="s_adjustMealPrice(-1000)" class="w-8 h-8 rounded-full bg-white border border-amber-400 text-amber-800 font-bold hover:bg-amber-100">−</button>
+                <span id="s_mealPriceLabel" class="font-bold text-base w-24 text-center">10,000원</span>
+                <button type="button" onclick="s_adjustMealPrice(1000)" class="w-8 h-8 rounded-full bg-white border border-amber-400 text-amber-800 font-bold hover:bg-amber-100">+</button>
+                <button type="button" onclick="s_applyMealCost()" class="ml-auto bg-amber-500 text-white py-1.5 px-3 rounded-md text-sm font-semibold hover:bg-amber-600">식대 자동 계산 적용</button>
+              </div>
+              <p id="s_mealPreview" class="text-xs text-amber-800 mt-2">인원을 배치하면 계산 결과가 표시됩니다.</p>
+            </div>
             <div id="s_additionalCostsContainer" class="space-y-4 mt-1"></div>
             <div class="mt-2"><span class="font-semibold">총 부대비용: </span><span id="s_additionalCostDisplay" class="font-bold">0 원</span></div>
           </div>
@@ -2783,7 +2794,36 @@ function s_calculateMaterialCost() {
 }
 function s_calculateAdditionalCost() { return s_selectedAdditionalCosts.reduce((t, e) => t + (e.amount||0), 0); }
 function s_updateMaterialCostDisplay() { document.getElementById('s_materialCostDisplay').textContent = s_calculateMaterialCost().toLocaleString() + ' 원'; }
-function s_updateLaborCostDisplay() { document.getElementById('s_totalLaborCost').textContent = s_calculateLaborCost().toLocaleString() + ' 원'; }
+function s_updateLaborCostDisplay() { document.getElementById('s_totalLaborCost').textContent = s_calculateLaborCost().toLocaleString() + ' 원'; s_updateMealPreview(); }
+
+// ── 식대 자동 계산: (날짜별 투입 인원 합계) × 인당 식비 → 부대비용의 '식대'에 반영 ──
+let s_mealPrice = 10000;
+try { const v = parseInt(localStorage.getItem('s_mealPrice')); if (v >= 0) s_mealPrice = v; } catch (e) {}
+function s_mealPersonDays() { return s_days.reduce((t, d) => t + d.selectedWorkers.size, 0); }
+function s_updateMealPreview() {
+  const label = document.getElementById('s_mealPriceLabel');
+  const prev = document.getElementById('s_mealPreview');
+  if (!label || !prev) return;
+  label.textContent = s_mealPrice.toLocaleString() + '원';
+  const n = s_mealPersonDays();
+  prev.textContent = n > 0
+    ? `투입 ${n}명(일 기준 합계) × ${s_mealPrice.toLocaleString()}원 = ${(n * s_mealPrice).toLocaleString()}원`
+    : '인원을 배치하면 계산 결과가 표시됩니다.';
+}
+function s_adjustMealPrice(delta) {
+  s_mealPrice = Math.max(0, s_mealPrice + delta);
+  try { localStorage.setItem('s_mealPrice', String(s_mealPrice)); } catch (e) {}
+  s_updateMealPreview();
+}
+function s_applyMealCost() {
+  const n = s_mealPersonDays();
+  if (n === 0) { alert('먼저 시공일별로 투입 인원을 선택해주세요.'); return; }
+  const entry = s_selectedAdditionalCosts.find(c => c.category === '식대');
+  if (!entry) return;
+  entry.amount = n * s_mealPrice;
+  s_populateAdditionalCosts();
+  s_updateAdditionalCostDisplay();
+}
 function s_updateAdditionalCostDisplay() { document.getElementById('s_additionalCostDisplay').textContent = s_calculateAdditionalCost().toLocaleString() + ' 원'; }
 function s_updateDeleteDayButton() {
   const btn = document.getElementById('s_deleteDay');
